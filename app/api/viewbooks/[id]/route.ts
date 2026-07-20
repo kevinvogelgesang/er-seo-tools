@@ -7,6 +7,9 @@ import { requireOperatorEmail } from '@/lib/viewbook/operator'
 import { parseId, requireJsonObject } from '@/lib/viewbook/route-utils'
 import { deleteViewbookAssets } from '@/lib/viewbook/assets'
 import { parsePresentationPatch } from '@/lib/viewbook/presentation-config'
+// Registers full-catalog font validation process-wide before any off-limits
+// service function parses or validates a stored theme.
+import '@/lib/viewbook/theme-server'
 import {
   deleteViewbook,
   getViewbookAdmin,

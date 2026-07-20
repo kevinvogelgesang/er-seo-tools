@@ -77,6 +77,22 @@ const THEME_KEYS = ['primary', 'secondary', 'tertiary', 'headingFont', 'bodyFont
 const HEX_RE = /^#[0-9a-fA-F]{6}$/
 const THEME_BYTE_CAP = 8192
 
+export type CatalogFontValidator = (key: unknown) => boolean
+let registeredCatalogFontValidator: CatalogFontValidator | null = null
+
+// Server-only callers install the full-catalog predicate once for the process.
+// The function lives here (without catalog imports) because service.ts is an
+// existing caller of this client-safe validator and is off-limits to this lane.
+export function registerCatalogFontValidator(validator: CatalogFontValidator): void {
+  if (registeredCatalogFontValidator === null) {
+    registeredCatalogFontValidator = validator
+    return
+  }
+  if (registeredCatalogFontValidator !== validator) {
+    throw new Error('catalog font validator already registered')
+  }
+}
+
 function isPlainObject(v: unknown): v is Record<string, unknown> {
   if (v === null || typeof v !== 'object' || Array.isArray(v)) return false
   const proto = Object.getPrototypeOf(v)
@@ -87,7 +103,10 @@ export function themeByteLength(theme: ViewbookTheme): number {
   return new TextEncoder().encode(JSON.stringify(theme)).length
 }
 
-export function validateViewbookTheme(raw: unknown): ViewbookTheme | null {
+export function validateViewbookTheme(
+  raw: unknown,
+  catalogFontValidator?: CatalogFontValidator,
+): ViewbookTheme | null {
   if (!isPlainObject(raw)) return null
   const keys = Object.keys(raw)
   if (keys.length !== THEME_KEYS.length) return null
@@ -97,7 +116,17 @@ export function validateViewbookTheme(raw: unknown): ViewbookTheme | null {
   for (const color of [primary, secondary, tertiary]) {
     if (typeof color !== 'string' || !HEX_RE.test(color)) return null
   }
-  if (!isAllowedFont(headingFont) || !isAllowedFont(bodyFont)) return null
+  const isValidFont = (key: unknown) => (
+    isAllowedFont(key) ||
+    catalogFontValidator?.(key) === true ||
+    registeredCatalogFontValidator?.(key) === true
+  )
+  if (
+    typeof headingFont !== 'string' ||
+    typeof bodyFont !== 'string' ||
+    !isValidFont(headingFont) ||
+    !isValidFont(bodyFont)
+  ) return null
   if (logo !== null && (typeof logo !== 'string' || !ASSET_FILENAME_RE.test(logo))) return null
   if (!isPlainObject(sectionHeroes)) return null
   const heroes: Partial<Record<SectionKey, string>> = {}
@@ -120,10 +149,10 @@ export function validateViewbookTheme(raw: unknown): ViewbookTheme | null {
   return theme
 }
 
-export function parseStoredTheme(json: string): ViewbookTheme {
+export function parseStoredTheme(json: string, catalogFontValidator?: CatalogFontValidator): ViewbookTheme {
   try {
     const parsed: unknown = JSON.parse(json)
-    return validateViewbookTheme(parsed) ?? DEFAULT_THEME
+    return validateViewbookTheme(parsed, catalogFontValidator) ?? DEFAULT_THEME
   } catch {
     return DEFAULT_THEME
   }

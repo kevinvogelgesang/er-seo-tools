@@ -25,6 +25,17 @@ afterAll(async () => {
 })
 
 describe('loadViewbookPublicData', () => {
+  it('preserves a catalog-only stored theme instead of falling back wholesale', async () => {
+    const client = await makeClient()
+    const { id, token } = await createViewbook(client.id, 'upgrade', 'kevin@er.com')
+    const theme = {
+      primary: '#123456', secondary: '#1D7F7F', tertiary: '#C99334',
+      headingFont: 'abril-fatface', bodyFont: 'inter', logo: null, sectionHeroes: {},
+    }
+    await prisma.viewbook.update({ where: { id }, data: { themeJson: JSON.stringify(theme) } })
+    expect((await loadViewbookPublicData(token))?.theme).toEqual(theme)
+  })
+
   it('returns null for unknown, revoked, and archived-client tokens', async () => {
     expect(await loadViewbookPublicData('nope')).toBeNull()
 

@@ -2,7 +2,10 @@
 
 // The admin frame is dark-mode aware; the nested client canvas is deliberately
 // light-only and uses the same public SectionShell + brand variables clients see.
+import { useEffect, useState } from 'react'
 import type { ViewbookTheme } from '@/lib/viewbook/theme'
+import { isAllowedFont } from '@/lib/viewbook/font-manifest'
+import type { ResolvedThemeFonts } from '@/lib/viewbook/resolved-theme-fonts'
 import type { PublicSection } from '@/lib/viewbook/public-types'
 import { PRESENTATION_DEFAULTS } from '@/lib/viewbook/presentation-config'
 import { SectionShell } from '@/components/viewbook/public/SectionShell'
@@ -31,27 +34,51 @@ export function ThemePreview({
   theme: ViewbookTheme
   clientName?: string
 }) {
+  const [resolvedFonts, setResolvedFonts] = useState<ResolvedThemeFonts | undefined>()
+
+  useEffect(() => {
+    if (isAllowedFont(theme.headingFont) && isAllowedFont(theme.bodyFont)) {
+      setResolvedFonts(undefined)
+      return
+    }
+    let current = true
+    void import('@/lib/viewbook/font-catalog').then(({ resolveCatalogFont }) => {
+      const fallback = resolveCatalogFont('inter')
+      const heading = resolveCatalogFont(theme.headingFont) ?? fallback
+      const body = resolveCatalogFont(theme.bodyFont) ?? fallback
+      if (!current || !heading || !body) return
+      const headingMeta = { key: resolveCatalogFont(theme.headingFont) ? theme.headingFont : 'inter', family: heading.family, gfQuery: heading.gfQuery }
+      const bodyMeta = { key: resolveCatalogFont(theme.bodyFont) ? theme.bodyFont : 'inter', family: body.family, gfQuery: body.gfQuery }
+      setResolvedFonts({
+        href: `https://fonts.googleapis.com/css2?${[...new Set([heading.gfQuery, body.gfQuery])].join('&')}&display=swap`,
+        heading: headingMeta,
+        body: bodyMeta,
+      })
+    })
+    return () => { current = false }
+  }, [theme.bodyFont, theme.headingFont])
+
   return (
-    <section data-testid="theme-preview-frame" className="overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm dark:border-navy-border dark:bg-navy-card">
+    <section data-testid="theme-preview-frame" className="min-w-0 max-w-full overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm dark:border-navy-border dark:bg-navy-card">
       <div className="flex flex-wrap items-start justify-between gap-3 border-b border-gray-200 px-4 py-3 dark:border-navy-border">
-        <div>
+        <div className="min-w-0">
           <h2 className="font-display text-base font-bold text-navy dark:text-white">Live client preview</h2>
           <p className="mt-1 text-xs text-gray-500 dark:text-white/55">The bounded canvas stays light, matching the public viewbook.</p>
         </div>
         <StatusPill label="Client view · light" tone="neutral" />
       </div>
-      <div className="bg-gray-100 p-3 dark:bg-navy-deep/55">
-        <div className="max-h-[620px] overflow-y-auto rounded-lg border border-gray-200 bg-white shadow-inner dark:border-navy-border">
+      <div className="min-w-0 max-w-full overflow-x-hidden bg-gray-100 p-3 dark:bg-navy-deep/55">
+        <div className="max-h-[680px] min-w-0 max-w-full overflow-x-hidden overflow-y-auto rounded-lg border border-gray-200 bg-white shadow-inner dark:border-navy-border">
           <div
             data-testid="theme-preview-canvas"
             // Morph CSS keys off an ancestor data-vb-morph (ViewbookShell's
             // theme root on the public page) — the preview canvas stamps the
             // default so the sample section still animates sanely here.
             data-vb-morph={PRESENTATION_DEFAULTS.collapseMorph}
-            className="isolate bg-[#fafafa] text-[#1a1a1a]"
-            style={{ ...themeCssVars(theme), colorScheme: 'light' }}
+            className="isolate min-w-0 max-w-full overflow-x-hidden bg-[#fafafa] text-[#1a1a1a]"
+            style={{ ...themeCssVars(theme, resolvedFonts), colorScheme: 'light' }}
           >
-            <ThemeStyle theme={theme} />
+            <ThemeStyle theme={theme} resolvedFonts={resolvedFonts} />
             <div
               className="px-4 py-2 text-sm font-bold"
               style={{

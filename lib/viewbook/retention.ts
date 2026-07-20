@@ -33,7 +33,8 @@ import path from 'path'
 import { prisma } from '@/lib/db'
 import { logError, logger } from '@/lib/log'
 import { deleteViewbookAssets, viewbookAssetsDir, DOC_FILENAME_RE } from './assets'
-import { ASSET_FILENAME_RE, parseStoredTheme } from './theme'
+import { ASSET_FILENAME_RE } from './theme'
+import { parseStoredThemeWide } from './theme-server'
 
 export const VIEWBOOK_ACTIVITY_RETENTION_MS = 180 * 24 * 60 * 60 * 1000
 
@@ -67,7 +68,7 @@ async function loadReferencedFilenames(viewbookId: number): Promise<Set<string>>
 
   const referenced = new Set<string>()
   if (viewbook) {
-    const theme = parseStoredTheme(viewbook.themeJson)
+    const theme = parseStoredThemeWide(viewbook.themeJson)
     if (theme.logo) referenced.add(theme.logo)
     for (const hero of Object.values(theme.sectionHeroes)) referenced.add(hero)
   }

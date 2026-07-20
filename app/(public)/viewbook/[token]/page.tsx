@@ -19,6 +19,7 @@ import { PcInviteSection } from '@/components/viewbook/public/PcInviteSection'
 import { PcThanksSection } from '@/components/viewbook/public/PcThanksSection'
 import { getOperatorEmailForPublicPage } from '@/lib/viewbook/public-session'
 import { loadOperatorViewbookData } from '@/lib/viewbook/operator-data'
+import { resolveThemeFonts } from '@/lib/viewbook/theme-server'
 import { OperatorViewbookLayer, OperatorSectionWrapper } from '@/components/viewbook/public/OperatorLayer'
 
 export const dynamic = 'force-dynamic'
@@ -38,6 +39,7 @@ export default async function ViewbookPage({ params }: { params: Promise<{ token
     getOperatorEmailForPublicPage(),
   ])
   if (!data) notFound()
+  const resolvedFonts = resolveThemeFonts(data.theme)
 
   const baseRenderSection = (section: PublicSection): ReactNode => {
     const props = { section, data, token, isOperator: operatorEmail != null }
@@ -49,7 +51,7 @@ export default async function ViewbookPage({ params }: { params: Promise<{ token
       case 'data-source':
         return <DataSourceSection {...props} />
       case 'brand':
-        return <BrandSection {...props} />
+        return <BrandSection {...props} resolvedFonts={resolvedFonts} />
       case 'assessment':
         return <AssessmentSection {...props} />
       case 'strategy':
@@ -84,6 +86,7 @@ export default async function ViewbookPage({ params }: { params: Promise<{ token
         primarySections={data.primarySections}
         carriedSections={data.carriedSections}
         renderSection={baseRenderSection}
+        resolvedFonts={resolvedFonts}
       />
     )
   }
@@ -125,6 +128,7 @@ export default async function ViewbookPage({ params }: { params: Promise<{ token
         primarySections={data.primarySections}
         carriedSections={data.carriedSections}
         renderSection={wrappedRenderSection}
+        resolvedFonts={resolvedFonts}
       />
     </OperatorViewbookLayer>
   )

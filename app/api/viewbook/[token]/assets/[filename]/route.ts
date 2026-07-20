@@ -14,7 +14,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { withRoute } from '@/lib/api/with-route'
 import { requireViewbookToken } from '@/lib/viewbook/route-auth'
 import { readViewbookAsset } from '@/lib/viewbook/assets'
-import { parseStoredTheme } from '@/lib/viewbook/theme'
+import { parseStoredThemeWide } from '@/lib/viewbook/theme-server'
 import { getGlobalContent } from '@/lib/viewbook/global-content'
 import { prisma } from '@/lib/db'
 
@@ -26,7 +26,7 @@ export const GET = withRoute(
     // Throws HttpError(404) on invalid/revoked/archived — withRoute maps it.
     const vb = await requireViewbookToken(token)
 
-    const theme = parseStoredTheme(vb.themeJson)
+    const theme = parseStoredThemeWide(vb.themeJson)
     const themeFiles = new Set(
       [theme.logo, ...Object.values(theme.sectionHeroes)].filter((f): f is string => f != null),
     )

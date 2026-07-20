@@ -2,6 +2,7 @@
 
 import { FormEvent, useEffect, useMemo, useState } from 'react'
 import { CATALOG_CATEGORIES } from '@/lib/viewbook/catalog'
+import { CATEGORY_LABELS } from '@/lib/viewbook/category-labels'
 import { useEditorActivity, useFocusWithin } from '@/components/viewbook/public/useViewbookSync'
 import {
   ViewbookEditorPanel,
@@ -106,7 +107,12 @@ export function DataSourceTab({
       rows.push(field)
       grouped.set(field.category, rows)
     }
-    return [...grouped.entries()]
+    const catalogOrder: readonly string[] = CATALOG_CATEGORIES
+    const categories = [
+      ...catalogOrder.filter((category) => grouped.has(category)),
+      ...[...grouped.keys()].filter((category) => !catalogOrder.includes(category)).sort(),
+    ]
+    return categories.map((category) => [category, grouped.get(category)!] as const)
   }, [activeFields])
   const amendmentCount = activeFields.reduce((total, field) => total + field.amendments.length, 0)
 
@@ -132,7 +138,7 @@ export function DataSourceTab({
   }
 
   return (
-    <div className="space-y-5 font-body text-sm">
+    <div className="min-w-0 max-w-full space-y-5 overflow-x-hidden font-body text-sm">
       {lockedAt ? (
         <div className="rounded-xl border border-teal-200 bg-teal-50 p-4 dark:border-teal-500/30 dark:bg-teal-500/10">
           <div className="flex items-start gap-3">
@@ -152,7 +158,7 @@ export function DataSourceTab({
       ) : (
         <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 dark:border-amber-500/30 dark:bg-amber-500/10">
           <div className="flex flex-wrap items-center justify-between gap-3">
-            <div className="flex items-start gap-3">
+            <div className="min-w-0 flex items-start gap-3">
               <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} className="mt-0.5 h-5 w-5 shrink-0 text-amber-700 dark:text-amber-300">
                 <path d="M12 9v4m0 4h.01M10.3 4.3 2.7 18a2 2 0 0 0 1.75 3h15.1a2 2 0 0 0 1.75-3L13.7 4.3a2 2 0 0 0-3.4 0Z" />
               </svg>
@@ -173,7 +179,7 @@ export function DataSourceTab({
 
       {error && <p role="alert" className="rounded-lg bg-red-50 p-3 text-red-700 dark:bg-red-500/10 dark:text-red-300">{error}</p>}
 
-      <dl className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+      <dl className="grid min-w-0 grid-cols-2 gap-2 sm:grid-cols-4">
         {[
           countLabel(activeFields.length, 'active field'),
           countLabel(groups.length, 'category'),
@@ -187,14 +193,18 @@ export function DataSourceTab({
         ))}
       </dl>
 
-      <div className="space-y-4">
-        {groups.map(([category, rows]) => (
-          <section key={category} className="rounded-xl border border-gray-200 bg-gray-50/60 p-3 dark:border-navy-border dark:bg-navy-deep/30">
-            <div className="mb-3 flex items-center justify-between gap-3 px-1">
-              <h3 className="font-display text-base font-bold text-navy dark:text-white">{readableCategory(category)}</h3>
-              <StatusPill label={countLabel(rows.length, 'field')} tone="neutral" />
-            </div>
-            <div className="space-y-3">
+      <div className="min-w-0 max-w-full space-y-4">
+        {groups.map(([category, rows]) => {
+          const answered = rows.filter((field) => field.value !== null && field.value !== '').length
+          return (
+          <ViewbookEditorPanel
+            key={category}
+            id={`data-source-category-${category}`}
+            title={CATEGORY_LABELS[category] ?? readableCategory(category)}
+            description={`${countLabel(rows.length, 'field')} · ${answered} answered`}
+            defaultOpen={false}
+          >
+            <div className="min-w-0 max-w-full space-y-3">
               {rows.map((field) => (
                 <AdminFieldCard
                   key={field.id}
@@ -208,8 +218,9 @@ export function DataSourceTab({
                 />
               ))}
             </div>
-          </section>
-        ))}
+          </ViewbookEditorPanel>
+          )
+        })}
         {activeFields.length === 0 && (
           <div className="rounded-xl border border-dashed border-gray-300 p-6 text-center text-gray-500 dark:border-navy-border dark:text-white/55">No active Data Source fields.</div>
         )}
@@ -283,19 +294,19 @@ function CustomFieldForm({
       onOpenChange={setOpen}
       status={<ViewbookEditorStatus state={error ? 'error' : busy ? 'saving' : label.trim() ? 'dirty' : 'idle'} message={error} />}
     >
-      <form onSubmit={submit} onFocus={onFocus} onBlur={onBlur} className="space-y-3">
-        <div className="grid gap-3 sm:grid-cols-3">
-          <label className={editorLabelClass}>
+      <form onSubmit={submit} onFocus={onFocus} onBlur={onBlur} className="min-w-0 max-w-full space-y-3">
+        <div className="grid min-w-0 gap-3 sm:grid-cols-3">
+          <label className={`min-w-0 ${editorLabelClass}`}>
             Label
             <input aria-label="Custom field label" required maxLength={200} value={label} onChange={(event) => setLabel(event.target.value)} placeholder="Question label" className={`mt-1 ${editorInputClass}`} />
           </label>
-          <label className={editorLabelClass}>
+          <label className={`min-w-0 ${editorLabelClass}`}>
             Field type
             <select aria-label="Custom field type" value={fieldType} onChange={(event) => setFieldType(event.target.value as typeof fieldType)} className={`mt-1 ${editorInputClass}`}>
               {FIELD_TYPES.map((type) => <option key={type}>{type}</option>)}
             </select>
           </label>
-          <label className={editorLabelClass}>
+          <label className={`min-w-0 ${editorLabelClass}`}>
             Category
             <select aria-label="Custom field category" value={category} onChange={(event) => setCategory(event.target.value as typeof category)} className={`mt-1 ${editorInputClass}`}>
               {CATALOG_CATEGORIES.map((item) => <option key={item}>{item}</option>)}
@@ -432,7 +443,7 @@ function AdminFieldCard({
   const editorStatus = conflict ? 'conflict' : busy ? 'saving' : message === 'Saved' || message === 'Label saved' || message === 'Amendment recorded' ? 'saved' : dirty ? 'dirty' : 'idle'
 
   return (
-    <article onFocus={onFocus} onBlur={onBlur} className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm dark:border-navy-border dark:bg-navy-card">
+    <article onFocus={onFocus} onBlur={onBlur} className="min-w-0 max-w-full overflow-hidden rounded-xl border border-gray-200 bg-white p-4 shadow-sm dark:border-navy-border dark:bg-navy-card">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0 flex-1">
           {field.defKey === null && !field.archivedAt ? (
@@ -443,14 +454,14 @@ function AdminFieldCard({
               </label>
               <button disabled={busy || !label.trim() || label === field.label} onClick={() => void saveLabel()} className={`self-end ${editorSecondaryBtnClass}`}>Save label</button>
             </div>
-          ) : <h4 className="font-display font-semibold text-navy dark:text-white">{field.label}</h4>}
+          ) : <h4 className="font-display font-semibold text-navy [overflow-wrap:anywhere] dark:text-white">{field.label}</h4>}
           <div className="mt-2 flex flex-wrap items-center gap-2">
             <StatusPill label={fieldState} tone={fieldTone} />
             <span className="text-xs text-gray-500 dark:text-white/50">{readableCategory(field.category)} · {field.fieldType} · version {field.version}</span>
             {field.archivedAt && <span className="text-xs text-gray-500 dark:text-white/50">Archived {formatDate(field.archivedAt)}</span>}
           </div>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex min-w-0 flex-wrap items-center gap-2">
           <ViewbookEditorStatus state={editorStatus} message={conflict ? 'Version conflict' : message && !['Saved', 'Label saved', 'Amendment recorded'].includes(message) ? message : undefined} />
           {!field.archivedAt && <button disabled={busy} onClick={() => void archive()} className={editorDestructiveBtnClass}>Archive</button>}
         </div>
@@ -487,7 +498,7 @@ function AdminFieldCard({
         <div className="mt-4 grid gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.25fr)]">
           <div className={editorWellClass}>
             <p className="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-white/50">Locked baseline value</p>
-            <p className="mt-2 whitespace-pre-wrap text-navy dark:text-white/90">{displayValue(field) || 'Not provided yet'}</p>
+            <p className="mt-2 whitespace-pre-wrap [overflow-wrap:anywhere] text-navy dark:text-white/90">{displayValue(field) || 'Not provided yet'}</p>
           </div>
           <form onSubmit={propose} className={editorWellClass}>
             <p className="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-white/50">Amendment draft</p>
@@ -507,7 +518,7 @@ function AdminFieldCard({
             {field.amendments.map((item) => (
               <li key={item.id} className="relative">
                 <span aria-hidden="true" className="absolute -left-[1.2rem] top-1 h-2 w-2 rounded-full bg-teal-500 ring-4 ring-white dark:ring-navy-card" />
-                <p className="whitespace-pre-wrap text-navy dark:text-white/90">{item.value}</p>
+                <p className="whitespace-pre-wrap [overflow-wrap:anywhere] text-navy dark:text-white/90">{item.value}</p>
                 <p className="mt-1 text-xs text-gray-500 dark:text-white/50">{formatDate(item.createdAt)} · {item.author}</p>
               </li>
             ))}

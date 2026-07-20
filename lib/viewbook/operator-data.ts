@@ -4,7 +4,8 @@ import { prisma } from '@/lib/db'
 import { canonicalMailbox } from './global-content-keys'
 import type { PublicDocRow } from './public-types'
 import type { SectionKey, ViewbookTheme } from './theme'
-import { parseStoredTheme } from './theme'
+import { parseStoredThemeWide, resolveThemeFonts } from './theme-server'
+import type { ResolvedThemeFonts } from './resolved-theme-fonts'
 import { readPresentationConfig, type CollapseAffordanceKind, type CollapseMorphKind } from './presentation-config'
 
 const iso = (value: Date | null): string | null => value?.toISOString() ?? null
@@ -59,6 +60,7 @@ export interface OperatorViewbookData {
   dataLockedAt: string | null
   dataLockedBy: string | null
   theme: ViewbookTheme
+  resolvedThemeFonts: ResolvedThemeFonts
   sections: OperatorSectionData[]
   fields: OperatorFieldData[]
   milestones: OperatorMilestoneData[]
@@ -143,11 +145,14 @@ export async function loadOperatorViewbookData(viewbookId: number): Promise<Oper
   ])
   if (!viewbook) return null
 
+  const theme = parseStoredThemeWide(viewbook.themeJson)
+
   return {
     welcomeNote: viewbook.welcomeNote,
     dataLockedAt: iso(viewbook.dataLockedAt),
     dataLockedBy: viewbook.dataLockedBy,
-    theme: parseStoredTheme(viewbook.themeJson),
+    theme,
+    resolvedThemeFonts: resolveThemeFonts(theme),
     sections: viewbook.sections.map((section) => ({
       sectionKey: section.sectionKey as SectionKey,
       state: section.state === 'hidden' || section.state === 'done' ? section.state : 'active',

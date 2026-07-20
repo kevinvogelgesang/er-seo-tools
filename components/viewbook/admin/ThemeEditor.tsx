@@ -1,7 +1,8 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useId, useMemo, useRef, useState } from 'react'
 import { FONT_MANIFEST } from '@/lib/viewbook/font-manifest'
+import type { CatalogFont, CatalogSearchResult } from '@/lib/viewbook/font-catalog'
 import { SECTION_KEYS, type ViewbookTheme } from '@/lib/viewbook/theme'
 import { jsonFetch } from './viewbook-admin-shared'
 import { ThemePreview } from './ThemePreview'
@@ -23,7 +24,25 @@ function themeEquals(a: ViewbookTheme, b: ViewbookTheme): boolean {
 }
 
 const COLOR_FIELDS = ['primary', 'secondary', 'tertiary'] as const
-const fileInputClass = 'block w-full text-xs text-gray-600 file:mr-3 file:rounded-md file:border-0 file:bg-gray-100 file:px-3 file:py-1.5 file:font-semibold file:text-navy hover:file:bg-gray-200 dark:text-white/60 dark:file:bg-white/10 dark:file:text-white dark:hover:file:bg-white/15'
+const fileInputClass = 'block w-full min-w-0 max-w-full text-xs text-gray-600 file:mr-3 file:max-w-full file:rounded-md file:border-0 file:bg-gray-100 file:px-3 file:py-1.5 file:font-semibold file:text-navy hover:file:bg-gray-200 dark:text-white/60 dark:file:bg-white/10 dark:file:text-white dark:hover:file:bg-white/15'
+
+type FontCatalogModule = typeof import('@/lib/viewbook/font-catalog')
+
+function readableFontKey(key: string): string {
+  return key.replaceAll('-', ' ').replace(/\b\w/g, (letter) => letter.toLocaleUpperCase())
+}
+
+function ensureAdminFontStylesheet(key: string, font: Pick<CatalogFont, 'gfQuery'>): void {
+  if (typeof document === 'undefined') return
+  const exists = [...document.head.querySelectorAll<HTMLLinkElement>('link[data-vb-admin-font-key]')]
+    .some((link) => link.dataset.vbAdminFontKey === key)
+  if (exists) return
+  const link = document.createElement('link')
+  link.rel = 'stylesheet'
+  link.href = `https://fonts.googleapis.com/css2?${font.gfQuery}&display=swap`
+  link.dataset.vbAdminFontKey = key
+  document.head.append(link)
+}
 
 function AdminFontPicker({
   kind,
@@ -35,40 +54,173 @@ function AdminFontPicker({
   onChange: (key: string) => void
 }) {
   const [search, setSearch] = useState('')
-  const query = search.trim().toLocaleLowerCase()
-  const options = Object.entries(FONT_MANIFEST).filter(([key, font]) => (
-    key === value || !query || `${font.family} ${key}`.toLocaleLowerCase().includes(query)
-  ))
+  const [open, setOpen] = useState(false)
+  const [loading, setLoading] = useState(false)
+  const [loadError, setLoadError] = useState(false)
+  const [catalog, setCatalog] = useState<FontCatalogModule | null>(null)
+  const [activeIndex, setActiveIndex] = useState(-1)
+  const containerRef = useRef<HTMLFieldSetElement>(null)
+  const generatedId = useId().replaceAll(':', '')
+  const listboxId = `admin-${kind.toLocaleLowerCase()}-font-list-${generatedId}`
+
+  async function loadCatalog() {
+    if (catalog || loading) return
+    setLoading(true)
+    setLoadError(false)
+    try {
+      // Bundle boundary: the 94 KiB snapshot belongs only to this lazy admin
+      // chunk. Public client modules never statically import this module.
+      setCatalog(await import('@/lib/viewbook/font-catalog'))
+    } catch {
+      setLoadError(true)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const recommended = useMemo<CatalogSearchResult[]>(() => Object.entries(FONT_MANIFEST).map(([key, font]) => ({
+    key,
+    family: font.family,
+    supportedWeights: font.supportedWeights,
+    gfQuery: font.gfQuery,
+  })), [])
+  const response = catalog && search.trim()
+    ? catalog.searchCatalogFonts(search, 50)
+    : { results: recommended, total: recommended.length }
+  const current = catalog?.resolveCatalogFont(value) ?? FONT_MANIFEST[value as keyof typeof FONT_MANIFEST] ?? null
+  const currentName = current?.family ?? readableFontKey(value)
+  const options = !search.trim() && current && !recommended.some((font) => font.key === value)
+    ? [{ key: value, ...current }, ...response.results]
+    : response.results
+
+  useEffect(() => {
+    setActiveIndex(-1)
+  }, [search, open])
+
+  useEffect(() => {
+    if (current) ensureAdminFontStylesheet(value, current)
+  }, [current, value])
+
+  function selectFont(font: CatalogSearchResult) {
+    ensureAdminFontStylesheet(font.key, font)
+    onChange(font.key)
+    setSearch('')
+    setOpen(false)
+    setActiveIndex(-1)
+  }
+
+  function onKeyDown(event: React.KeyboardEvent<HTMLInputElement>) {
+    if (event.key === 'Escape') {
+      event.preventDefault()
+      setOpen(false)
+      setActiveIndex(-1)
+      return
+    }
+    if (!open || options.length === 0) return
+    if (event.key === 'ArrowDown' || event.key === 'ArrowUp' || event.key === 'Home' || event.key === 'End') {
+      event.preventDefault()
+      setActiveIndex((index) => {
+        if (event.key === 'Home') return 0
+        if (event.key === 'End') return options.length - 1
+        if (event.key === 'ArrowDown') return index < options.length - 1 ? index + 1 : 0
+        return index > 0 ? index - 1 : options.length - 1
+      })
+      return
+    }
+    if (event.key === 'Enter' && activeIndex >= 0) {
+      event.preventDefault()
+      selectFont(options[activeIndex])
+    }
+  }
 
   return (
-    <fieldset aria-label={`${kind} typography`} className={editorWellClass}>
+    <fieldset
+      ref={containerRef}
+      aria-label={`${kind} typography`}
+      className={`${editorWellClass} min-w-0 max-w-full`}
+      onBlur={(event) => {
+        if (!containerRef.current?.contains(event.relatedTarget as Node | null)) setOpen(false)
+      }}
+    >
       <legend className="px-1 font-display text-sm font-semibold text-navy dark:text-white">{kind}</legend>
       <div className="mt-1 space-y-3">
         <label className={editorLabelClass}>
           Search fonts
           <input
+            role="combobox"
             aria-label={`Search ${kind.toLocaleLowerCase()} fonts`}
+            aria-autocomplete="list"
+            aria-controls={listboxId}
+            aria-expanded={open}
+            aria-activedescendant={activeIndex >= 0 ? `${listboxId}-option-${activeIndex}` : undefined}
             type="search"
             value={search}
-            onChange={(event) => setSearch(event.target.value)}
+            onFocus={() => {
+              setOpen(true)
+              void loadCatalog()
+            }}
+            onClick={() => {
+              setOpen(true)
+              void loadCatalog()
+            }}
+            onChange={(event) => {
+              setSearch(event.target.value)
+              setOpen(true)
+              void loadCatalog()
+            }}
+            onKeyDown={onKeyDown}
             placeholder={`Find a ${kind.toLocaleLowerCase()} font`}
             className={`mt-1 ${editorInputClass}`}
           />
         </label>
-        <label className={editorLabelClass}>
-          Selected font
-          <select
-            aria-label={`${kind} font`}
-            value={value}
-            onChange={(event) => onChange(event.target.value)}
-            className={`mt-1 ${editorInputClass}`}
-          >
-            {options.map(([key, font]) => <option key={key} value={key}>{font.family}</option>)}
-          </select>
-        </label>
+        {open && (
+          <div className="relative min-w-0">
+            <div
+              id={listboxId}
+              role="listbox"
+              aria-label={`${kind} font results`}
+              className="max-h-64 min-w-0 overflow-y-auto overflow-x-hidden rounded-lg border border-gray-200 bg-white p-1 shadow-lg dark:border-navy-border dark:bg-navy-light"
+            >
+              {!search.trim() && (
+                <p className="px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-gray-500 dark:text-white/50">Recommended</p>
+              )}
+              {options.map((font, index) => (
+                <button
+                  id={`${listboxId}-option-${index}`}
+                  key={font.key}
+                  type="button"
+                  role="option"
+                  aria-selected={font.key === value}
+                  onMouseDown={(event) => event.preventDefault()}
+                  onMouseEnter={() => ensureAdminFontStylesheet(font.key, font)}
+                  onClick={() => selectFont(font)}
+                  className={`block w-full min-w-0 rounded-md px-2 py-2 text-left text-sm break-words ${activeIndex === index ? 'bg-teal-50 text-teal-900 dark:bg-teal-500/15 dark:text-teal-100' : 'text-navy hover:bg-gray-50 dark:text-white dark:hover:bg-white/5'}`}
+                  style={{ fontFamily: `'${font.family}', sans-serif` }}
+                >
+                  {font.family}
+                </button>
+              ))}
+              {!loading && !loadError && options.length === 0 && (
+                <p className="px-2 py-3 text-sm text-gray-500 dark:text-white/55">No fonts found.</p>
+              )}
+            </div>
+            <p role="status" aria-live="polite" className="mt-1 text-xs text-gray-500 dark:text-white/55">
+              {loading
+                ? 'Loading font catalog…'
+                : loadError
+                  ? 'Font catalog could not be loaded.'
+                  : search.trim() && response.total > options.length
+                    ? `Showing ${options.length} of ${response.total} fonts`
+                    : search.trim()
+                      ? `${response.total} font${response.total === 1 ? '' : 's'} found`
+                      : `${recommended.length} recommended fonts`}
+            </p>
+          </div>
+        )}
+        <p className="text-xs font-semibold text-gray-600 break-words dark:text-white/60">Selected: {currentName}</p>
         <p
-          className="truncate text-base text-navy dark:text-white/85"
-          style={{ fontFamily: `'${FONT_MANIFEST[value as keyof typeof FONT_MANIFEST]?.family ?? 'Inter'}', sans-serif` }}
+          className="max-w-full break-words text-base text-navy dark:text-white/85"
+          style={{ fontFamily: `'${currentName}', sans-serif` }}
         >
           {kind === 'Heading' ? 'A confident viewbook heading' : 'Clear, readable client body copy'}
         </p>
@@ -137,9 +289,9 @@ export function ThemeEditor({
 
   const uploadedHeroCount = SECTION_KEYS.filter((key) => draft.sectionHeroes[key]).length
   return (
-    <div onFocus={onFocus} onBlur={onBlur} className="font-body">
-      <div data-testid="theme-editor-layout" className="grid items-start gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(360px,0.9fr)]">
-        <div className="min-w-0 space-y-4">
+    <div onFocus={onFocus} onBlur={onBlur} className="min-w-0 max-w-full font-body">
+      <div data-testid="theme-editor-layout" className="min-w-0 max-w-full space-y-5">
+        <div className="min-w-0 max-w-full space-y-4">
           <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-gray-200 bg-white p-4 shadow-sm dark:border-navy-border dark:bg-navy-card">
             <div>
               <div className="flex flex-wrap items-center gap-2">
@@ -243,9 +395,9 @@ export function ThemeEditor({
           </ViewbookEditorPanel>
         </div>
 
-        <aside data-testid="theme-editor-preview-column" className="min-w-0 self-start lg:sticky lg:top-6">
+        <div data-testid="theme-editor-preview-block" className="min-w-0 max-w-full">
           <ThemePreview theme={draft} />
-        </aside>
+        </div>
       </div>
     </div>
   )
