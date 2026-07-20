@@ -20,6 +20,10 @@
 - **`SiteAudit.status` terminal set = `complete | error | cancelled`** (there is NO `failed` status).
 - **`SWEEP_SCAN_PROFILE` = `{ wcagLevel:'wcag21aa', seoIntent:true, seoOnly:false }`** — the manual sweep uses this exactly (full ADA+SEO).
 - **UI:** client components need `dark:` variants + the mounted-guard hydration pattern; server-rendered sections need neither.
+- **[Codex] House gates only:** `npm run lint` (= `tsc --noEmit`), `npm test` (= `vitest run`), `npm run build` (= `NODE_OPTIONS='--max-old-space-size=3072' next build` — never bare `npx next build`, it drops the required build-heap cap).
+- **[Codex] `logError(context, err)` takes a RECORD, never a string:** `logError({ subsystem: 'sweep', scope: '<fn>' }, err)`. Import from `@/lib/log`.
+- **[Codex] Env ints via `parsePositiveInt(process.env.X, fallback)`** (`@/lib/jobs/config`) — never `Number(env) || fallback` (accepts negatives).
+- **[Codex] Test isolation vs the partial index:** EVERY DB suite that creates an unsnapshotted manual `WeeklySweep` MUST clear `weeklySweep` (and any `job` rows it made) in `beforeEach`/`afterEach` — the `weekly_sweep_one_inflight_manual` index makes a leftover in-flight manual row fail the next test's create. Add `beforeEach(async () => { await prisma.job.deleteMany({ where: { type: 'manual-sweep' } }); await prisma.weeklySweep.deleteMany({}) })` to Tasks 1, 3, 4, 5, 7, 9's new suites.
 - Migration timestamp must be **later than `20260720160000`** and later than any viewbook-lane migration merged before this ships — **re-check `ls prisma/migrations | tail` at build time.**
 
 ---
@@ -43,7 +47,7 @@
 | `lib/jobs/handlers/sweep-digest.ts` (modify) | Exact-slot lookup filtered `origin:'scheduled'` (E1). |
 | `lib/sweep/retention.ts` (modify) | Origin-partition `pruneWeeklySweeps` (R2). |
 | `lib/ada-audit/manual-sweep-retention.ts` (create) | `pruneManualSweepAudits(now)` (R1/R3) — keep-latest-2 per (client,domain), artifact cleanup, in-flight guard. |
-| `lib/jobs/handlers/cleanup.ts` (modify) | Wire `pruneManualSweepAudits` into `runCleanup`. |
+| `lib/cleanup.ts` (modify) | Wire `pruneManualSweepAudits` into `runCleanup`'s prune array. |
 | `lib/sweep/read.ts` (modify) | Surface `origin` + `snapshotAt` in `IssuesPayload.sweep`. |
 | `components/issues/IssuesView.tsx` + `chips.tsx` (modify) | Origin label; suppress streak label when `origin='manual'` (B2). |
 | `components/ada-audit/BulkQueueModal.tsx` + `ClientsAuditSummary.tsx` (modify) | Repurposed confirm copy + `started`/`409` handling. |
@@ -104,10 +108,14 @@ npx prisma generate
 
 ```ts
 // lib/sweep/origin-migration.test.ts
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, beforeEach } from 'vitest'
 import { prisma } from '@/lib/db'
 
 describe('WeeklySweep origin + in-flight index', () => {
+  // [Codex] the partial index makes a leftover in-flight manual row fail the
+  // next test's create — clear between every test.
+  beforeEach(async () => { await prisma.weeklySweep.deleteMany({}) })
+
   it('defaults existing/new rows to scheduled', async () => {
     const row = await prisma.weeklySweep.create({ data: { scheduledFor: new Date('2030-01-06T01:00:00Z') } })
     expect(row.origin).toBe('scheduled')
@@ -397,6 +405,8 @@ import { prisma } from '@/lib/db'
 import { runSweepFanout } from './fanout'
 
 describe('runSweepFanout', () => {
+  beforeEach(async () => { await prisma.weeklySweep.deleteMany({}); await prisma.client.deleteMany({}) })
+
   it('manual origin: queues SWEEP_SCAN_PROFILE audits, requestedBy=manual-sweep, scheduleId=null, stamps origin+fanoutCompletedAt', async () => {
     const client = await prisma.client.create({ data: { name: 'Acme', domains: JSON.stringify(['acme.edu']) } })
     const queue = vi.fn().mockResolvedValue({ kind: 'queued', id: 'sa1' })
@@ -440,7 +450,7 @@ git commit -m "refactor(sweep): extract runSweepFanout shared core (F1 origin gu
 
 **Files:**
 - Create: `lib/jobs/handlers/manual-sweep.ts`
-- Modify: wherever handlers register (search `registerClientSweepHandler` call site, e.g. `instrumentation.ts` or `lib/jobs/handlers/index.ts`) to also call `registerManualSweepHandler()`.
+- Modify: `lib/jobs/handlers/register.ts` (import + call `registerManualSweepHandler()` beside `registerClientSweepHandler()`) — **[Codex] must be in the commit or the job type is never registered.**
 - Test: `lib/jobs/handlers/manual-sweep.test.ts`
 
 **Interfaces:**
@@ -461,7 +471,6 @@ git commit -m "refactor(sweep): extract runSweepFanout shared core (F1 origin gu
 import { prisma } from '@/lib/db'
 import { registerJobHandler } from '../registry'
 import { runSweepFanout } from '@/lib/sweep/fanout'
-import { parseMembership } from '@/lib/sweep/types'
 import { logError } from '@/lib/log'
 
 export const MANUAL_SWEEP_JOB_TYPE = 'manual-sweep'
@@ -471,6 +480,25 @@ function slotFromPayload(payload: unknown): Date {
   const d = iso ? new Date(iso) : new Date(NaN)
   if (Number.isNaN(d.getTime())) throw new Error('[manual-sweep] payload missing valid scheduledFor')
   return d
+}
+
+/**
+ * [Codex] Exhaustion = ABANDON, not seal. onExhausted can fire after a TIMEOUT,
+ * where the timed-out handler may STILL be queuing members — sealing
+ * (stamping fanoutCompletedAt) would let the advancer publish a snapshot from a
+ * half-frozen membership. So we DELETE the unsnapshotted manual row outright
+ * (fenced), freeing the in-flight-manual slot. Any members that already enqueued
+ * simply run as ordinary audits (harmless); the operator can re-click, and a
+ * re-run reuses those in-flight audits via the duplicate/shared-domain path.
+ * Exported for direct unit testing (the tests call this, not the worker).
+ */
+export async function sealOrAbandonManualSweep(slot: Date): Promise<void> {
+  try {
+    // Fenced delete: only an unsnapshotted MANUAL row for this exact slot.
+    await prisma.weeklySweep.deleteMany({ where: { scheduledFor: slot, origin: 'manual', snapshotJson: null } })
+  } catch (err) {
+    logError({ subsystem: 'sweep', scope: 'manual-sweep.onExhausted' }, err)
+  }
 }
 
 export function registerManualSweepHandler(): void {
@@ -483,36 +511,19 @@ export function registerManualSweepHandler(): void {
       const slot = slotFromPayload(payload)
       await runSweepFanout({ slot, origin: 'manual', requestedBy: 'manual-sweep', scheduleId: null })
     },
+    // ctx is available (JobExhaustedContext) but unused — signature is (payload, ctx).
     onExhausted: async (payload) => {
-      // [Codex omission] Seal the row so the partial index doesn't block future
-      // manual sweeps for 14 days. If ANY member enqueued, stamp fanoutCompletedAt
-      // (advancer computes from what enqueued; failed members = failed coverage).
-      // If NOTHING enqueued (membership null or all pending/error), delete the row
-      // to free the in-flight slot.
       try {
-        const slot = slotFromPayload(payload)
-        const row = await prisma.weeklySweep.findUnique({ where: { scheduledFor: slot } })
-        if (!row || row.origin !== 'manual' || row.snapshotJson !== null) return
-        const membership = parseMembership(row.membershipJson)
-        const anyEnqueued = membership?.members.some(
-          (m) => m.siteAuditId !== null && (m.outcome === 'enqueued' || m.outcome === 'duplicate' || m.outcome === 'shared-domain'),
-        ) ?? false
-        if (anyEnqueued) {
-          await prisma.weeklySweep.updateMany({
-            where: { id: row.id, fanoutCompletedAt: null }, data: { fanoutCompletedAt: new Date() },
-          })
-        } else {
-          await prisma.weeklySweep.deleteMany({ where: { id: row.id, snapshotJson: null } })
-        }
+        await sealOrAbandonManualSweep(slotFromPayload(payload))
       } catch (err) {
-        logError('manual-sweep.onExhausted', err)
+        logError({ subsystem: 'sweep', scope: 'manual-sweep.onExhausted' }, err)
       }
     },
   })
 }
 ```
 
-> Note: confirm `registerJobHandler` supports an `onExhausted` hook (it does — used by `broken-link-verify`/`notify-email`). Match its exact signature when implementing (it may pass `(payload, ctx)` or a job row — check `lib/jobs/registry.ts` and mirror an existing `onExhausted`).
+> `registerJobHandler` supports `onExhausted?: (payload, ctx: JobExhaustedContext) => Promise<void>` (verified in `lib/jobs/registry.ts:63`, mirrors `broken-link-verify`).
 
 - [ ] **Step 2: Register the handler**
 
@@ -524,11 +535,17 @@ Run: `grep -rn "registerClientSweepHandler" --include=*.ts | grep -v test`
 
 ```ts
 // lib/jobs/handlers/manual-sweep.test.ts
-import { describe, it, expect, beforeEach, vi } from 'vitest'
+import { describe, it, expect, beforeEach } from 'vitest'
 import { prisma } from '@/lib/db'
+import { sealOrAbandonManualSweep } from './manual-sweep'
 
-describe('manual-sweep handler', () => {
-  it('onExhausted with some enqueued members seals the row (fanoutCompletedAt stamped)', async () => {
+describe('manual-sweep sealOrAbandonManualSweep (exhaustion = abandon)', () => {
+  beforeEach(async () => {
+    await prisma.job.deleteMany({ where: { type: 'manual-sweep' } })
+    await prisma.weeklySweep.deleteMany({})
+  })
+
+  it('deletes the unsnapshotted manual row (frees the in-flight slot) — even with enqueued members', async () => {
     const slot = new Date('2030-05-01T12:00:00Z')
     await prisma.weeklySweep.create({ data: {
       scheduledFor: slot, origin: 'manual',
@@ -536,25 +553,25 @@ describe('manual-sweep handler', () => {
         { clientId: 1, clientName: 'A', domain: 'a.edu', siteAuditId: 'sa1', outcome: 'enqueued' },
       ] }),
     } })
-    const { registerManualSweepHandler } = await import('./manual-sweep')
-    // invoke onExhausted directly via the registry, or export a testable fn — see impl note
-    // (mirror how client-sweep.test.ts / broken-link-verify tests drive onExhausted)
-    // ...assert:
-    const row = await prisma.weeklySweep.findUnique({ where: { scheduledFor: slot } })
-    expect(row?.fanoutCompletedAt).not.toBeNull()
+    await sealOrAbandonManualSweep(slot)
+    expect(await prisma.weeklySweep.findUnique({ where: { scheduledFor: slot } })).toBeNull()
   })
 
-  it('onExhausted with nothing enqueued deletes the row (frees the in-flight slot)', async () => {
+  it('does NOT delete a snapshotted manual row (fence)', async () => {
     const slot = new Date('2030-05-02T12:00:00Z')
-    await prisma.weeklySweep.create({ data: { scheduledFor: slot, origin: 'manual' } }) // membership null
-    // ...invoke onExhausted...
-    const row = await prisma.weeklySweep.findUnique({ where: { scheduledFor: slot } })
-    expect(row).toBeNull()
+    await prisma.weeklySweep.create({ data: { scheduledFor: slot, origin: 'manual', snapshotJson: '{"v":1}' } })
+    await sealOrAbandonManualSweep(slot)
+    expect(await prisma.weeklySweep.findUnique({ where: { scheduledFor: slot } })).not.toBeNull()
+  })
+
+  it('never touches a scheduled row at the same slot', async () => {
+    const slot = new Date('2030-05-03T01:00:00Z')
+    await prisma.weeklySweep.create({ data: { scheduledFor: slot, origin: 'scheduled' } })
+    await sealOrAbandonManualSweep(slot)
+    expect(await prisma.weeklySweep.findUnique({ where: { scheduledFor: slot } })).not.toBeNull()
   })
 })
 ```
-
-> Implementation note: to make `onExhausted` unit-testable without the worker, extract its body into an exported `sealOrAbandonManualSweep(slot: Date): Promise<void>` in `manual-sweep.ts` and call it from the hook. Write the tests against that function.
 
 - [ ] **Step 4: Run**
 
@@ -590,70 +607,85 @@ git commit -m "feat(sweep): manual-sweep fan-out job + onExhausted seal/abandon"
 // fan-out. Refreshes /issues silently on drain (no email). Domainless clients
 // are skipped by buildCohort (no hard 400 anymore).
 
-import { NextRequest, NextResponse } from 'next/server'
+import { NextResponse } from 'next/server'
 import { Prisma } from '@prisma/client'
 import { prisma } from '@/lib/db'
+import { withRoute } from '@/lib/api/with-route'          // [Codex] house route kit
+import { HttpError } from '@/lib/api/errors'
 import { enqueueJob } from '@/lib/jobs/queue'
 import { MANUAL_SWEEP_JOB_TYPE } from '@/lib/jobs/handlers/manual-sweep'
 
 export const dynamic = 'force-dynamic'
 
+function isP2002(err: unknown): err is Prisma.PrismaClientKnownRequestError {
+  return err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002'
+}
 async function inFlightManual() {
   return prisma.weeklySweep.findFirst({ where: { origin: 'manual', snapshotJson: null }, select: { id: true } })
 }
 
-export async function POST(_request: NextRequest) {
-  if (await inFlightManual()) {
-    return NextResponse.json({ error: 'manual_sweep_in_progress' }, { status: 409 })
-  }
+export const POST = withRoute(async () => {
+  if (await inFlightManual()) throw new HttpError(409, 'manual_sweep_in_progress')
 
-  // Create the manual slot row. Retry ONE ms-collision; map the partial-index
-  // violation to 409; propagate anything else. [Codex U2]
+  // Create the manual slot row. [Codex] Deterministic retry slots from ONE base
+  // (baseMs+attempt) — two immediate new Date() can repeat the same ms. On the
+  // partial-index P2002, 409 iff an in-flight manual row exists; on a bare
+  // scheduledFor ms-collision, retry; if both retries collide with NO in-flight
+  // manual row, RETHROW the last P2002 (never a false 409).
+  const baseMs = Date.now()
   let row: { id: number; scheduledFor: Date } | null = null
-  for (let attempt = 0; attempt < 2 && !row; attempt++) {
-    const slot = new Date()
+  let lastErr: unknown = null
+  for (let attempt = 0; attempt < 3 && !row; attempt++) {
+    const slot = new Date(baseMs + attempt)
     try {
       row = await prisma.weeklySweep.create({
         data: { scheduledFor: slot, origin: 'manual', startedAt: slot },
         select: { id: true, scheduledFor: true },
       })
     } catch (err) {
-      if (!(err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002')) throw err
-      if (await inFlightManual()) {
-        return NextResponse.json({ error: 'manual_sweep_in_progress' }, { status: 409 })
-      }
-      // else: bare scheduledFor ms-collision — loop retries with a fresh now().
+      if (!isP2002(err)) throw err
+      lastErr = err
+      if (await inFlightManual()) throw new HttpError(409, 'manual_sweep_in_progress')
+      // else bare scheduledFor collision — loop retries with baseMs+attempt.
     }
   }
-  if (!row) return NextResponse.json({ error: 'manual_sweep_in_progress' }, { status: 409 })
+  if (!row) throw lastErr ?? new HttpError(500, 'manual_sweep_create_failed')
 
+  const iso = row.scheduledFor.toISOString()
   try {
     await enqueueJob({
       type: MANUAL_SWEEP_JOB_TYPE,
-      payload: { scheduledFor: row.scheduledFor.toISOString() },
-      dedupKey: `manual-sweep:${row.scheduledFor.toISOString()}`,
-      groupKey: `manual-sweep:${row.scheduledFor.toISOString()}`,
+      payload: { scheduledFor: iso },
+      dedupKey: `manual-sweep:${iso}`,
+      groupKey: `manual-sweep:${iso}`,
     })
   } catch (err) {
     // Enqueue failed — delete the just-created row so the partial index doesn't
-    // block future manual sweeps. (A crash before this line is covered by
-    // recoverManualSweeps in Task 8.)
+    // block future manual sweeps. (A crash BEFORE this line is covered by
+    // recoverManualSweeps in Task 7, which waits out a grace period.)
     await prisma.weeklySweep.deleteMany({ where: { id: row.id, snapshotJson: null, membershipJson: null } })
     throw err
   }
 
-  return NextResponse.json({ started: true, scheduledFor: row.scheduledFor.toISOString() })
-}
+  return NextResponse.json({ started: true, scheduledFor: iso })
+})
 ```
+
+> Verify `HttpError(status, code)` shape + `withRoute` import path in `lib/api/` when implementing (CLAUDE.md A3 route kit). `withRoute` maps `HttpError`→status+code and unknown→500.
 
 - [ ] **Step 2: Write tests**
 
 ```ts
 // app/api/site-audit/bulk-queue/route.test.ts
-import { describe, it, expect, beforeEach, vi } from 'vitest'
+import { describe, it, expect, beforeEach } from 'vitest'
 import { prisma } from '@/lib/db'
 
 describe('POST /api/site-audit/bulk-queue (manual sweep)', () => {
+  beforeEach(async () => {
+    await prisma.job.deleteMany({ where: { type: 'manual-sweep' } })
+    await prisma.weeklySweep.deleteMany({})
+  })
+
   it('creates a manual WeeklySweep row and enqueues manual-sweep', async () => {
     const { POST } = await import('./route')
     const res = await POST(new Request('http://x/api/site-audit/bulk-queue', { method: 'POST' }) as any)
@@ -810,15 +842,19 @@ git commit -m "feat(sweep): loadPreviousScheduledSnapshot (B1 fall-through) + or
 // caller — the caller wraps it in a caught dynamic import.
 
 import { prisma } from '@/lib/db'
-import { parseMembership } from '@/lib/sweep/types'
+import { parseMembership, type SweepMember } from '@/lib/sweep/types'
 import { computeSweepSnapshot, publishSweepSnapshot, loadPreviousScheduledSnapshot } from '@/lib/sweep/snapshot'
 import { enqueueJob } from '@/lib/jobs/queue'
 import { MANUAL_SWEEP_JOB_TYPE } from '@/lib/jobs/handlers/manual-sweep'
-import { JOB_ACTIVE_STATUSES } from '@/lib/jobs/types'
+import { parsePositiveInt } from '@/lib/jobs/config'
 import { logError } from '@/lib/log'
 
 const TERMINAL = ['complete', 'error', 'cancelled'] // [D1] no 'failed' status
-export const MANUAL_SWEEP_MAX_WAIT_MS = Number(process.env.MANUAL_SWEEP_MAX_WAIT_MS) || 13 * 60 * 60 * 1000 // [D4] 13h
+// [Codex] parsePositiveInt — never Number(env)||fallback (accepts negatives).
+export const MANUAL_SWEEP_MAX_WAIT_MS = parsePositiveInt(process.env.MANUAL_SWEEP_MAX_WAIT_MS, 13 * 60 * 60 * 1000) // [D4] 13h
+// A manual row younger than this is still inside the route's create→enqueue
+// window — recovery must not race it. [Codex]
+const RECOVERY_GRACE_MS = 2 * 60 * 1000
 
 interface AuditSettle { status: string; hasAda: boolean; hasSeo: boolean; seoOnly: boolean }
 
@@ -836,7 +872,7 @@ async function loadAuditSettles(ids: string[]): Promise<Map<string, AuditSettle>
   const runsBy = new Map<string, Set<string>>()
   for (const r of runs) {
     if (!r.siteAuditId) continue
-    const s = runsBy.get(r.siteAuditId) ?? new Set()
+    const s = runsBy.get(r.siteAuditId) ?? new Set<string>()
     s.add(r.tool); runsBy.set(r.siteAuditId, s)
   }
   for (const a of audits) {
@@ -846,82 +882,119 @@ async function loadAuditSettles(ids: string[]): Promise<Map<string, AuditSettle>
   return out
 }
 
-/** True when every non-skipped member has settled. [D1/D2/D3] */
-function isDrained(members: { siteAuditId: string | null; outcome: string }[], settles: Map<string, AuditSettle>): boolean {
+/**
+ * True when every in-cohort member has settled. [D1/D2/D3, Codex]
+ * - skipped-archived / skipped-delisted → out of cohort (never block).
+ * - siteAuditId === null: invalid-domain / skipped-conflict / error → settled-failed;
+ *   pending / enqueued / duplicate / shared-domain with a null id is an INVARIANT
+ *   VIOLATION → block + log (should never happen post-fanout).
+ * - siteAuditId set but audit row GONE → settled-failed immediately (it cannot
+ *   reappear; computeSweepSnapshot classifies its runs as missing → failed coverage).
+ * - complete full (¬seoOnly) audit → needs BOTH ada-audit AND seo-parser runs [D2].
+ * - complete seoOnly audit → needs the seo-parser run.
+ * Returns { drained, invariantViolations } so the caller can log.
+ */
+function drainState(members: SweepMember[], settles: Map<string, AuditSettle>): { drained: boolean; violations: string[] } {
+  const violations: string[] = []
+  let drained = true
   for (const m of members) {
-    if (m.outcome === 'skipped-archived' || m.outcome === 'skipped-delisted') continue // out of cohort
+    if (m.outcome === 'skipped-archived' || m.outcome === 'skipped-delisted') continue
     if (m.siteAuditId === null) {
-      // [D3] invalid-domain / skipped-conflict / error settle failed; a residual
-      // 'pending' after fanout is an invariant violation → block.
-      if (m.outcome === 'pending') return false
-      continue
+      if (m.outcome === 'invalid-domain' || m.outcome === 'skipped-conflict' || m.outcome === 'error') continue // settled-failed
+      violations.push(`${m.domain}:${m.outcome}:null-id`); drained = false; continue
     }
     const st = settles.get(m.siteAuditId)
-    if (!st) return false // audit row vanished mid-flight — treat as not-yet-settled
-    if (!TERMINAL.includes(st.status)) return false
-    if (st.status === 'complete' && !st.seoOnly) {
-      if (!(st.hasAda && st.hasSeo)) return false // [D2] both runs required for a full audit
-    }
-    if (st.status === 'complete' && st.seoOnly) {
-      if (!st.hasSeo) return false
+    if (!st) continue // [Codex] audit row gone → settled-failed (cannot reappear)
+    if (!TERMINAL.includes(st.status)) { drained = false; continue }
+    if (st.status === 'complete') {
+      if (st.seoOnly) { if (!st.hasSeo) drained = false }
+      else if (!(st.hasAda && st.hasSeo)) drained = false // [D2]
     }
   }
-  return true
+  return { drained, violations }
 }
 
 export async function advanceManualSweeps(now: Date = new Date()): Promise<void> {
+  // The partial unique index guarantees AT MOST ONE unsnapshotted manual row,
+  // so `candidates` has length ≤ 1 — the loop is defensive, not for concurrency.
   const candidates = await prisma.weeklySweep.findMany({
     where: { origin: 'manual', snapshotJson: null, fanoutCompletedAt: { not: null } },
   })
   for (const sweep of candidates) {
     try {
       const membership = parseMembership(sweep.membershipJson)
-      if (!membership) continue // corrupt/absent membership — leave for onExhausted/recovery
+      if (!membership) {
+        // [Codex] corrupt (non-null, unparseable) membership on a fanout-completed
+        // row would otherwise loop forever. Abandon it under an origin/snapshot fence.
+        if (sweep.membershipJson !== null) {
+          logError({ subsystem: 'sweep', scope: 'advanceManualSweeps.corruptMembership' }, new Error(`manual sweep ${sweep.id} membership corrupt — abandoning`))
+          await prisma.weeklySweep.deleteMany({ where: { id: sweep.id, origin: 'manual', snapshotJson: null } })
+        }
+        continue
+      }
       const ids = Array.from(new Set(membership.members.map((m) => m.siteAuditId).filter((x): x is string => !!x)))
       const settles = await loadAuditSettles(ids)
-      const drained = isDrained(membership.members, settles)
-      const maxWaitExceeded =
-        sweep.fanoutCompletedAt !== null && now.getTime() - sweep.fanoutCompletedAt.getTime() > MANUAL_SWEEP_MAX_WAIT_MS
+      const { drained, violations } = drainState(membership.members, settles)
+      const maxWaitExceeded = now.getTime() - sweep.fanoutCompletedAt!.getTime() > MANUAL_SWEEP_MAX_WAIT_MS
+      if (violations.length > 0) {
+        logError({ subsystem: 'sweep', scope: 'advanceManualSweeps.invariant' }, new Error(`manual sweep ${sweep.id} null-id members: ${violations.join(',')}`))
+      }
       if (!drained && !maxWaitExceeded) continue
       if (!drained && maxWaitExceeded) {
-        logError('advanceManualSweeps.maxWait', new Error(`manual sweep ${sweep.id} not drained after max-wait; computing anyway`))
+        logError({ subsystem: 'sweep', scope: 'advanceManualSweeps.maxWait' }, new Error(`manual sweep ${sweep.id} not drained after max-wait; computing anyway`))
       }
       const previous = await loadPreviousScheduledSnapshot(sweep.scheduledFor)
       const snapshot = await computeSweepSnapshot(sweep, previous, now)
       await publishSweepSnapshot(sweep.id, snapshot) // NO email
     } catch (err) {
-      logError('advanceManualSweeps', err) // fault isolation — one bad row never stops others
+      logError({ subsystem: 'sweep', scope: 'advanceManualSweeps' }, err) // fault isolation
     }
   }
 }
 
-/** [Codex omission] Re-enqueue a manual fan-out stranded by a crash between
- * route row-create and enqueue: membership never frozen + no active manual job. */
+/**
+ * [Codex] Recover a manual fan-out stranded by a crash BETWEEN the route's
+ * row-create and enqueue: membership never frozen. Guards:
+ *  - GRACE: ignore rows younger than RECOVERY_GRACE_MS (still inside the route window).
+ *  - Query ALL jobs for the group (any status), not just active. Re-enqueue ONLY
+ *    when NO job row ever landed (true crash-before-enqueue). If a TERMINAL job
+ *    exists (the handler ran and failed/exhausted), do NOT re-enqueue forever —
+ *    abandon the still-membership-null row (fenced delete) to free the slot.
+ */
 export async function recoverManualSweeps(now: Date = new Date()): Promise<void> {
   try {
+    const graceCutoff = new Date(now.getTime() - RECOVERY_GRACE_MS)
     const stranded = await prisma.weeklySweep.findMany({
-      where: { origin: 'manual', snapshotJson: null, membershipJson: null },
+      where: { origin: 'manual', snapshotJson: null, membershipJson: null, createdAt: { lt: graceCutoff } },
       select: { id: true, scheduledFor: true },
     })
     for (const s of stranded) {
       const iso = s.scheduledFor.toISOString()
-      const active = await prisma.job.findFirst({
-        where: { type: MANUAL_SWEEP_JOB_TYPE, groupKey: `manual-sweep:${iso}`, status: { in: [...JOB_ACTIVE_STATUSES] } },
-        select: { id: true },
+      const anyJob = await prisma.job.findFirst({
+        where: { type: MANUAL_SWEEP_JOB_TYPE, groupKey: `manual-sweep:${iso}` },
+        select: { id: true, status: true },
       })
-      if (active) continue
-      await enqueueJob({
-        type: MANUAL_SWEEP_JOB_TYPE, payload: { scheduledFor: iso },
-        dedupKey: `manual-sweep:${iso}`, groupKey: `manual-sweep:${iso}`,
-      })
+      if (!anyJob) {
+        // True crash-before-enqueue — re-enqueue the fan-out.
+        await enqueueJob({
+          type: MANUAL_SWEEP_JOB_TYPE, payload: { scheduledFor: iso },
+          dedupKey: `manual-sweep:${iso}`, groupKey: `manual-sweep:${iso}`,
+        })
+      } else if (anyJob.status === 'error' || anyJob.status === 'cancelled' || anyJob.status === 'complete') {
+        // A terminal job ran but membership is still null (exhausted/failed and
+        // onExhausted didn't delete, or a complete job that froze nothing) —
+        // abandon rather than re-enqueue forever.
+        await prisma.weeklySweep.deleteMany({ where: { id: s.id, origin: 'manual', snapshotJson: null, membershipJson: null } })
+      }
+      // active job (queued/running) → leave it alone.
     }
   } catch (err) {
-    logError('recoverManualSweeps', err)
+    logError({ subsystem: 'sweep', scope: 'recoverManualSweeps' }, err)
   }
 }
 ```
 
-> Verify `JOB_ACTIVE_STATUSES` export path (`lib/jobs/types`) and `CrawlRun.tool` field name during implementation.
+> Verify `SweepMember` export (`lib/sweep/types`), `parsePositiveInt` (`@/lib/jobs/config`), and `CrawlRun.tool`/`.siteAuditId` during implementation (all confirmed present).
 
 - [ ] **Step 2: Hook into `stale-audit-reset.ts`** (add before/after the existing recovery imports)
 
@@ -947,26 +1020,51 @@ import { describe, it, expect, beforeEach } from 'vitest'
 import { prisma } from '@/lib/db'
 import { advanceManualSweeps, recoverManualSweeps } from './advance'
 
-// helper: create a manual sweep with fanoutCompletedAt + N members, and the
-// backing SiteAudit/CrawlRun rows in the requested state.
+beforeEach(async () => {
+  await prisma.job.deleteMany({ where: { type: 'manual-sweep' } })
+  await prisma.weeklySweep.deleteMany({}) // partial index: only ONE in-flight manual row allowed
+})
+
+// helper: create the single in-flight manual sweep (fanoutCompletedAt set) with N
+// members, plus backing SiteAudit + CrawlRun rows in the requested states.
 // ...build fixtures...
 
-describe('advanceManualSweeps', () => {
-  it('does NOT publish while a complete member has only the seo-parser run [D2]', async () => { /* create complete audit + seo run only; expect snapshotJson still null */ })
-  it('publishes once both ada-audit AND seo-parser runs exist [D2], with the scheduled baseline, no digestSentAt', async () => { /* expect snapshotJson set, digestSentAt null */ })
-  it('a running member blocks drain [D1]', async () => { /* status running; expect no publish */ })
-  it('skipped-archived/delisted members do not block drain', async () => { /* expect publish */ })
-  it('a residual pending member blocks until max-wait [D3]', async () => { /* expect no publish */ })
-  it('max-wait exceeded publishes anyway [D4] (fanoutCompletedAt-anchored)', async () => { /* set fanoutCompletedAt far in the past; expect publish */ })
-  it('already-snapshotted candidate is a no-op', async () => { /* snapshotJson set; expect unchanged */ })
-  it('one corrupt candidate does not stop the others', async () => { /* two rows, one corrupt membership; expect the good one publishes */ })
+describe('advanceManualSweeps (only ever ≤1 in-flight manual candidate)', () => {
+  it('does NOT publish while a complete member has only the seo-parser run [D2]', async () => { /* complete audit + seo run only → snapshotJson stays null */ })
+  it('publishes once BOTH ada-audit AND seo-parser runs exist [D2], scheduled baseline, digestSentAt null', async () => { /* → snapshotJson set, digestSentAt null */ })
+  it('a running member blocks drain [D1]', async () => { /* status running → no publish */ })
+  it('skipped-archived/delisted members do not block drain', async () => { /* → publishes */ })
+  it('invalid-domain/skipped-conflict/error null-id members settle failed (do not block) [D3]', async () => { /* → publishes */ })
+  it('a residual pending member blocks until max-wait [D3]', async () => { /* → no publish */ })
+  it('a set siteAuditId whose audit row is GONE settles failed (does not block) [Codex]', async () => { /* member.siteAuditId points to a deleted audit → publishes */ })
+  it('max-wait exceeded publishes anyway [D4] (fanoutCompletedAt-anchored)', async () => { /* fanoutCompletedAt far in past → publishes */ })
+  it('already-snapshotted candidate is a no-op', async () => { /* snapshotJson set → not a candidate, unchanged */ })
+  it('a corrupt (non-null unparseable) membership on a fanout-completed row is abandoned (deleted) [Codex]', async () => {
+    await prisma.weeklySweep.create({ data: { scheduledFor: new Date('2030-09-10T10:00:00Z'), origin: 'manual', membershipJson: '{bad', fanoutCompletedAt: new Date() } })
+    await advanceManualSweeps(new Date())
+    expect(await prisma.weeklySweep.count({ where: { origin: 'manual' } })).toBe(0)
+  })
 })
 
 describe('recoverManualSweeps', () => {
-  it('re-enqueues a manual-sweep job for a membership-null row with no active job', async () => {
-    await prisma.weeklySweep.create({ data: { scheduledFor: new Date('2030-09-01T10:00:00Z'), origin: 'manual' } })
-    await recoverManualSweeps(new Date())
+  it('re-enqueues a manual-sweep job for an AGED membership-null row with NO job ever landed', async () => {
+    await prisma.weeklySweep.create({ data: { scheduledFor: new Date('2030-09-01T10:00:00Z'), origin: 'manual', createdAt: new Date('2030-09-01T10:00:00Z') } })
+    await recoverManualSweeps(new Date('2030-09-01T10:10:00Z')) // past the 2-min grace
     expect(await prisma.job.count({ where: { type: 'manual-sweep' } })).toBe(1)
+  })
+  it('does NOT re-enqueue a FRESH membership-null row (inside the grace window) [Codex race]', async () => {
+    const t = new Date('2030-09-02T10:00:00Z')
+    await prisma.weeklySweep.create({ data: { scheduledFor: t, origin: 'manual', createdAt: t } })
+    await recoverManualSweeps(new Date(t.getTime() + 30_000)) // 30s < grace
+    expect(await prisma.job.count({ where: { type: 'manual-sweep' } })).toBe(0)
+  })
+  it('does NOT re-enqueue forever when a TERMINAL job exists — abandons the membership-null row [Codex]', async () => {
+    const t = new Date('2030-09-03T10:00:00Z'); const iso = t.toISOString()
+    await prisma.weeklySweep.create({ data: { scheduledFor: t, origin: 'manual', createdAt: t } })
+    await prisma.job.create({ data: { type: 'manual-sweep', groupKey: `manual-sweep:${iso}`, status: 'error', payload: '{}' } })
+    await recoverManualSweeps(new Date(t.getTime() + 10 * 60_000))
+    expect(await prisma.weeklySweep.count({ where: { origin: 'manual' } })).toBe(0) // abandoned
+    expect(await prisma.job.count({ where: { type: 'manual-sweep', status: { in: ['queued', 'running'] } } })).toBe(0)
   })
 })
 ```
@@ -1050,9 +1148,11 @@ import { prisma } from '@/lib/db'
 import { deleteReportFile } from '@/lib/report/report-file'
 import { deleteHeroScreenshot } from '@/lib/sales/hero-screenshot'
 import { parseMembership } from '@/lib/sweep/types'
+import { parsePositiveInt } from '@/lib/jobs/config'
+import { logError } from '@/lib/log'
 
-export const MANUAL_SWEEP_AUDIT_KEEP = Number(process.env.MANUAL_SWEEP_AUDIT_KEEP) || 2
-export const MANUAL_SWEEP_AUDIT_TTL_MS = Number(process.env.MANUAL_SWEEP_AUDIT_TTL_MS) || 14 * 24 * 60 * 60 * 1000
+export const MANUAL_SWEEP_AUDIT_KEEP = parsePositiveInt(process.env.MANUAL_SWEEP_AUDIT_KEEP, 2)
+export const MANUAL_SWEEP_AUDIT_TTL_MS = parsePositiveInt(process.env.MANUAL_SWEEP_AUDIT_TTL_MS, 14 * 24 * 60 * 60 * 1000)
 const TERMINAL = ['complete', 'error', 'cancelled']
 const CHUNK = 25
 
@@ -1063,6 +1163,12 @@ export async function pruneManualSweepAudits(now: Date = new Date()): Promise<vo
   })
   const protectedIds = new Set<string>()
   for (const s of live) {
+    // [Codex] Fail CLOSED on a corrupt (non-null, unparseable) membership — a
+    // silently-skipped row would leave protectedIds incomplete and violate R1.
+    if (s.membershipJson !== null && parseMembership(s.membershipJson) === null) {
+      logError({ subsystem: 'sweep', scope: 'pruneManualSweepAudits.corruptMembership' }, new Error('aborting prune pass — corrupt in-flight manual membership'))
+      return
+    }
     const m = parseMembership(s.membershipJson)
     m?.members.forEach((mem) => mem.siteAuditId && protectedIds.add(mem.siteAuditId))
   }
@@ -1105,7 +1211,8 @@ export async function pruneManualSweepAudits(now: Date = new Date()): Promise<vo
 Add a manual keep constant and make the snapshot-keep rule origin-aware — keep the newest 26 SCHEDULED snapshotted rows AND the newest N MANUAL snapshotted rows independently:
 
 ```ts
-export const WEEKLY_SWEEP_MANUAL_SNAPSHOT_KEEP = Number(process.env.WEEKLY_SWEEP_MANUAL_SNAPSHOT_KEEP) || 4
+import { parsePositiveInt } from '@/lib/jobs/config'
+export const WEEKLY_SWEEP_MANUAL_SNAPSHOT_KEEP = parsePositiveInt(process.env.WEEKLY_SWEEP_MANUAL_SNAPSHOT_KEEP, 4)
 
 // Replace the single snapshotPruned DELETE with two origin-scoped keep-sets:
 const scheduledPruned = await prisma.$executeRaw`
@@ -1130,11 +1237,25 @@ const manualPruned = await prisma.$executeRaw`
 
 Keep the dead-row `deleteMany` rule unchanged (it already targets `snapshotJson: null, digestSentAt: null` past TTL — correct for both origins; a manual row never sets `digestSentAt`).
 
-- [ ] **Step 3: Wire both into `runCleanup`** (`lib/jobs/handlers/cleanup.ts` — add beside the existing `pruneScheduledSiteAudits`/`pruneWeeklySweeps` calls)
+**[Codex] Also update the log line** — the old `snapshotPruned` variable is gone; reference `scheduledPruned + manualPruned` (else the file won't type-check):
 
 ```ts
-  await pruneManualSweepAudits(now)
+  const totalSnapshotPruned = scheduledPruned + manualPruned
+  if (totalSnapshotPruned > 0 || deadPruned.count > 0) {
+    console.log(`[sweep] retention pruned ${totalSnapshotPruned} old snapshot(s), ${deadPruned.count} dead sweep(s)`)
+  }
 ```
+
+Add `WEEKLY_SWEEP_MANUAL_SNAPSHOT_KEEP` via `parsePositiveInt(process.env.WEEKLY_SWEEP_MANUAL_SNAPSHOT_KEEP, 4)` (import `parsePositiveInt` from `@/lib/jobs/config`).
+
+- [ ] **Step 3: Wire into `runCleanup`** (`lib/cleanup.ts` — NOT the handler; the handler just calls `runCleanup`). Add the import beside `pruneScheduledSiteAudits`/`pruneWeeklySweeps` and add the call to the `Promise.allSettled([...])` array (`runCleanup` swallows per-task failures):
+
+```ts
+import { pruneManualSweepAudits } from '@/lib/ada-audit/manual-sweep-retention'
+// ...in the prune array:
+    pruneManualSweepAudits(),
+```
+(`pruneWeeklySweeps()` is already in that array — the R2 origin-partition change in Step 2 needs no new wiring.)
 
 - [ ] **Step 4: Write tests**
 
@@ -1265,20 +1386,11 @@ git commit -m "feat(sweep): repurpose Queue-all modal — full ADA+SEO sweep + /
 
 **Files:** none (verification only).
 
-- [ ] **Step 1: Type-check**
+- [ ] **Step 1: Type-check** — Run: `npm run lint` (= `tsc --noEmit`). Expected: no errors.
 
-Run: `npx tsc --noEmit`
-Expected: no errors.
+- [ ] **Step 2: Full test suite** — Run: `npm test` (= `vitest run`). Expected: all green (note any PRE-EXISTING failures separately — do not fix unrelated).
 
-- [ ] **Step 2: Full test suite**
-
-Run: `npx vitest run`
-Expected: all green (note any PRE-EXISTING failures separately — do not fix unrelated).
-
-- [ ] **Step 3: Build**
-
-Run: `npx next build`
-Expected: build succeeds.
+- [ ] **Step 3: Build** — Run: `npm run build` (= `NODE_OPTIONS='--max-old-space-size=3072' next build` — the house heap cap; never bare `npx next build`). Expected: build succeeds.
 
 - [ ] **Step 4: Smoke (optional, needs worktree node_modules symlink already in place)**
 
