@@ -73,13 +73,13 @@ paste-in prompt in the final reply. The owner rules that remain absolute:
 | Phase | What | Roadmap ref | Status (2026-07-02) |
 |---|---|---|---|
 | 0 | Merge + deploy + prod-verify `feat/autonomous-live-seo-source` | roadmap 3a + spec `docs/superpowers/specs/2026-06-30-autonomous-live-seo-source-design.md` | **NEXT ACTION** |
-| 1 | SF-vs-live parity measurement (parallel run) | roadmap §4 parallel-run gate | Not started; unblocked by Phase 0 |
+| 1 | SF-vs-live parity measurement (parallel run) | roadmap §4 parallel-run gate | **OVER-SATISFIED** (cycles 1–4; 11 SF-paired domains + 29-client live-vs-live reproducibility; self-generating via the weekly sweep) |
 | 2 | Hybrid discovery (sitemap + link-graph frontier) | roadmap Phase 2 | Gated on sitemap miss-rate measurement (tracker gated decision) |
 | 3 | Reachability graph + true depth / orphan analysis | roadmap 3b | Requires Phase 2 |
 | 4 | Redirect / canonical / hreflang validation | roadmap Phase 4 | Open; solution menu below |
 | 5 | Content similarity | roadmap Phase 5 | Open; embeddings asset already in deps |
 | 6 | Analytics integrations | roadmap Phase 6 | GA4/GSC half SHIPPED (C10, SEO performance reports); SEMrush/DataForSEO + memo consumption remain |
-| 7 | Operational retirement gate | roadmap Phase 7 + §4 | Criteria below; needs Phases 0–1 minimum |
+| 7 | Operational retirement gate | roadmap Phase 7 + §4 | **BAR SET 2026-07-20** (N=8 / residualMiss≤5% strict / fleet-wide / split crawler-vs-joiner). Blocking code items OPEN (under-expansion fix, anchor-text, graph labeling). See Phase 7 below + parity-log bar section |
 
 ---
 
@@ -324,25 +324,31 @@ decision — until then all AI stays skill-handoff).
 
 ---
 
-## Phase 7 — the retirement gate (falsifiable criteria)
+## Phase 7 — the retirement gate (BAR SET 2026-07-20 by Kevin)
 
-SF is demoted for a client only when ALL hold, each backed by recorded numbers:
+**The four owner-policy knobs are LOCKED** (Kevin, 2026-07-20). Full decision + the
+Codex-reviewed criteria mapping + the fleet-wide/coverage consequence live in the
+parity log's `🎯 2026-07-20 — SF RETIREMENT BAR SET` section
+(`docs/superpowers/todos/2026-07-05-sf-live-parity-log.md`) — read it before advancing Phase 7.
 
-- [ ] **N consecutive weekly seoIntent runs** (proposed default N=8; Kevin sets
-      the final bar) on that client completed with a non-null score and stable
-      timing (no recovery-path rescues).
-- [ ] **Coverage ≥ 90–95%** of known pages per run (observed/attempted from the
-      builder inputs), surfaced per run — or the shortfall explicitly capped/blocked.
-- [ ] **Parity log complete** (Phase 1): 2–3 cycles, every deviation explained;
-      broken-link false-positive rate low enough that analysts act on findings unreviewed.
-- [ ] **Graph signals accepted** by pillar/brief consumers, labeled
-      "ER audited-set authority" — never "SF Link Score".
-- [ ] **Analytics independent** (Phase 6 complete) so SF is not still the data joiner.
-- [ ] **Dashboards + roadmap generation + Teamwork outputs** default to the live
-      source for that client.
-- [ ] **Miss-rate verdict recorded**: either Phase 2 shipped, or the measured
-      sitemap miss-rate justified deferring it — in which case SF explicitly
-      stays the discovery instrument (quarterly sweeps).
+- **N = 8** consecutive **qualifying** weekly seoIntent sweeps per client (non-null score,
+  no recovery-path rescue, "stable" per the log's objective ±3/timing def, AND meets coverage).
+- **Coverage: `residualMiss` ≤ 5%, strict**, per run (95% end of the roadmap range; no
+  capped/blocked escape at the coverage level). A client's N=8 clock counts only coverage-clean sweeps.
+- **Scope: FLEET-WIDE** — SF stays routine for the whole fleet until EVERY in-scope client clears.
+  In-scope = indexable client domains; carve-outs (canary, objectively blocked/capped) need a recorded
+  predicate + a frozen cohort ledger (OPEN).
+- **Split gate** — this bar retires SF-as-CRAWLER only; SF-as-KEYWORD-JOINER (SEMrush/DataForSEO)
+  is a separate gate deferred until DataForSEO gets prod creds.
+
+Status vs the bar (per the log): MET = broken-link verifier shipped, SF-vs-live variance on the 11
+paired domains, 29-client live-vs-live reproducibility, hybrid-discovery shipped. **OPEN (blocking):**
+N=8 streak (2/8 for clean clients, 0/8 for under-expanders); **hybrid-crawler under-expansion fix** (6
+indexable clients >5% — the next buildable code item); **anchor-text capture** (roadmap pre-Phase-7
+prerequisite, unbuilt); **graph-signal "ER authority" labeling + consumer acceptance** (brief still says
+"Orphaned pages"); **broken-link false-positive-rate** measurement; **§7 default-to-live** (srt_/qct_
+still `Session`-bound — partly code, not just config). Realistic clear ≈ (latest blocking-fix ship) + 8
+clean weekly sweeps — the code is the long pole, NOT ~2026-08-31.
 
 **Automatic rollback triggers** (SF returns to routine for that client, no
 debate): repeated low-confidence/null-score runs; coverage under threshold;

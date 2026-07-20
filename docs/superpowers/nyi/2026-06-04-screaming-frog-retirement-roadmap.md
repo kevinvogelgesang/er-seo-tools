@@ -143,6 +143,13 @@ Put plainly: we can replace SF's **data for our known clients**; we cannot easil
 
 ## 4. Retirement decision gate
 
+> **BAR SET 2026-07-20 (Kevin).** The open thresholds below were locked: **N = 8** consecutive
+> qualifying weekly seoIntent sweeps per client, discovery **coverage `residualMiss` ≤ 5% (strict)** per
+> run, **fleet-wide** scope, and a **split gate** — this bar retires SF-as-crawler; SF-as-keyword-joiner
+> (bullet 6, analytics independence) is a separate gate deferred until DataForSEO gets prod creds. Full
+> decision, Codex-reviewed criteria status, and the fleet-wide/coverage consequence:
+> `docs/superpowers/todos/2026-07-05-sf-live-parity-log.md` → `🎯 2026-07-20 — SF RETIREMENT BAR SET`.
+
 Safe to demote SF from routine client work only when **all** of these hold:
 
 - [ ] Live SEO runs the full fleet successfully for several consecutive weeks with stable timing and clear coverage metrics.
