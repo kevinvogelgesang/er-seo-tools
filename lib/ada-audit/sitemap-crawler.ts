@@ -4,11 +4,16 @@ import {
   safeFetch,
 } from '../security/safe-url'
 import { fetchSitemapViaBrowser } from './sitemap-crawler-browser-fetch'
-import { hybridCrawl, type CrawlBounds, type CrawlSource, type FetchedPage } from './seo/hybrid-crawl'
+import {
+  hybridCrawl, mergeCrawlResults, admissibleLink,
+  type CrawlBounds, type CrawlSource, type CrawlSeed, type FetchedPage,
+} from './seo/hybrid-crawl'
+import { fetchPageLinksViaBrowser, buildProbeTargets } from './seo/rendered-crawl'
+import { normalizeCoverageUrl } from './seo/discovery-coverage'
 import { parseRobots, type RobotsRules } from '@/lib/seo-fetch/robots-match'
 import { extractSitemapUrls } from '@/lib/seo-fetch/robots-parse'
 import { isExcludedCrawlPath } from './crawl-exclude'
-import { sameDomain } from './link-harvest'
+import { sameDomain, normalizeLinkTarget } from './link-harvest'
 import { parsePositiveInt } from '@/lib/jobs/config'
 import {
   fetchRobotsTxt,
@@ -30,6 +35,15 @@ const HY_TIME_BUDGET = () => parsePositiveInt(process.env.HYBRID_CRAWL_TIME_BUDG
 const HY_CONCURRENCY = () => parsePositiveInt(process.env.HYBRID_CRAWL_CONCURRENCY, 6)
 const HY_QUERY_VARIANTS = () => parsePositiveInt(process.env.HYBRID_CRAWL_MAX_QUERY_VARIANTS_PER_PATH, 5)
 const HY_PATH_SEGMENTS = () => parsePositiveInt(process.env.HYBRID_CRAWL_MAX_PATH_SEGMENTS, 12)
+
+// ─── L2 rendered-DOM discovery env tunables ──────────────────────────────────
+const RENDER_MAX_DEPTH = () => parsePositiveInt(process.env.HYBRID_RENDER_MAX_DEPTH, 2)
+const RENDER_MAX_ADDED = () => parsePositiveInt(process.env.HYBRID_RENDER_MAX_ADDED, 300)
+const RENDER_MAX_FETCHES = () => parsePositiveInt(process.env.HYBRID_RENDER_MAX_FETCHES, 40)
+const RENDER_CONCURRENCY = () => parsePositiveInt(process.env.HYBRID_RENDER_CONCURRENCY, 2)
+const RENDER_PROBE_MIN_NOVEL = () => parsePositiveInt(process.env.HYBRID_RENDER_PROBE_MIN_NOVEL, 5)
+const RENDER_PROBE_MAX_HUBS = () => parsePositiveInt(process.env.HYBRID_RENDER_PROBE_MAX_HUBS, 2)
+const RENDER_FLOOR_MS = 15_000 // below this remaining budget, skip the rendered pass
 
 // ─── Fetch helpers ───────────────────────────────────────────────────────────
 
@@ -62,10 +76,10 @@ async function fetchRobotsRaw(base: string): Promise<string> {
  * direct body also falls back — historical `if (direct)` was falsy on ''
  * (Codex plan #1, blocker).
  */
-async function fetchSitemapXml(url: string): Promise<string | null> {
+async function fetchSitemapXml(url: string, deadlineMs?: number): Promise<string | null> {
   const direct = await fetchSitemapXmlDirect(url)
   if (direct.ok && direct.text.length > 0) return direct.text
-  return await fetchSitemapViaBrowser(url)
+  return await fetchSitemapViaBrowser(url, deadlineMs) // deadline-aware browser fallback (Codex fix 1)
 }
 
 /** Raw-HTTP fetch of a page's same-doc <a href>s + the post-redirect final URL.
@@ -196,6 +210,7 @@ async function shallowCrawl(base: string, normDomain: string): Promise<string[]>
 async function resolveSeedsReal(
   domain: string,
   robotsText: string,
+  deadlineMs?: number,
 ): Promise<{ urls: string[]; mode: 'sitemap' | 'shallow-crawl'; capped: boolean }> {
   const normDomain = normaliseDomain(domain)
   const base = `https://${normDomain}`
@@ -227,13 +242,13 @@ async function resolveSeedsReal(
   let allPageUrls: string[] = []
 
   for (const sitemapUrl of uniqueCandidates) {
-    const xml = await fetchSitemapXml(sitemapUrl)
+    const xml = await fetchSitemapXml(sitemapUrl, deadlineMs)
     if (!xml) continue
 
     const collected = await collectSitemapPageUrls(
       xml,
       (u) => isSameDomain(u, normDomain),
-      fetchSitemapXml,
+      (u) => fetchSitemapXml(u, deadlineMs),
     )
     if (collected.urls.length > 0) {
       allPageUrls = collected.urls
@@ -269,8 +284,9 @@ async function resolveSeedsReal(
 // ─── Hybrid-crawl-aware discovery (deps-injected core + public wrapper) ─────
 
 interface DiscoverDeps {
-  resolveSeeds: (domain: string) => Promise<{ urls: string[]; mode: 'sitemap' | 'shallow-crawl'; capped: boolean }>
+  resolveSeeds: (domain: string, deadlineMs: number) => Promise<{ urls: string[]; mode: 'sitemap' | 'shallow-crawl'; capped: boolean }>
   fetchPageLinks: (url: string) => Promise<FetchedPage | null>
+  fetchPageLinksRendered?: (url: string, deadlineMs: number) => Promise<FetchedPage | null>
   now: () => number
   robots?: RobotsRules
 }
@@ -279,7 +295,11 @@ export interface DiscoverResult {
   urls: string[]
   mode: 'sitemap' | 'shallow-crawl' | 'hybrid'
   capped: boolean
-  coverage?: { sources: Record<string, CrawlSource>; sitemapCount: number; sitemapCapped: boolean; stoppedBy: string; fetches: number }
+  coverage?: {
+    sources: Record<string, CrawlSource>; sitemapCount: number; sitemapCapped: boolean; stoppedBy: string; fetches: number
+    renderProbe: 'skipped' | 'no-delta' | 'triggered' | 'failed'
+    renderedFetches: number; renderedAdded: number; renderStoppedBy?: string
+  }
 }
 
 /**
@@ -298,6 +318,12 @@ export async function discoverPagesWithDeps(
   const normDomain = normaliseDomain(domain)
   const host = normDomain
 
+  // ONE global deadline (Codex fix 1) — computed BEFORE seed resolution. The
+  // job budget is the OVERALL ceiling; HY_TIME_BUDGET is only the raw pass's
+  // sub-budget. Threaded into resolveSeeds so its browser-sitemap fallback can
+  // neither wait for a pool slot nor navigate past it.
+  const deadlineMs = deps.now() + (opts.timeBudgetMs ?? HY_TIME_BUDGET())
+
   // Resolve seeds: provided (pre-discovered) or via sitemap/shallow.
   let seedMode: 'sitemap' | 'shallow-crawl'
   let seedUrls: string[]
@@ -309,7 +335,7 @@ export async function discoverPagesWithDeps(
     seedCapped = false
     seedSource = 'seed'
   } else {
-    const resolved = await deps.resolveSeeds(domain)
+    const resolved = await deps.resolveSeeds(domain, deadlineMs)
     seedUrls = resolved.urls
     seedMode = resolved.mode
     seedCapped = resolved.capped
@@ -330,7 +356,7 @@ export async function discoverPagesWithDeps(
     maxDepth: HY_MAX_DEPTH(),
     maxAdded: HY_MAX_ADDED(),
     maxFetches: HY_MAX_FETCHES(),
-    timeBudgetMs: Math.min(opts.timeBudgetMs ?? Number.POSITIVE_INFINITY, HY_TIME_BUDGET()),
+    timeBudgetMs: Math.min(HY_TIME_BUDGET(), Math.max(0, deadlineMs - deps.now())), // raw sub-budget ≤ overall deadline
     hardCap: HARD_CAP,
     maxQueryVariantsPerPath: HY_QUERY_VARIANTS(),
     maxPathSegments: HY_PATH_SEGMENTS(),
@@ -343,23 +369,108 @@ export async function discoverPagesWithDeps(
     { fetchPageLinks: deps.fetchPageLinks, now: deps.now },
     robots,
   )
-  // Codex #5: a set of exactly HARD_CAP is NOT capped (matches existing
-  // discoverPages semantics: capped only when a source overflowed the cap).
-  const capped = seedCapped || crawl.stoppedBy === 'hardCap'
+
+  // ── L2 rendered-DOM adaptive pass ──
+  let renderProbe: 'skipped' | 'no-delta' | 'triggered' | 'failed' = 'skipped'
+  let renderedFetches = 0
+  let renderedAdded = 0
+  let renderStoppedBy: string | undefined
+  let merged: { urls: string[]; sources: Record<string, CrawlSource> } = { urls: crawl.urls, sources: crawl.sources }
+
+  if (deps.fetchPageLinksRendered) {
+    const renderedDep = deps.fetchPageLinksRendered
+    let renderCalls = 0 // Codex fix 4: count ACTUAL browser renders, not memo hits
+    const doRender = async (u: string): Promise<FetchedPage | null> => { renderCalls++; return renderedDep(u, deadlineMs) }
+    if (crawl.urls.length >= HARD_CAP) {
+      renderStoppedBy = 'hardCapPrefull' // >1000 pages already — rendered URLs would silently vanish; skip + flag capped
+    } else if (deadlineMs - deps.now() < RENDER_FLOOR_MS) {
+      renderStoppedBy = 'timeBudget'
+    } else {
+      const maxSegments = HY_PATH_SEGMENTS()
+      const variantCap = HY_QUERY_VARIANTS()
+      const knownKeys = new Set(crawl.urls.map(normalizeCoverageUrl))
+      // Codex fix 5: home (index 0) is the unconditional publisher seed; every
+      // extra hub must pass the same robots/trap/segment filter as a BFS link
+      // before it becomes a trusted (robots-bypassing) rendered seed.
+      const rawProbe = buildProbeTargets(host, crawl.urls, RENDER_PROBE_MAX_HUBS())
+      const probeTargets = rawProbe.filter((u, i) => i === 0 || admissibleLink(u, host, robots, maxSegments))
+      // Codex fix 4: memoize probe RESULTS incl. failures (null) — keyed by .has,
+      // not truthiness — so a failed probe target is not re-rendered as a seed.
+      const prefetch = new Map<string, FetchedPage | null>()
+      let anyProbeOk = false
+      const novel = new Set<string>()
+      const probeVariants = new Map<string, number>() // mirror BFS maxQueryVariantsPerPath (Codex fix 4)
+      for (const t of probeTargets) {
+        if (deps.now() >= deadlineMs) break
+        const page = await doRender(t)
+        prefetch.set(t, page ?? null)
+        if (!page) continue
+        anyProbeOk = true
+        for (const rawHref of page.links) {
+          const resolved = normalizeLinkTarget(rawHref, page.finalUrl)
+          if (!resolved) continue
+          if (!admissibleLink(resolved, host, robots, maxSegments)) continue
+          const key = normalizeCoverageUrl(resolved)
+          if (knownKeys.has(key)) continue
+          let pk: string
+          try { pk = new URL(key).pathname } catch { pk = key }
+          const seen = probeVariants.get(pk) ?? 0
+          if (seen >= variantCap) continue // same per-path query-variant cap BFS enforces
+          probeVariants.set(pk, seen + 1)
+          novel.add(key)
+        }
+      }
+      if (!anyProbeOk) {
+        renderProbe = 'failed' // every probe render failed (nav error / WAF / consent) — distinct from no-delta
+      } else if (novel.size < RENDER_PROBE_MIN_NOVEL()) {
+        renderProbe = 'no-delta'
+      } else {
+        renderProbe = 'triggered'
+        const memoFetch = async (u: string): Promise<FetchedPage | null> => {
+          if (prefetch.has(u)) return prefetch.get(u) ?? null // reuse probe result (incl. memoized failure)
+          const p = await doRender(u)
+          prefetch.set(u, p ?? null)
+          return p
+        }
+        const renderBounds: CrawlBounds = {
+          maxDepth: RENDER_MAX_DEPTH(),
+          maxAdded: RENDER_MAX_ADDED(),
+          maxFetches: RENDER_MAX_FETCHES(),
+          timeBudgetMs: Math.max(0, deadlineMs - deps.now()),
+          hardCap: HARD_CAP,
+          maxQueryVariantsPerPath: variantCap,
+          maxPathSegments: maxSegments,
+          concurrency: RENDER_CONCURRENCY(),
+        }
+        const seeds: CrawlSeed[] = probeTargets.map((u) => ({ url: u, source: 'rendered' }))
+        const renderedCrawl = await hybridCrawl(
+          seeds, host, renderBounds, { fetchPageLinks: memoFetch, now: deps.now }, robots,
+          { knownKeys, linkedSource: 'rendered-linked', prioritizeShallowFrontier: true },
+        )
+        renderedAdded = renderedCrawl.addedByCrawl
+        renderStoppedBy = renderedCrawl.stoppedBy
+        merged = mergeCrawlResults(crawl, renderedCrawl, HARD_CAP)
+      }
+    }
+    renderedFetches = renderCalls // actual browser renders (probes + BFS misses), not memo hits
+  }
+
+  const expanded = crawl.addedByCrawl > 0 || renderedAdded > 0
+  // Codex #5: a set of exactly HARD_CAP is NOT capped (only a source overflow is).
+  const capped = seedCapped || crawl.stoppedBy === 'hardCap' || renderStoppedBy === 'hardCapPrefull'
   return {
-    urls: crawl.urls,
-    // Explicit `opts.seeds` is itself a hybrid-flow signal (skips normal
-    // seed resolution), so it reports 'hybrid' even when the crawl adds
-    // nothing beyond the provided seeds; otherwise 'hybrid' only when the
-    // crawl actually expanded the sitemap/shallow seed set.
-    mode: opts.seeds || crawl.addedByCrawl > 0 ? 'hybrid' : seedMode,
+    urls: merged.urls,
+    // 'hybrid' when either pass expanded the seed set, or when seeds were
+    // provided explicitly (a hybrid-flow signal that skips seed resolution).
+    mode: opts.seeds || expanded ? 'hybrid' : seedMode,
     capped,
     coverage: {
-      sources: crawl.sources,
+      sources: merged.sources,
       sitemapCount: crawl.sitemapCount,
       sitemapCapped: sitemapCappedBefore,
       stoppedBy: crawl.stoppedBy,
       fetches: crawl.fetches,
+      renderProbe, renderedFetches, renderedAdded, renderStoppedBy,
     },
   }
 }
@@ -387,8 +498,9 @@ export async function discoverPages(
 
   const robotsText = await fetchRobotsRaw(base) // single robots fetch
   return discoverPagesWithDeps(domain, opts, {
-    resolveSeeds: (d) => resolveSeedsReal(d, robotsText),
+    resolveSeeds: (d, deadlineMs) => resolveSeedsReal(d, robotsText, deadlineMs),
     fetchPageLinks: (u) => fetchPageLinks(u, normDomain),
+    fetchPageLinksRendered: (u, deadlineMs) => fetchPageLinksViaBrowser(u, normDomain, deadlineMs),
     now: () => Date.now(),
     robots: parseRobots(robotsText),
   })

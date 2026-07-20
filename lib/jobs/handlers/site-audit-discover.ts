@@ -69,6 +69,15 @@ function kickPromoter(): void {
     .catch(() => {})
 }
 
+/** Version stamp for discoverySourcesJson: v2 iff a rendered provenance value
+ *  appears (Codex fix / spec F5). deriveSitemapBaseline is version-agnostic, so
+ *  a v2 map is read transparently. */
+export function sourceMapVersion(sources: Record<string, string> | undefined): 1 | 2 {
+  if (!sources) return 1
+  for (const s of Object.values(sources)) if (s === 'rendered' || s === 'rendered-linked') return 2
+  return 1
+}
+
 function parseUrlList(raw: string | null): string[] | null {
   if (raw === null) return null
   try {
@@ -159,13 +168,14 @@ export async function runSiteAuditDiscoverJob(payload: unknown): Promise<void> {
     const result = await discoverPages(audit.domain, { hybrid, timeBudgetMs })
     const discovered = [...new Set(result.urls)]
     const persisted = await prisma.siteAudit.updateMany({
-      where: { id: siteAuditId, discoveredUrls: null },
+      where: { id: siteAuditId, discoveredUrls: null, status: 'running' }, // + status (Codex fix 6 / spec F5)
       data: {
         discoveredUrls: JSON.stringify(discovered),
         pagesTotal: discovered.length,
         discoveryMode: result.mode,
         discoveryCapped: result.capped,
-        discoverySourcesJson: result.coverage ? JSON.stringify({ v: 1, ...result.coverage }) : null,
+        discoverySourcesJson: result.coverage
+          ? JSON.stringify({ v: sourceMapVersion(result.coverage.sources), ...result.coverage }) : null,
       },
     })
     if (persisted.count === 1) {
@@ -195,13 +205,14 @@ export async function runSiteAuditDiscoverJob(payload: unknown): Promise<void> {
       const result = await discoverPages(audit.domain, { hybrid: true, seeds: urls, timeBudgetMs })
       const expanded = [...new Set(result.urls)]
       const persisted = await prisma.siteAudit.updateMany({
-        where: { id: siteAuditId, discoverySourcesJson: null },
+        where: { id: siteAuditId, discoverySourcesJson: null, status: 'running' }, // + status (Codex fix 6 / spec F5)
         data: {
           discoveredUrls: JSON.stringify(expanded),
           pagesTotal: expanded.length,
           discoveryMode: result.mode,
           discoveryCapped: result.capped,
-          discoverySourcesJson: result.coverage ? JSON.stringify({ v: 1, ...result.coverage }) : null,
+          discoverySourcesJson: result.coverage
+            ? JSON.stringify({ v: sourceMapVersion(result.coverage.sources), ...result.coverage }) : null,
         },
       })
       if (persisted.count === 1) {
