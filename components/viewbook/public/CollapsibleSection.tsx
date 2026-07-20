@@ -18,16 +18,33 @@
 // from AT heading navigation. This now follows the W3C ARIA APG Accordion
 // pattern: the heading WRAPS the button instead
 // (https://www.w3.org/WAI/ARIA/apg/patterns/accordion/) — `<h2><button
-// aria-expanded aria-controls>…hero content, incl. the title as a plain
-// <span>…</button></h2>`. `aria-expanded` already conveys open/closed to AT,
-// so the button's accessible name is just the title (`aria-label={title}`,
-// decoupled from the decorative aria-hidden layers inside) — no "Expand"/
-// "Collapse" verb prefix needed (the reference APG example doesn't use one
-// either). The wrapping <h2> ALSO gets `aria-label={title}` directly — an
-// ancestor's "name from content" is not guaranteed to adopt a descendant
-// button's own aria-label (implementation-dependent name-computation
-// recursion), so both elements declare the SAME name explicitly rather than
-// relying on one to derive it from the other.
+// aria-expanded aria-controls>…hero content…</button></h2>`.
+//
+// Round-2 review fix (same date): a <button> may ALSO only contain PHRASING
+// content — SectionShell's hero markup used to nest <div> decorative layers
+// (image/gradient/accent/cluster) directly inside it, which is invalid for
+// the same reason a block heading is. SectionShell now builds every one of
+// those decorative layers as a <span> (same classes/positioning — Tailwind's
+// `flex`/`absolute` utilities set `display` explicitly, so the swap is
+// visually inert), leaving only phrasing content (spans, the visible title
+// span, inline SVGs, the alt="" image) inside the button.
+//
+// With ONLY phrasing content inside — and every decorative layer marked
+// aria-hidden — the button's accessible name now comes from its one visible
+// text node (the title span) via ordinary "name from content": no explicit
+// aria-label needed, so it (and the wrapping <h2>'s, which would otherwise
+// duplicate it) is REMOVED — one visible title, one source of truth for the
+// name, instead of three copies that could drift. `aria-expanded` already
+// conveys open/closed state to AT, so no "Expand"/"Collapse" verb prefix is
+// needed either (the reference APG example doesn't use one).
+//
+// The always-rendered controlled region below is a landmark (`role="region"`)
+// and every landmark needs its own accessible name — it has no title span of
+// its own to point `aria-labelledby` at (the two candidate title spans live
+// in caller-supplied, conditionally-rendered hero content), so it gets a
+// direct `aria-label={title}` — simpler than plumbing a shared id across the
+// SectionShell/CollapsibleSection boundary for content that's already
+// visually adjacent.
 //
 // The controlled region is ALWAYS rendered (collapse toggles hidden/inert,
 // never DOM presence) so `aria-controls` always resolves to a real element
@@ -80,13 +97,15 @@ export function CollapsibleSection({
     <div>
       {/* APG Accordion: the heading WRAPS the button (not the reverse) — see
           the file banner. `id={sectionKey}` scroll anchor stays on the outer
-          <section> in SectionShell, unaffected by this h2. */}
-      <h2 aria-label={title}>
+          <section> in SectionShell, unaffected by this h2. Neither the h2 nor
+          the button carries an explicit aria-label — the button's ONLY
+          visible content is the title (everything decorative inside is
+          aria-hidden), so both derive their accessible name from it. */}
+      <h2>
         <button
           type="button"
           aria-expanded={!collapsed}
           aria-controls={regionId}
-          aria-label={title}
           onClick={collapsed ? expand : collapse}
           className="group block w-full appearance-none rounded-xl border-0 bg-transparent p-0 text-left outline-none focus-visible:ring-2 focus-visible:ring-white/80 focus-visible:ring-offset-2"
         >
@@ -95,10 +114,12 @@ export function CollapsibleSection({
       </h2>
       {/* Region ALWAYS present; hidden+inert while collapsed so aria-controls
           resolves. `inert` (React 19 boolean) + aria-hidden + display:none is
-          the tab-order/a11y guard incl. older engines. */}
+          the tab-order/a11y guard incl. older engines. aria-label names the
+          landmark (see file banner). */}
       <div
         id={regionId}
         role="region"
+        aria-label={title}
         aria-hidden={collapsed ? true : undefined}
         inert={collapsed}
         hidden={collapsed}

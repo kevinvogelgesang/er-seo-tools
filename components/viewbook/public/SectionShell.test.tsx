@@ -7,11 +7,10 @@ import type { PublicSection } from '@/lib/viewbook/public-types'
 
 // 2026-07-19 collapse local-only revision (docs/superpowers/specs/2026-07-19-
 // viewbook-collapse-local-revision.md): collapse is now purely local
-// (localStorage), default COLLAPSED, and `section.collapsedShared` is
-// DORMANT (never read). Tests that need the section rendered EXPANDED seed
-// localStorage directly via `collapseKey` — mirroring how a real client's
-// stored preference would look — rather than the retired
-// `collapsedShared: true/false` DB field.
+// (localStorage), default COLLAPSED. The retired `collapsedShared` DB field
+// no longer even rides on `PublicSection` (Fix 4, post-review) — tests that
+// need the section rendered EXPANDED seed localStorage directly via
+// `collapseKey`, mirroring how a real client's stored preference would look.
 
 let stored = new Map<string, string>()
 
@@ -33,7 +32,6 @@ afterEach(() => {
 const section = (over: Partial<PublicSection> = {}): PublicSection => ({
   sectionKey: 'brand',
   state: 'active',
-  collapsedShared: false, // DORMANT — retained on the type, never read by SectionShell
   doneAt: null,
   acknowledgedAt: null,
   introNote: null,
@@ -96,6 +94,10 @@ describe('SectionShell', () => {
     // wraps the button instead (see the "defaults to COLLAPSED" test below
     // for the full ancestor assertion).
     expect(btn.querySelector('h1,h2,h3,h4,h5,h6')).toBeNull()
+    // Round-2 review fix: the EXPANDED hero's decorative layers are <span>s
+    // too — a <button> permits only phrasing content, whether collapsed or
+    // expanded.
+    expect(btn.querySelectorAll('div').length).toBe(0)
   })
 
   it('renders a done section with the completion date, body retained (SectionReveal is independent of the outer collapse default)', () => {
@@ -175,6 +177,18 @@ describe('SectionShell', () => {
     // button — never the reverse. A <button> may not contain a block <h2>.
     expect(heading.contains(btn)).toBe(true)
     expect(btn.querySelector('h1,h2,h3,h4,h5,h6')).toBeNull()
+    // Round-2 review fix: a <button> may ALSO only contain phrasing content —
+    // the decorative hero layers (image wash/accent/cluster) are <span>s,
+    // never <div>s. Neither the button nor its wrapping heading carries an
+    // explicit aria-label any more (name-from-content off the visible title).
+    expect(btn.querySelectorAll('div').length).toBe(0)
+    expect(btn.hasAttribute('aria-label')).toBe(false)
+    expect(heading.hasAttribute('aria-label')).toBe(false)
+    // The controlled region is a NAMED landmark (Fix 1, post-review).
+    expect(outer?.getAttribute('aria-label')).toBe('Brand Guidelines')
+    // The compact row's OWN outer wrapper carries the ~8px stacked-row gap
+    // (Fix 5, post-review) — lives inside the button, not the region.
+    expect(btn.innerHTML).toContain('py-1')
   })
 
   it('always-open (pc-intro) renders expanded with no toggle and NO collapse affordance/control', () => {

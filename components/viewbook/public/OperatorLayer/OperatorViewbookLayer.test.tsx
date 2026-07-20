@@ -11,7 +11,6 @@ import { useSelectionContext } from './inspector'
 const visible: PublicSection = {
   sectionKey: 'welcome',
   state: 'active',
-  collapsedShared: false,
   doneAt: null,
   acknowledgedAt: null,
   introNote: null,
@@ -26,7 +25,7 @@ const operatorData: OperatorViewbookData = {
   sections: [
     { ...visible, state: 'active' },
     {
-      sectionKey: 'strategy', state: 'hidden', collapsedShared: false, doneAt: null, acknowledgedAt: null,
+      sectionKey: 'strategy', state: 'hidden', doneAt: null, acknowledgedAt: null,
       introNote: null, narrative: null,
     },
   ],

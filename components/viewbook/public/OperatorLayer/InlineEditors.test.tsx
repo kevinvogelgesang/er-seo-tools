@@ -72,7 +72,6 @@ function openPanel(name: string | RegExp) {
 const section: OperatorSectionData = {
   sectionKey: 'brand',
   state: 'active',
-  collapsedShared: false,
   doneAt: null,
   acknowledgedAt: null,
   introNote: 'Old intro',

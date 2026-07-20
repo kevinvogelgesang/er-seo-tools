@@ -17,7 +17,7 @@ afterEach(() => {
 })
 
 const sec = (sectionKey: PublicSection['sectionKey']): PublicSection => ({
-  sectionKey, state: 'active', collapsedShared: false, doneAt: null, acknowledgedAt: null, introNote: null, narrative: null,
+  sectionKey, state: 'active', doneAt: null, acknowledgedAt: null, introNote: null, narrative: null,
 })
 
 const base = (over: Partial<ViewbookPublicData> = {}): ViewbookPublicData => ({

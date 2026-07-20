@@ -36,6 +36,22 @@
 // sections (pc-intro/pc-thanks) have no button at all, so buildExpandedHero
 // renders the title as a real <h2> for them instead — `collapsible` picks
 // the tag.
+//
+// Round-2 review fix (same date): a <button> may ALSO only contain PHRASING
+// content, but `buildCompactRow`/`buildExpandedHero` wrap their decorative
+// image/gradient/accent/cluster layers in <div>s — invalid when this hero
+// ends up inside CollapsibleSection's <button> (collapsible sections; the
+// two bookends render this markup directly with no button, where either tag
+// would have been fine). Every decorative wrapper below is now a <span>
+// instead — visually inert, since each one already carries an explicit
+// Tailwind `flex` class (sets `display:flex` outright) or `absolute`
+// positioning (CSS forces `display:block` on an absolutely-positioned
+// element regardless of its default), except the OUTER compact-row wrapper,
+// which gets an explicit `block` class since it relies on `mx-auto` alone.
+// This also means the button's only VISIBLE content is the title span (every
+// decorative span is aria-hidden), which is what lets CollapsibleSection
+// derive the button's accessible name from content instead of an aria-label
+// (see CollapsibleSection.tsx).
 import type { ReactNode } from 'react'
 import type { PublicSection } from '@/lib/viewbook/public-types'
 import type { ViewbookStage } from '@/lib/viewbook/stages'
@@ -159,8 +175,12 @@ export function SectionShell({
   // class CollapsibleSection puts on its click wrapper.
   function buildCompactRow(): ReactNode {
     return (
-      <div className="mx-auto w-full max-w-5xl px-6">
-        <div
+      // `block` explicit (span defaults inline; `mx-auto` needs a block box).
+      // `py-1` (Fix 5, post-review): the ~8px gap between stacked compact rows
+      // (matches the approved mockup's `gap:8px`) — collapsed-row-only, since
+      // buildExpandedHero never renders this wrapper.
+      <span className="mx-auto block w-full max-w-5xl px-6 py-1">
+        <span
           className="relative flex min-h-[74px] items-center overflow-hidden rounded-xl shadow-sm transition-all duration-150 group-hover:-translate-y-0.5 group-hover:shadow-lg"
           style={{ background: 'var(--vb-primary)' }}
         >
@@ -168,15 +188,24 @@ export function SectionShell({
             // eslint-disable-next-line @next/next/no-img-element
             <img src={heroUrl} alt="" className="absolute inset-0 h-full w-full object-cover opacity-40" />
           )}
-          <div
+          {/* Brand wash: color-mix() over a SOLID var(--vb-primary) base
+              (painted on this span's own `style.background` above) — if
+              color-mix is unsupported, this whole `background` declaration
+              fails to parse and the wash simply doesn't render, leaving the
+              solid primary underneath fully readable (Fix 5, post-review).
+              color-mix is already used elsewhere in shipped viewbook code
+              under the same browserslist targets (ProgressNav, SectionReveal,
+              EarlierSteps, TocRail) — kept here for consistency rather than
+              forked to a gradient-layered fallback. */}
+          <span
             aria-hidden
             className="absolute inset-0"
             style={{
               background: `linear-gradient(to right, var(--vb-primary) 8%, color-mix(in srgb, var(--vb-primary) ${rowWashStop}%, transparent) 80%)`,
             }}
           />
-          <div aria-hidden className="absolute inset-y-0 left-0 w-1" style={{ background: 'var(--vb-secondary)' }} />
-          <div className="relative z-[3] flex w-full min-w-0 items-center gap-2.5 px-5">
+          <span aria-hidden className="absolute inset-y-0 left-0 w-1" style={{ background: 'var(--vb-secondary)' }} />
+          <span className="relative z-[3] flex w-full min-w-0 items-center gap-2.5 px-5">
             {/* Plain <span> — this row only renders inside CollapsibleSection's
                 <button>, which is itself wrapped in the real <h2> (see
                 CollapsibleSection.tsx). A <button> may not contain a heading. */}
@@ -188,9 +217,9 @@ export function SectionShell({
             </span>
             {done && <DoneBadge size="row" />}
             <CollapseAffordance kind={affordance} />
-          </div>
-        </div>
-      </div>
+          </span>
+        </span>
+      </span>
     )
   }
 
@@ -207,12 +236,19 @@ export function SectionShell({
     // no button at all, so THEY need the real heading here.
     const TitleTag = collapsible ? 'span' : 'h2'
     return (
-      <div
+      // <span> (not <div>) — collapsible sections render this hero inside
+      // CollapsibleSection's <button>, which permits only phrasing content
+      // (see the file banner); bookends render it directly with no button,
+      // where a span works identically since every layer below sets its own
+      // `display` via an explicit Tailwind class (`flex`) or absolute
+      // positioning (CSS forces block regardless of the element's default).
+      <span
         className={`relative flex ${heightClass} items-end overflow-hidden`}
         style={{ background: 'var(--vb-primary)' }}
       >
         {/* Decorative-only corner accent (Task 10) — subtle brand-tinted
-            geometry, never load-bearing for layout or a11y. */}
+            geometry, never load-bearing for layout or a11y. Embedded content
+            (svg) is phrasing content — valid inside a button as-is. */}
         <CornerBracket className="absolute left-4 top-4" />
         {heroUrl && (
           <>
@@ -221,7 +257,7 @@ export function SectionShell({
             {/* Configurable brand-primary bottom fade (PR4 heroOverlayStrength)
                 keeps the on-primary headline on effectively-primary pixels —
                 concrete percentage stops, no calc(var()*%) arithmetic. */}
-            <div
+            <span
               aria-hidden
               className="absolute inset-0"
               style={{ background: `linear-gradient(to top, var(--vb-primary) ${brandStop}%, transparent ${fadeStop}%)` }}
@@ -230,15 +266,17 @@ export function SectionShell({
         )}
         {/* Non-configurable MINIMUM title scrim (Codex FIX-PRESENTATION-CONFIG)
             — always present so overlayStrength=0 can't render on-primary text
-            illegibly over a photo. */}
-        <div
+            illegibly over a photo. color-mix() over the solid var(--vb-primary)
+            base painted on this span above — same unsupported-fallback
+            reasoning as the compact row's wash (Fix 5, post-review). */}
+        <span
           aria-hidden
           className="absolute inset-x-0 bottom-0 h-2/5"
           style={{ background: 'linear-gradient(to top, color-mix(in srgb, var(--vb-primary) 55%, transparent), transparent)' }}
         />
         {/* Bottom-left cluster: title + done-check + a decorative up-chevron
             collapse cue, grouped together — collapsible sections only. */}
-        <div className="relative z-[3] mx-auto flex w-full max-w-5xl min-w-0 items-center gap-3 px-6 pb-6">
+        <span className="relative z-[3] mx-auto flex w-full max-w-5xl min-w-0 items-center gap-3 px-6 pb-6">
           <TitleTag
             className="min-w-0 truncate text-3xl font-extrabold tracking-tight sm:text-5xl"
             style={{ color: 'var(--vb-on-primary)', fontFamily: 'var(--vb-heading-font)' }}
@@ -264,8 +302,8 @@ export function SectionShell({
               </svg>
             </span>
           )}
-        </div>
-      </div>
+        </span>
+      </span>
     )
   }
 

@@ -1,49 +1,30 @@
-// DORMANT (2026-07-19): no longer called by the client — collapse is now
-// purely local (localStorage); see docs/superpowers/specs/2026-07-19-
-// viewbook-collapse-local-revision.md. Kept functional (not deleted) for a
-// possible future shared-collapse revival; its tests still verify a
-// working-but-unused route.
+// DORMANT (2026-07-19): collapse is client-local now; this endpoint is
+// intentionally 410 — see docs/superpowers/specs/2026-07-19-viewbook-
+// collapse-local-revision.md. `POST /api/viewbook/[token]/collapse` used to
+// be the shared-collapse write path (spec §6, v2 PR2); the viewer-facing
+// collapse-to-hero control now writes ONLY to localStorage (see
+// components/viewbook/public/useCollapseState.ts) and never calls this
+// route.
 //
-// Public shared-collapse route (v2 PR2 spec §6). Preflight chain is
-// load-bearing and MUST stay in this order: requireSameSite →
-// requireJsonContentType → requireViewbookToken (token preflight) →
-// checkWriteThrottle (a DEDICATED `collapse:<token>` bucket, so collapse
-// spam never starves the ack/materials/setup routes' shared per-token
-// bucket) → readBoundedJson (bounded body parsed BEFORE resolving optional
-// operator status — operator resolution is additive and must never weaken
-// token authorization) → the core. `setSectionCollapsedShared`
-// (lib/viewbook/collapse.ts) is itself commit-time fenced; this route is a
-// thin shell.
-import { NextRequest, NextResponse } from 'next/server'
+// Fix 3 (post-review, same date): this surface is STILL a live anonymous
+// write path (mutates SQLite + bumps `Viewbook.syncVersion`, triggering
+// refetch churn on every connected client) even though nothing calls it —
+// that's a dormant liability, not a harmless no-op. The handler now
+// short-circuits to 410 `collapse_local_only` BEFORE resolving the token,
+// parsing the body, or calling `setSectionCollapsedShared`
+// (lib/viewbook/collapse.ts, itself DORMANT): no read, no write, no
+// syncVersion bump, for any caller/body/token — mirrors the retired-route
+// precedent in app/api/clients/[id]/schedules/route.ts (`schedule_retired`).
+//
+// The route + lib/viewbook/collapse.ts + the middleware matcher are kept
+// FUNCTIONAL-BUT-UNREACHABLE (not deleted) in case a future "shared
+// collapse" mode revives them — this comment and the linked spec are the
+// breadcrumb.
 import { withRoute } from '@/lib/api/with-route'
 import { HttpError } from '@/lib/api/errors'
-import { requireJsonObject } from '@/lib/viewbook/route-utils'
-import { requireViewbookToken } from '@/lib/viewbook/route-auth'
-import { resolveOperatorEmail } from '@/lib/viewbook/operator'
-import { checkWriteThrottle, readBoundedJson, requireJsonContentType, requireSameSite } from '@/lib/viewbook/public-write-guard'
-import { setSectionCollapsedShared } from '@/lib/viewbook/collapse'
 
 export const dynamic = 'force-dynamic'
 
-const BODY_CAP_BYTES = 1024
-
-type RouteParams = { params: Promise<{ token: string }> }
-
-function parseInput(raw: unknown): { sectionKey: string; collapsed: boolean } {
-  const body = requireJsonObject(raw)
-  if (typeof body.sectionKey !== 'string' || !body.sectionKey) throw new HttpError(400, 'invalid_section')
-  if (typeof body.collapsed !== 'boolean') throw new HttpError(400, 'invalid_request')
-  return { sectionKey: body.sectionKey, collapsed: body.collapsed }
-}
-
-export const POST = withRoute(async (request: NextRequest, { params }: RouteParams) => {
-  requireSameSite(request)
-  requireJsonContentType(request)
-  const token = (await params).token
-  const viewbook = await requireViewbookToken(token)
-  checkWriteThrottle(`collapse:${token}`) // dedicated bucket — never starves ack/materials/setup
-  const input = parseInput(await readBoundedJson(request, BODY_CAP_BYTES))
-  const isOperator = (await resolveOperatorEmail(request)) != null
-  const result = await setSectionCollapsedShared(viewbook, token, { ...input, isOperator })
-  return NextResponse.json(result, { status: 200, headers: { 'Cache-Control': 'no-store' } })
+export const POST = withRoute(async () => {
+  throw new HttpError(410, 'collapse_local_only')
 })

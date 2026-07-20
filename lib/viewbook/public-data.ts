@@ -57,7 +57,20 @@ export async function loadViewbookPublicData(token: string): Promise<ViewbookPub
 
   const [client, sectionRows] = await Promise.all([
     prisma.client.findUnique({ where: { id: vb.clientId }, select: { name: true } }),
-    prisma.viewbookSection.findMany({ where: { viewbookId: vb.id } }),
+    // Explicit select (Fix 4, post-review): EXCLUDES the dormant
+    // `collapsedShared` column so it can never round-trip onto the
+    // client-facing PublicSection payload — nothing reads it any more.
+    prisma.viewbookSection.findMany({
+      where: { viewbookId: vb.id },
+      select: {
+        sectionKey: true,
+        state: true,
+        doneAt: true,
+        acknowledgedAt: true,
+        introNote: true,
+        narrative: true,
+      },
+    }),
   ])
   if (!client) return null
 
@@ -71,7 +84,6 @@ export async function loadViewbookPublicData(token: string): Promise<ViewbookPub
   const toPublic = (s: (typeof sectionRows)[number]): PublicSection => ({
     sectionKey: s.sectionKey as PublicSection['sectionKey'],
     state: s.state === 'done' ? 'done' : 'active',
-    collapsedShared: s.collapsedShared,
     doneAt: iso(s.doneAt),
     acknowledgedAt: iso(s.acknowledgedAt),
     introNote: s.introNote,

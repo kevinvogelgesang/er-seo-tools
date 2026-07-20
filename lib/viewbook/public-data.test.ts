@@ -53,17 +53,21 @@ describe('loadViewbookPublicData', () => {
     expect(data!.carriedSections.map((s) => s.sectionKey)).toEqual(['pc-setup', 'pc-invite'])
   })
 
-  it('maps collapsedShared through and never emits a "collapsed" state', async () => {
+  it('never emits a "collapsed" state, and the dormant collapsedShared column never rides on the payload', async () => {
     const client = await makeClient()
     const { id, token } = await createViewbook(client.id, 'upgrade', 'op@er.com')
     await prisma.viewbook.update({ where: { id }, data: { stage: 'building' } }) // 'brand' is in the building lineup
+    // A prod row could still carry collapsedShared:true from #215's retired
+    // shared-collapse window — the loader's PublicSection payload must not
+    // surface it at all (Fix 4, post-review: dropped from the type + the
+    // explicit section `select`).
     await prisma.viewbookSection.update({
       where: { viewbookId_sectionKey: { viewbookId: id, sectionKey: 'brand' } },
       data: { collapsedShared: true },
     })
     const data = await loadViewbookPublicData(token)
     const brand = [...data!.primarySections, ...data!.carriedSections].find((s) => s.sectionKey === 'brand')!
-    expect(brand.collapsedShared).toBe(true)
+    expect('collapsedShared' in brand).toBe(false)
     expect(brand.state).not.toBe('collapsed') // 'collapsed' is retired
   })
 
@@ -351,7 +355,6 @@ describe('gatePcThanks (PR5 pure gate)', () => {
   const sec = (sectionKey: PublicSection['sectionKey']): PublicSection => ({
     sectionKey,
     state: 'active',
-    collapsedShared: false,
     doneAt: null,
     acknowledgedAt: null,
     introNote: null,

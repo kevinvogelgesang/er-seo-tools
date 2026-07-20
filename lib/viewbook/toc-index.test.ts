@@ -14,7 +14,6 @@ function section(sectionKey: string, overrides: Partial<Record<string, unknown>>
   return {
     sectionKey,
     state: 'active',
-    collapsedShared: false,
     doneAt: null,
     acknowledgedAt: null,
     introNote: null,
@@ -113,8 +112,11 @@ describe('buildTocIndex', () => {
     expect(kickoffDataSource?.children).toBeUndefined()
   })
 
-  it('still contributes its child anchors when collapsedShared:true — that column is DORMANT (2026-07-19 local-only collapse revision, viewer collapse is a per-machine localStorage preference and never removes the body from the DOM)', () => {
+  it('still contributes its child anchors even with a stray collapsedShared:true on the row — that DB column is DORMANT (2026-07-19 local-only collapse revision, viewer collapse is a per-machine localStorage preference and never removes the body from the DOM) and no longer even rides on PublicSection (Fix 4, post-review)', () => {
     const data = buildFixture()
+    // `as any` — `collapsedShared` isn't on PublicSection at all any more; this
+    // simulates a stray/legacy property to prove toc-index has no code path
+    // that reads it, defense-in-depth beyond the type removal.
     ;(data.primarySections as any[]).find((s) => s.sectionKey === 'data-source').collapsedShared = true
     const toc = buildTocIndex(data)
     const dataSource = toc.find((t) => t.sectionKey === 'data-source')
@@ -184,11 +186,12 @@ describe('buildSearchIndex', () => {
     expect(doc.haystack).toContain('How to use our brand')
   })
 
-  it('still contributes nested content entries when collapsedShared:true — that column is DORMANT and no longer gates visibility (2026-07-19 local-only collapse revision)', () => {
+  it('still contributes nested content entries with a stray collapsedShared:true on the row — that column is DORMANT and no longer gates visibility (2026-07-19 local-only collapse revision) or even rides on PublicSection (Fix 4, post-review)', () => {
     const data = buildFixture()
     // A prod row could carry collapsedShared:true from #215's now-retired
     // shared-collapse window; the local-only model must not treat that as
-    // "hide this section's content from search forever".
+    // "hide this section's content from search forever". `as any` — the
+    // field isn't on PublicSection at all any more.
     for (const key of ['data-source', 'materials']) {
       ;(data.primarySections as any[]).find((s) => s.sectionKey === key).collapsedShared = true
     }

@@ -22,14 +22,21 @@ afterEach(() => {
   vi.unstubAllGlobals()
 })
 
+// Post-review a11y fix: the button no longer carries an explicit aria-label
+// (see CollapsibleSection.tsx's banner) — its accessible name now comes from
+// its ONE visible text node. Real hero content (SectionShell) always
+// contains the title as visible text; this harness mirrors that shape
+// (rather than the old opaque "Hero expanded"/"Hero collapsed" strings) so
+// `getByRole('button', { name: title })` still resolves correctly.
 function Harness(props: Partial<Parameters<typeof CollapsibleSection>[0]> = {}) {
+  const title = props.title ?? 'Brand & Identity'
   return (
     <CollapsibleSection
       viewbookId={1}
       sectionKey="brand"
-      title="Brand & Identity"
-      heroExpanded={<div data-testid="hero-expanded">Hero expanded</div>}
-      heroCollapsed={<div data-testid="hero-collapsed">Hero collapsed</div>}
+      title={title}
+      heroExpanded={<div data-testid="hero-expanded">{title}</div>}
+      heroCollapsed={<div data-testid="hero-collapsed">{title}</div>}
       body={<div data-testid="body">Body content</div>}
       regionId="vb-region-brand"
       {...props}
@@ -64,6 +71,21 @@ describe('CollapsibleSection', () => {
     // The heading WRAPS the button (not the reverse).
     expect(heading.contains(btn)).toBe(true)
     expect(heading.querySelector('button')).toBe(btn)
+  })
+
+  it('the button and its wrapping heading carry NO explicit aria-label — the accessible name comes from the visible title text (name-from-content), not a duplicate string', () => {
+    render(<Harness />)
+    const btn = screen.getByRole('button', { name: 'Brand & Identity' })
+    expect(btn.hasAttribute('aria-label')).toBe(false)
+    const heading = screen.getByRole('heading', { name: 'Brand & Identity' })
+    expect(heading.hasAttribute('aria-label')).toBe(false)
+  })
+
+  it('the always-rendered controlled region is a NAMED landmark (aria-label), independent of collapsed state', () => {
+    render(<Harness />)
+    const region = document.getElementById('vb-region-brand')!
+    expect(region.getAttribute('role')).toBe('region')
+    expect(region.getAttribute('aria-label')).toBe('Brand & Identity')
   })
 
   it('a stored "expanded" value starts expanded', () => {

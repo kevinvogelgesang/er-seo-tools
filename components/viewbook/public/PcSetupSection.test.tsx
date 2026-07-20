@@ -17,7 +17,6 @@ afterEach(() => {
 const section: PublicSection = {
   sectionKey: 'pc-setup',
   state: 'active',
-  collapsedShared: false,
   doneAt: null,
   acknowledgedAt: null,
   introNote: null,
