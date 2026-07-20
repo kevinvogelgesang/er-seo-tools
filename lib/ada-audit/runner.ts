@@ -12,7 +12,7 @@ import { gotoWithRetryOn5xx, postLoadSettle } from './page-load'
 import { isNoiseRequest } from './scanner-noise'
 import { isTransientRunnerError } from './runner-retry'
 import { classifyRunnerError } from './runner-errors'
-import { detectRedirect } from './redirect-detect'
+import { detectRedirect, normalizeForRedirect } from './redirect-detect'
 import { trimAxeResultsForStorage } from './axe-trim'
 import type { StoredAxeResults } from './types'
 import type { LighthouseSummary } from './lighthouse-types'
@@ -328,23 +328,32 @@ export async function runAxeAudit(
           if (status === 403) throw new Error(`HTTP 403 — This site is blocking automated scanners. Try adding your server IP to the site's allowlist, or contact the site owner.`)
           if (status === 401) throw new Error(`HTTP 401 — This page requires authentication. The scanner cannot access password-protected pages.`)
           if (status >= 300 && status < 400) {
+            // Bucket 4: ANY Location-bearing 3xx is a redirect, regardless of
+            // whether puppeteer already followed part of the chain. The old
+            // `chain.length === 0` gate wrongly threw "did not auto-follow" for
+            // non-empty chains (e.g. a mid-chain http→https flip). Record the
+            // target; the child settles `redirected`, `pagesRedirected++`.
             const finalUrl = response.url()
             const location = response.headers()['location'] ?? null
-            const chain = response.request().redirectChain()
-            // Puppeteer didn't auto-follow but a Location header is present —
-            // classify as a redirected page rather than an error. Resolve the
-            // Location against the requested URL so relative redirects work.
-            if (location && chain.length === 0) {
+            if (location) {
               try {
-                const resolved = new URL(location, parsed.toString()).toString()
-                redirectedHolder.value = { finalUrl: resolved, rendered: false }
-                return  // exit attemptNavigation — outer code checks redirectedHolder
+                // Resolve against the FINAL response URL (handles mid-chain
+                // http/https flips), not only the originally-requested URL.
+                const resolved = new URL(location, finalUrl).toString()
+                // No-progress loop guard: a redirect pointing at its own final
+                // URL is a genuine broken redirect. Use normalizeForRedirect
+                // (shared: default-port/host-case/trailing-slash/fragment
+                // insensitive) — NOT an inline regex that would miss those.
+                if (normalizeForRedirect(resolved) !== normalizeForRedirect(finalUrl)) {
+                  redirectedHolder.value = { finalUrl: resolved, rendered: false }
+                  return // exit attemptNavigation — outer code checks redirectedHolder
+                }
               } catch {
-                // Malformed Location — fall through to error path
+                /* malformed Location — fall through to error path */
               }
             }
             const detail = location
-              ? `Redirected to ${location} (final URL was ${finalUrl}); puppeteer did not auto-follow`
+              ? `Redirected to ${location} (final URL was ${finalUrl}); no forward progress`
               : `Server returned ${status} with no Location header (final URL: ${finalUrl})`
             throw new Error(`HTTP ${status} — ${detail}`)
           }

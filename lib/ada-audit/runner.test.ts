@@ -153,3 +153,66 @@ describe('B3 — acquirePageWithRetry + pool-stability', () => {
     }
   })
 })
+
+describe('B4 — Location-bearing 3xx classified redirected', () => {
+  function redirectResponse(opts: { status?: number; location: string | null; url: string; chain?: unknown[] }) {
+    return {
+      status: () => opts.status ?? 301,
+      ok: () => false,
+      statusText: () => 'Moved Permanently',
+      headers: () => (opts.location != null ? { location: opts.location } : {}),
+      url: () => opts.url,
+      request: () => ({ redirectChain: () => opts.chain ?? [] }),
+    }
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    ;(acquirePage as ReturnType<typeof vi.fn>).mockResolvedValue(makePage())
+  })
+
+  it('NON-EMPTY redirect chain + Location → redirected (not thrown)', async () => {
+    ;(gotoWithRetryOn5xx as ReturnType<typeof vi.fn>).mockResolvedValue(
+      redirectResponse({ location: 'https://site.edu/final/', url: 'http://site.edu/', chain: [{}] }),
+    )
+    const res = await runAxeAudit('http://site.edu/', 'wcag21aa', undefined, { auditId: 'a1' })
+    expect(res.kind).toBe('redirected')
+    if (res.kind === 'redirected') expect(res.finalUrl).toBe('https://site.edu/final/')
+  })
+
+  it('relative Location resolves against the FINAL response url (mid-chain flip)', async () => {
+    ;(gotoWithRetryOn5xx as ReturnType<typeof vi.fn>).mockResolvedValue(
+      redirectResponse({ location: '/landing', url: 'https://www.site.edu/old', chain: [{}] }),
+    )
+    const res = await runAxeAudit('http://site.edu/old', 'wcag21aa', undefined, { auditId: 'a1' })
+    expect(res.kind).toBe('redirected')
+    if (res.kind === 'redirected') expect(res.finalUrl).toBe('https://www.site.edu/landing')
+  })
+
+  it('no-progress loop (Location === final URL) → throws', async () => {
+    ;(gotoWithRetryOn5xx as ReturnType<typeof vi.fn>).mockResolvedValue(
+      redirectResponse({ location: 'https://site.edu/x', url: 'https://site.edu/x', chain: [{}] }),
+    )
+    await expect(
+      runAxeAudit('https://site.edu/x', 'wcag21aa', undefined, { auditId: 'a1' }),
+    ).rejects.toThrow(/HTTP 301/)
+  })
+
+  it('no Location header → throws', async () => {
+    ;(gotoWithRetryOn5xx as ReturnType<typeof vi.fn>).mockResolvedValue(
+      redirectResponse({ location: null, url: 'https://site.edu/x', chain: [{}] }),
+    )
+    await expect(
+      runAxeAudit('https://site.edu/x', 'wcag21aa', undefined, { auditId: 'a1' }),
+    ).rejects.toThrow(/no Location header/)
+  })
+
+  it('Location differing only by trailing slash + fragment → no-progress throw (proves normalizeForRedirect, not a regex)', async () => {
+    ;(gotoWithRetryOn5xx as ReturnType<typeof vi.fn>).mockResolvedValue(
+      redirectResponse({ location: 'https://site.edu/x/#frag', url: 'https://site.edu/x', chain: [{}] }),
+    )
+    await expect(
+      runAxeAudit('https://site.edu/x', 'wcag21aa', undefined, { auditId: 'a1' }),
+    ).rejects.toThrow(/HTTP 301/)
+  })
+})
