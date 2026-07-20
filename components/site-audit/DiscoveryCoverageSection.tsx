@@ -50,6 +50,10 @@ interface CoverageData {
   residualMissRate?: number | null
   residualApplicable?: boolean
   hybridCapped?: boolean
+  // L1 (optional — legacy runs lack them)
+  residualMissRateRaw?: number | null
+  nonContentExcludedCount?: number
+  baselineExcludedCount?: number
 }
 
 export function DiscoveryCoverageSection({
@@ -81,6 +85,15 @@ export function DiscoveryCoverageSection({
             ? <>Hybrid discovery crawled linked pages; {rPct}% remained undiscovered.</>
             : <>Hybrid discovery expanded the crawl beyond the sitemap.</>}
         </p>
+        {((data.nonContentExcludedCount ?? 0) + (data.baselineExcludedCount ?? 0)) > 0 && (
+          <p className="mt-1 text-[12px] font-body text-navy/50 dark:text-white/50">
+            {(data.nonContentExcludedCount ?? 0) + (data.baselineExcludedCount ?? 0)} URLs policy-excluded
+            (tracking-param/malformed variants, pagination, taxonomy, thank-you, account)
+            {typeof data.residualMissRateRaw === 'number'
+              ? `; raw ${Math.round(data.residualMissRateRaw * 100)}%`
+              : ''}.
+          </p>
+        )}
         {data.sample.length > 0 && (
           <details className="mt-2">
             <summary className="cursor-pointer text-[13px] font-body text-navy/60 dark:text-white/60">
@@ -131,9 +144,9 @@ export function DiscoveryCoverageSection({
   return (
     <Card>
       <p className="mt-1 text-[13px] font-body text-navy/70 dark:text-white/70">
-        Sitemap listed {data.discoveredCount} same-domain URLs.{' '}
+        Sitemap listed {data.discoveredCount} same-domain content URLs (policy-filtered).{' '}
         <span className="font-semibold text-navy dark:text-white">
-          {data.offBaselineCount} additional same-domain URLs
+          {data.offBaselineCount} additional content URLs
         </span>{' '}
         were linked from audited pages but absent from the sitemap ({pct}% off-sitemap).
       </p>

@@ -21,7 +21,7 @@ describe('DiscoveryCoverageSection', () => {
         run={cov({ applicable: true, mode: 'sitemap', capped: false, discoveredCount: 10, offBaselineCount: 3, missRate: 0.23, sample: [] })}
       />,
     )
-    expect(screen.getByText(/3 additional same-domain URLs/i)).toBeTruthy()
+    expect(screen.getByText(/3 additional content URLs/i)).toBeTruthy()
     expect(container.textContent).toMatch(/23%/)
   })
 
@@ -56,6 +56,25 @@ describe('DiscoveryCoverageSection', () => {
     expect(screen.getByText(/40% of internally-reachable URLs/i)).toBeTruthy()
     expect(screen.getByText(/5% remained undiscovered/i)).toBeTruthy()
     expect(screen.queryByText(/not measured/i)).toBeNull()
+  })
+
+  it('shows filtered residual + policy-excluded note with raw companion (L1)', () => {
+    render(
+      <DiscoveryCoverageSection
+        run={cov({
+          mode: 'hybrid', capped: false, applicable: false, discoveredCount: 20, offBaselineCount: 1,
+          missRate: null, sitemapMissRate: 0.3, sitemapApplicable: true,
+          residualMissRate: 0.03, residualApplicable: true,
+          residualMissRateRaw: 0.19, nonContentExcludedCount: 8, baselineExcludedCount: 4,
+          excludedByReason: { param: 2, malformed: 1, pagination: 3, taxonomy: 2, thankyou: 0, account: 0 },
+          baselineExcludedByReason: { pagination: 1, taxonomy: 3, thankyou: 0, account: 0, nonpage: 0 },
+          excludedSampleByReason: {}, sample: [],
+        })}
+      />,
+    )
+    expect(screen.getByText(/3% remained undiscovered/i)).toBeTruthy()
+    expect(screen.getByText(/policy-excluded/i)).toBeTruthy()
+    expect(screen.getByText(/raw 19%/i)).toBeTruthy()
   })
 
   it('renders methodology behind a hover-card Explainer', async () => {
