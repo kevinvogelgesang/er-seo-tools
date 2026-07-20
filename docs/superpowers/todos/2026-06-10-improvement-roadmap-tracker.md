@@ -958,6 +958,28 @@ decisions in the umbrella spec are settled — don't re-litigate.
 
 ## Status log
 
+- 2026-07-20 (**SF-retirement Phase 2 — hybrid-crawler under-expansion fix: L1 SHIPPED + DEPLOYED + PROD-VERIFIED; L2/L3 planned**) —
+  Picked up the single buildable code item the retirement bar gates on. **Prod diagnosis (29-domain probe)
+  overturned the handoff's "frontier/depth tuning" framing:** the blocked clients split into (1) **JS-blind
+  crawler** — cambria/glow/nuvani/brownson/federico nav is client-rendered, so raw-HTTP discovery sees 0
+  same-host `<a href>` (verified: 60–120 KB HTML, 0 links); BFS tuning cannot help — the missed pages are
+  rendered-DOM-only → **L2 rendered-DOM adaptive discovery**; (2) **bound hits** (discovery/soma/
+  healthcarecareer/beal) → **L3 bound adaptivity**; and (3) **metric noise** (param dupes, pagination,
+  taxonomy, thank-you, account URLs inflating residual) → **L1**. Kevin chose **all three, phased**, and
+  **fuller L1 normalization**. **L1 SHIPPED (PR #235, merged 1b4d8ce, deployed):** `discoveryCoverageJson
+  .residualMissRate` is now **policy-filtered** (content-only) with a raw companion (`residualMissRateRaw`)
+  + two-sided attribution (`excludedByReason` numerator + `baselineExcludedByReason` denominator). Pure
+  coverage-local change (`contentNormalize`/`classifyExclusion` layered on the untouched shared
+  `normalizeCoverageUrl`); no schema, no crawl change. Gates: tsc clean · 6747 tests · build ok · frozen
+  characterization test re-pinned additively (old fields byte-identical = isolation proof). Spec + plan
+  **Codex-reviewed P0** (6 + 8 fixes). **Prod-verified:** deployed `computeDiscoveryCoverage` returns the
+  new fields and filters correctly (0.667 raw → 0.5 filtered on a mixed fixture); PM2 online 0 restarts.
+  **Authoritative fleet re-baseline lands from the Mon 2026-07-27 sweep** (coverage recomputed there).
+  **STILL OPEN:** L2 (rendered-DOM discovery — the JS-blind fix, the long pole, memory-sensitive; own plan)
+  + L3 (bound adaptivity; own plan). Worktree `.claude/worktrees/hybrid-discovery-expansion`, branch
+  `feat/hybrid-discovery-expansion` (L2/L3 continue there). Spec: `../specs/2026-07-20-hybrid-discovery-under-expansion-design.md`
+  (all 3 increments, Codex-reviewed) · L1 plan: `../plans/2026-07-20-hybrid-discovery-L1-coverage-normalization.md`.
+
 - 2026-07-20 (**SF-retirement Phase 7 — RETIREMENT BAR SET by Kevin; docs-only, no code**) — With the
   SF-parity data gate over-satisfied (cycles 1–4; the weekly sweep now self-generates parity data), the
   campaign moved from measurement to Kevin's judgment call. Kevin **locked the four Phase-7 policy knobs**
