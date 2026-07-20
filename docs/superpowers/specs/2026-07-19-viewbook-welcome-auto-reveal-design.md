@@ -1,51 +1,51 @@
 # Viewbook welcome auto-reveal, animated collapse & per-viewbook pacing — design
 
 **Date:** 2026-07-19
-**Status:** spec (pre-plan)
+**Status:** spec (Codex-reviewed 2026-07-19 — accept with named fixes, applied inline)
 **Base branch:** `feat/vb-collapse-local` (the local-override viewer-collapse program; not yet merged to `main`). Work branch: `feat/vb-welcome-auto-reveal`.
-**Approved mockup:** `scratchpad/viewbook-reveal-mockups.html` (Artifact — Cinematic treatment #01 + pacing console).
+**Approved mockup:** Cinematic treatment #01 + pacing console — committed at `docs/superpowers/specs/assets/2026-07-19-viewbook-reveal-mockups.html` (also published as an Artifact). It is the canonical visual/transition reference for D3/D1.
 
 ## Goal
 
 Building on the collapse-local model (every collapsible section renders default-collapsed to a compact row and expands on click, purely local per-device), add three things:
 
-1. **The bookends collapse like the rest.** Today `pc-intro` (welcome) and `pc-thanks` (thank-you) are excluded from collapse and render full-height. They should become ordinary collapsible sections — default-collapsed compact rows in the stack.
-2. **The welcome auto-expands on first load.** The first time the "Getting Started" (`post-contract`) stage loads **on a given device**, the welcome section (`pc-intro`) waits a configurable delay (default 3 s) and then smoothly expands on its own. Once per browser.
-3. **A smooth, premium (cinematic) expand/collapse transition** — applied to **all** section expand/collapse, not just the welcome — replacing today's instant swap. Its pace is tunable **per viewbook** via two operator levers.
+1. **The bookends collapse like the rest.** Today `pc-intro` (welcome) and `pc-thanks` (thank-you) are excluded from collapse and render full-height. They become ordinary collapsible sections — default-collapsed compact rows in the stack. **This deliberately reverses the prior invariant** (spec `2026-07-19-viewbook-collapse-local-revision.md` §"bookends never collapse", and `pc-intro` ∈ `ALWAYS_OPEN_KEYS`).
+2. **The welcome auto-expands on first load.** The first time the "Getting Started" (`post-contract`) stage loads **on a given device**, the welcome (`pc-intro`) waits a configurable delay (default 3 s) then smoothly expands on its own. Once per browser.
+3. **A smooth, premium (cinematic) expand/collapse transition** — applied to **all** section expand/collapse, replacing today's instant swap. Its pace is tunable **per viewbook**.
 
 Two per-viewbook levers govern the motion:
-- **Reveal speed** — an animation multiplier (default `1.0`). Presets Grand `1.4` / Standard `1.0` / Brisk `0.7` / Snappy `0.5`, plus a fine slider `0.4×–1.6×`.
-- **First-load delay** — how long after first load the welcome auto-expands (default `3000 ms`), slider `0–6000 ms`.
+- **Reveal pace** (`revealDurationScale`) — a **duration multiplier** (default `1.0`; **higher = slower/grander**, lower = snappier). Presets Grand `1.4` / Standard `1.0` / Brisk `0.7` / Snappy `0.5`, plus a fine slider `0.4×–1.6×` (labeled "Faster ← → Slower"). *Named `revealDurationScale`, not "revealSpeed", precisely because the number scales duration — a "speed" named field where 1.4 is the slowest reads backwards (Codex fix 8).*
+- **First-load delay** (`firstLoadDelayMs`) — how long after first load the welcome auto-expands (default `3000 ms`), slider `0–6000 ms`.
 
 ## Decisions locked in brainstorming
 
 - **Treatment:** the Cinematic mockup (#01) — Ken-Burns hero image, eyebrow/title/gold-rule reveal, body lift; everything scaled by one multiplier so the choreography never drifts.
-- **Collapsed resting look:** the standard **compact ~74px row** for both bookends (consistent with every other section on this branch). The welcome blooms from its row into the full hero + body. *Not* the hero-band collapsed look from `main`.
-- **Motion scope:** the cinematic transition applies to **all** expand/collapse; the speed lever is therefore meaningful on every interaction.
-- **Speed lever UI:** presets **and** slider. **Delay lever UI:** slider only.
-- **Auto-expand target:** the **welcome only** (`pc-intro`, and only in the `post-contract` stage). The thank-you (`pc-thanks`) collapses like the rest and never auto-expands (it is also gated behind `pcCompletedAt` and only appears once the engagement completes).
+- **Collapsed resting look:** the standard **compact row** (~82 px incl. `py-1`) for both bookends, consistent with every other section on this branch. The welcome blooms from its row into the full hero + body. *Not* the hero-band collapsed look from `main`.
+- **Motion scope:** the cinematic transition applies to **all** expand/collapse; the pace lever is meaningful on every interaction.
+- **Pace lever UI:** presets **and** slider. **Delay lever UI:** slider only.
+- **Auto-expand target:** the **welcome only** (`pc-intro`, `post-contract` stage). The thank-you (`pc-thanks`) collapses like the rest, never auto-expands (also gated behind `pcCompletedAt`).
 
 ## Non-goals / out of scope
 
-- Reviving the dormant server-side shared-collapse path (`lib/viewbook/collapse.ts`, `POST /api/viewbook/[token]/collapse` — currently 410). Untouched except where its **tests** must change (see D2).
-- Re-enabling the dormant inner `SectionReveal` toggle (`SECTION_TOGGLE_ENABLED = false`). The cinematic animation is added to `CollapsibleSection` (the outer, live collapse island), not to `SectionReveal`.
-- Per-child staggered cascade of arbitrary section body content. The cinematic weight lives in the hero flourishes + a unified body lift (see D3); a per-child stagger is a possible future enhancement.
-- Any AI/LLM API work; any change to scoring, findings, or the share view beyond what the animation naturally touches.
+- Reviving the dormant server-side shared-collapse path (`lib/viewbook/collapse.ts`, `POST /api/viewbook/[token]/collapse` — 410). Untouched except **stale comments + tests** (D2).
+- Re-enabling the dormant inner `SectionReveal` toggle (`SECTION_TOGGLE_ENABLED = false`). The cinematic animation is added to `CollapsibleSection` (the live outer collapse island).
+- Per-child staggered cascade of arbitrary section body content — the cinematic weight lives in the hero flourishes + a unified body lift; per-child stagger is possible future work.
+- Any AI/LLM API work; any change to scoring/findings/share view beyond what the animation naturally touches.
 
 ---
 
 ## Architecture overview
 
-Four units, each independently shippable (suggested PR order in Rollout):
+Four units, each independently shippable (PR order in Rollout):
 
 | Unit | Concern | Primary files |
 |---|---|---|
-| **D1 Config levers** | Two per-viewbook settings, stored + validated + threaded + operator UI + CSS var | `prisma/schema.prisma`, `lib/viewbook/presentation-config.ts`, `lib/viewbook/service.ts`, `lib/viewbook/public-data.ts`, `lib/viewbook/public-types.ts`, `components/viewbook/public/ViewbookShell.tsx`, `components/viewbook/admin/PresentationEditor.tsx` |
-| **D2 Bookend collapse** | Make `pc-intro`/`pc-thanks` collapsible like the rest | `lib/viewbook/theme.ts`, `lib/viewbook/section-display.ts`, `lib/viewbook/collapse.test.ts` (dormant-path test) |
-| **D3 Cinematic transition** | Animate all expand/collapse, scaled by `--vb-reveal-speed`, reduced-motion safe | `components/viewbook/public/CollapsibleSection.tsx`, `components/viewbook/public/SectionShell.tsx` (hero/body markup hooks) |
-| **D4 Welcome auto-reveal** | 3 s once-per-device auto-expand of the welcome | new `components/viewbook/public/useWelcomeAutoReveal.ts`, `CollapsibleSection.tsx`, `SectionShell.tsx`, `PcIntroSection.tsx` |
+| **D1 Config levers** | Two per-viewbook settings: store + validate + thread + operator UI + CSS var | `prisma/schema.prisma`, `lib/viewbook/presentation-config.ts`, `lib/viewbook/service.ts`, `lib/viewbook/public-data.ts`, `lib/viewbook/public-types.ts`, `components/viewbook/public/ViewbookShell.tsx`, `components/viewbook/admin/PresentationEditor.tsx`, `components/viewbook/admin/viewbook-admin-shared.ts` |
+| **D2 Bookend collapse** | Make `pc-intro`/`pc-thanks` collapsible like the rest | `lib/viewbook/theme.ts`, `lib/viewbook/section-display.ts`, + tests/comments (see D2.3) |
+| **D3 Cinematic transition** | Animate all expand/collapse, scaled by `--vb-reveal-scale`, reduced-motion & navigation safe | `components/viewbook/public/CollapsibleSection.tsx`, `SectionShell.tsx`, `viewbook-navigate.ts` |
+| **D4 Welcome auto-reveal** | 3 s once-per-device auto-expand of the welcome | new `useWelcomeAutoReveal.ts`, `useCollapseState.ts` (ready flag + interaction cb), `CollapsibleSection.tsx`, `PcIntroSection.tsx` |
 
-Data flows: **DB columns → `presentation-config` sanitizer → `service`/`public-data` loader → `ViewbookPublicData` → (a) `ViewbookShell` injects `--vb-reveal-speed` inline on the theme-root, inherited by every `CollapsibleSection`; (b) `firstLoadDelayMs` passes as a prop to the welcome's `CollapsibleSection` for the auto-reveal timer.** The operator sets both values on the options page via the existing `PATCH /api/viewbooks/[id]` presentation path.
+Data flow: **DB columns → `presentation-config` sanitizer → `service`/`public-data` loader → `ViewbookPublicData` → (a) `ViewbookShell` injects `--vb-reveal-scale` inline on the theme-root, inherited by every `CollapsibleSection`; (b) `firstLoadDelayMs` passes as a prop to the welcome's `CollapsibleSection` for the auto-reveal timer.** Operator sets both via `PATCH /api/viewbooks/[id]` (existing presentation path).
 
 ---
 
@@ -53,51 +53,51 @@ Data flows: **DB columns → `presentation-config` sanitizer → `service`/`publ
 
 ### D1.1 Schema (`prisma/schema.prisma`, `model Viewbook`)
 
-Add two typed columns adjacent to `collapseAffordance` / `heroOverlayStrength` (~line 882):
+Add two typed columns next to `collapseAffordance` / `heroOverlayStrength`:
 
 ```prisma
-revealSpeed      Float @default(1.0)  // 0.4..1.6 animation-pace multiplier (presentation config)
-firstLoadDelayMs Int   @default(3000) // 0..6000 ms before the welcome auto-expands on first device load
+revealDurationScale Float @default(1.0)  // 0.4..1.6 animation DURATION multiplier (higher = slower/grander)
+firstLoadDelayMs    Int   @default(3000) // 0..6000 ms before the welcome auto-expands on first device load
 ```
 
-Typed columns, **not** `themeJson` (its strict whole-object validator would reset every stored theme — the exact reason presentation config lives in columns). Migration `npx prisma migrate dev --name viewbook_reveal_pacing`. Defaults make the migration safe for existing rows (they read as Standard/3 s, i.e. current-feeling behavior once the animation ships).
+Typed columns, **not** `themeJson` (its strict whole-object validator would reset every stored theme). **Migration:** author the migration via `npx prisma migrate dev --name viewbook_reveal_pacing` locally (creates the migration SQL + regenerates the client — the repo's documented workflow); commit the generated migration; production applies it via `prisma migrate deploy` in the deploy command. Defaults make it safe for existing rows (read as Standard / 3 s).
 
 ### D1.2 Sanitizer (`lib/viewbook/presentation-config.ts`)
 
-`presentation-config.ts` is the ONE home for per-viewbook presentation config; write is strict (`parsePresentationPatch` → `HttpError(400)`), read never throws (`readPresentationConfig` degrades to defaults). Extend both sides equally strictly (repo convention — never loosen one side):
+`presentation-config.ts` is the ONE home for per-viewbook presentation config; write is strict (`parsePresentationPatch` → `HttpError(400)`), read degrades. Extend both sides (never loosen one side):
 
-- `PRESENTATION_DEFAULTS` gains `revealSpeed: 1.0`, `firstLoadDelayMs: 3000`.
-- `parsePresentationPatch`: for each key present in `raw`:
-  - `revealSpeed` — must be a **finite number** (reject `NaN`/`Infinity`/`"fast"` → `400 invalid_reveal_speed`), then **clamp to `[0.4, 1.6]`** (matches the mockup slider range; presets 0.5–1.4 sit inside).
+- `PRESENTATION_DEFAULTS` gains `revealDurationScale: 1.0`, `firstLoadDelayMs: 3000`.
+- **`parsePresentationPatch`** (write) — for each key present in `raw`:
+  - `revealDurationScale` — must be a **finite number** (reject `NaN`/`Infinity`/strings → `400 invalid_reveal_scale`), then **clamp to `[0.4, 1.6]`**.
   - `firstLoadDelayMs` — must be a **finite integer** (reject non-integer/non-finite → `400 invalid_first_load_delay`), then **clamp to `[0, 6000]`**.
-- `readPresentationConfig` degrades each field to its default when malformed/out of type.
+- **`readPresentationConfig`** (read) — mirror the `heroOverlayStrength` precedent exactly: a **finite but out-of-range** stored value is **clamped** to range (not defaulted); only a **malformed/non-finite** value falls back to the default.
 
-Mirror the existing `heroOverlayStrength` integer-validation + clamp precedent exactly. Add cases to `presentation-config.test.ts` (finite/integer rejection *not* coercion; clamp at both ends; degrade-on-read).
+Add `presentation-config.test.ts` cases: write rejects non-finite/non-integer (no coercion) + clamps at both ends; read clamps finite-out-of-range and defaults only on malformed.
 
 ### D1.3 Service + loader threading
 
-- `lib/viewbook/service.ts` `updateViewbookPresentation` — widen the `patch` type to include `revealSpeed?: number` and `firstLoadDelayMs?: number`. No other change (same atomic array-form `$transaction([syncVersionBump, viewbook.update])`).
-- `lib/viewbook/public-data.ts` — read the two new columns and emit them on the public data object (alongside `collapseAffordance`/`heroOverlayStrength`), passing through `readPresentationConfig` so a corrupt DB value degrades.
-- `lib/viewbook/public-types.ts` `ViewbookPublicData` (~line 153) — add `revealSpeed: number` and `firstLoadDelayMs: number`.
+- `lib/viewbook/service.ts` `updateViewbookPresentation` — widen the `patch` type to include `revealDurationScale?: number` and `firstLoadDelayMs?: number` (same atomic array-form `$transaction([syncVersionBump, viewbook.update])`). Add/extend a **service persistence test**.
+- `lib/viewbook/public-data.ts` — read the two columns and emit them on the public data object through `readPresentationConfig` (degrade/clamp). Add a **public-data default/threading test** (missing columns → defaults; set columns → passthrough).
+- `lib/viewbook/public-types.ts` `ViewbookPublicData` — add `revealDurationScale: number` and `firstLoadDelayMs: number`.
 
-### D1.4 CSS variable injection (`components/viewbook/public/ViewbookShell.tsx`)
+### D1.4 CSS variable injection (`ViewbookShell.tsx`)
 
-On the `data-vb-theme-root` div (~line 47–55), add inline alongside `--vb-sticky-offset`:
+On the `data-vb-theme-root` div, add inline alongside `--vb-sticky-offset`:
 
 ```ts
-'--vb-reveal-speed': String(data.revealSpeed),
+'--vb-reveal-scale': String(data.revealDurationScale),
 ```
 
-It inherits to every descendant `CollapsibleSection`, whose animation CSS reads `var(--vb-reveal-speed, 1)` (D3). `firstLoadDelayMs` is **not** a CSS var — it is passed as a React prop to the welcome section (D4), since it drives a JS timer.
+Inherits to every descendant `CollapsibleSection`, whose CSS reads `var(--vb-reveal-scale, 1)` (D3). Add a `ViewbookShell` test asserting the var is emitted. `firstLoadDelayMs` is **not** a CSS var — it's a React prop to the welcome section (D4), since it drives a JS timer.
 
-### D1.5 Operator UI (`components/viewbook/admin/PresentationEditor.tsx`)
+### D1.5 Operator UI (`PresentationEditor.tsx` + `viewbook-admin-shared.ts`)
 
-Add two controls beside the existing affordance + overlay controls, PATCHed through the same `/api/viewbooks/[id]` presentation path (the route already runs `parsePresentationPatch`; the extra keys flow through once D1.2 lands):
+Add two controls beside the affordance + overlay controls, PATCHed through the same `/api/viewbooks/[id]` presentation path (extra keys flow once D1.2 lands). If preset lists / control metadata live in `components/viewbook/admin/viewbook-admin-shared.ts`, add them there:
 
-- **Reveal speed** — preset chips (Grand 1.4 / Standard 1.0 / Brisk 0.7 / Snappy 0.5) + a `0.4–1.6` step-`0.05` range input. Live readout "≈ Xs" is nice-to-have, not required.
-- **First-load delay** — a `0–6000` step-`250` (or `0–6` s) range input, labeled in seconds.
+- **Reveal pace** — preset chips (Grand 1.4 / Standard 1.0 / Brisk 0.7 / Snappy 0.5) + a `0.4–1.6` step-`0.05` range labeled "Faster ← → Slower".
+- **First-load delay (welcome)** — a `0–6000` step-`250` range labeled in seconds.
 
-Extend `PresentationEditor.test.tsx` to cover the two new controls submitting valid patches. Copy: "Reveal speed" / "First-load delay (welcome)".
+Extend `PresentationEditor.test.tsx` to cover both controls submitting valid patches.
 
 ---
 
@@ -105,136 +105,137 @@ Extend `PresentationEditor.test.tsx` to cover the two new controls submitting va
 
 ### D2.1 Collapse eligibility (`lib/viewbook/theme.ts`)
 
-`SectionShell` decides whether to wrap a section in `CollapsibleSection` purely via `collapsible = sectionSupportsCollapse(sectionKey)`, which is `!COLLAPSE_EXCLUDED_SECTION_KEYS.has(key)`. Today the set is `{'pc-intro','pc-thanks'}`.
-
-**Change:** remove both bookends from `COLLAPSE_EXCLUDED_SECTION_KEYS` (the set becomes empty). Keep the constant + `sectionSupportsCollapse` in place (the mechanism stays; only the membership changes) so the dormant server path and any future carve-out still compile. Update the file banner to record that all sections are now collapsible.
-
-Once collapsible, the bookends automatically route through `CollapsibleSection` (default-collapsed compact row, click-to-expand, per-device local state) with **no per-component change** — `PcIntroSection.tsx:39-40` and `PcThanksSection.tsx:36-37` already forward `affordance`/`overlayStrength` to `SectionShell`.
+`SectionShell` decides collapse-wrapping purely via `collapsible = sectionSupportsCollapse(sectionKey)` = `!COLLAPSE_EXCLUDED_SECTION_KEYS.has(key)`. **Change:** empty the set (`COLLAPSE_EXCLUDED_SECTION_KEYS = new Set()`). Keep the constant + helper (mechanism stays; only membership changes) so the dormant path and any future carve-out still compile. Update the file banner. Once collapsible, the bookends route through `CollapsibleSection` with no per-component change (`PcIntroSection`/`PcThanksSection` already forward `affordance`/`overlayStrength` to `SectionShell`).
 
 ### D2.2 Reconcile `ALWAYS_OPEN_KEYS` (`lib/viewbook/section-display.ts`)
 
-`pc-intro` is currently in `ALWAYS_OPEN_KEYS`, which makes `sectionDisplayMode` return `'always-open'`. That mode only feeds the **dormant** inner `SectionReveal` (`alwaysOpen`/`sectionInitiallyOpen`); it does **not** gate the outer `CollapsibleSection`. With `pc-intro` now a normal collapsible section, `always-open` is contradictory and inert.
+`pc-intro` ∈ `ALWAYS_OPEN_KEYS` makes `sectionDisplayMode` return `'always-open'`, which feeds only the **dormant** inner `SectionReveal` — it does not gate the outer `CollapsibleSection`. **Change:** remove `pc-intro` from `ALWAYS_OPEN_KEYS` so the model is coherent (falls to `normal`; `sectionInitiallyOpen` still returns `true` via the default branch — no dormant-reveal behavior change). **Codex-confirmed blast radius:** the only production consumers of `sectionSupportsCollapse` are `SectionShell` + dormant `collapse.ts`; `ALWAYS_OPEN_KEYS` is private to `section-display.ts`; `'always-open'` reaches only `SectionShell` → generic `SectionReveal` (whose generic always-open capability stays). No change needed in `EarlierSteps`, `toc-index`, or operator controls.
 
-**Change:** remove `pc-intro` from `ALWAYS_OPEN_KEYS` so the display-mode model stays coherent (it falls to `normal`; `sectionInitiallyOpen` still returns `true` for it via the default branch, so no dormant-reveal behavior change). Update `section-display.test.ts`. *Flag for Codex: confirm nothing else keys off `'always-open'` for `pc-intro`.*
+### D2.3 Ripple: tests + stale comments
 
-### D2.3 Dormant server-path tests (`lib/viewbook/collapse.test.ts`)
-
-`collapse.test.ts` asserts that setting `pc-intro` collapsed → `400` (via the bookend guard in `lib/viewbook/collapse.ts`, which calls `sectionSupportsCollapse`). Since the exclusion set is now empty, that guard no longer rejects bookends. The route itself is 410 (dormant), so this is test-only: update the assertion to reflect that bookends are no longer specially rejected (or retarget the "unsupported key" case to a genuinely unknown key). No production behavior rides on this path.
+- `lib/viewbook/section-display.test.ts` — `pc-intro` now resolves `normal`, not `always-open`.
+- `lib/viewbook/collapse.test.ts` — the dormant guard no longer specially rejects bookends; retarget the "unsupported key" assertion to a genuinely unknown key (route is 410, so test-only).
+- `components/viewbook/public/SectionShell.tsx` — update the bookend-branch **comments/assumptions** (bookends are no longer the non-collapsible special case).
+- `components/viewbook/public/SectionShell.test.tsx` (~:194) — the bookend branch now wraps in `CollapsibleSection`.
+- `components/viewbook/public/PcIntroSection.tsx` + `PcIntroSection.test.tsx` (~:67) — welcome is now collapsible + carries auto-reveal (D4).
+- Stale **"bookends excluded"** comments in `useCollapseState.ts` and `collapse.ts` — update to reflect the reversal.
 
 ---
 
 ## D3 — Cinematic expand/collapse transition (all sections)
 
-Today `CollapsibleSection` swaps `heroCollapsed`⇄`heroExpanded` and toggles the body region via `hidden`/`inert`/`display:none` — instant. Replace that with a smooth, `--vb-reveal-speed`-scaled transition, keeping the APG accordion semantics.
+Today `CollapsibleSection` swaps `heroCollapsed`⇄`heroExpanded` and toggles the body via `hidden`/`inert`/`display:none` — instant. Replace with a smooth, `--vb-reveal-scale`-scaled transition, keeping APG accordion semantics.
 
 ### D3.1 State model
 
-Drive all animation from a single `data-vb-state="collapsed" | "expanded"` attribute on the `CollapsibleSection` root, toggled by `useCollapseState`'s `collapsed` boolean. All animation is CSS keyed off that attribute — no JS animation loop.
+Drive all animation from a single `data-vb-state="collapsed" | "expanded"` on the `CollapsibleSection` root, toggled by `useCollapseState`'s `collapsed`. All animation is CSS keyed off that attribute — no JS animation loop.
 
-### D3.2 The three coordinated motions (all scaled by `var(--vb-reveal-speed, 1)`)
+### D3.2 Executable hero layout (Codex fix 1)
 
-1. **Hero grow + cross-fade.** The hero container height transitions between the compact-row height (~74 px) and the expanded hero height (`min-h-[38vh]`/`min-h-[30vh]`). The compact-row content and the expanded-hero content are both present and cross-fade (opacity) so there is no hard pop. *(Implementation risk — see D3.5.)*
-2. **Body reveal.** The body region uses the `grid-template-rows: 0fr → 1fr` technique (the same one the dormant `SectionReveal` already uses) with `overflow:hidden` inner, transitioned. The body content gets a **unified lift** — `opacity 0→1` + `translateY(~20px→0)` + a slight `blur(4px→0)` — as one block (not per-child).
-3. **Hero flourishes (expanded only).** On the expanded hero: the background image does a gentle Ken-Burns `scale(1.06→1)`; the eyebrow rises + fades in; the gold rule draws (`scaleX(0→1)`, origin left). These are the "cinematic" signature and are consistent across all sections because they live on the shared hero.
+Use an **explicit-height "stage" wrapper** with the two hero faces absolutely stacked — today's `min-h-*` nodes cannot provide a reliable cross-fade height contract:
 
-Base durations (tuned in implementation; scaled by the multiplier), e.g. `--vb-reveal-base` ≈ `520ms` body, hero grow ≈ `600ms`, Ken-Burns ≈ `1100ms`, all as `calc(<base> * var(--vb-reveal-speed, 1))`. Collapse runs the same transitions in reverse.
+- **Stage height** transitions between the **collapsed row height (~82 px, incl. `py-1` — verify against the rendered row, not the 74 px `min-h`)** and the **expanded hero height as a bounded `clamp(240px, 38svh, 560px)`** (use `svh`, not the raw `min-h-[38vh]`, and bound it so the animation target is deterministic and mobile-safe).
+- **Two faces** (compact-row face, expanded-hero face) absolutely positioned, opacity cross-faded on `data-vb-state`. The **inactive face carries `aria-hidden`**; the hero **button keeps one stable accessible name** across states (don't let the name flip between row-title and hero-title).
+- **Share the image plane** — render the section hero image once behind both faces rather than two persistent `<img>`s (avoids double paint + double alt).
 
-### D3.3 CSS var wiring
+### D3.3 Body reveal (Codex fix 2)
 
-`CollapsibleSection` emits its own `<style>` block (or Tailwind arbitrary values) reading `var(--vb-reveal-speed, 1)` — the var is injected once on the theme-root (D1.4) and inherits. The `, 1` fallback keeps the component correct if rendered outside a theme-root (tests, storybook).
+The body region must **stay mounted** (no `hidden`/`display:none` — those kill transitions). Use `display:grid; grid-template-rows: 0fr → 1fr` with an inner `min-height:0; overflow:hidden`, transitioned. Content gets a **unified lift** — `opacity 0→1` + `translateY(~20px→0)`. **No default full-body blur** (expensive on large Data Source bodies; opacity/translate is sufficient). `inert`/`aria-hidden` are applied from the **logical collapsed state** (see D3.5), not by hiding the box.
 
-### D3.4 Accessibility & reduced motion
+### D3.4 Hero flourishes (expanded only)
 
-- Keep `aria-expanded` on the hero button and `aria-controls={regionId}`; keep the APG accordion structure (`<h2>` wrapping the `<button>`).
-- `inert`/`aria-hidden` on the collapsed region: apply on the logical collapsed state. On expand, remove `inert` at the **start** of the animation (content becomes focusable as it reveals); on collapse, the region is animating away so `inert` at collapse-start is acceptable. Verify no focus is trapped mid-animation.
-- `@media (prefers-reduced-motion: reduce)` → all transitions `none` (instant show/hide), mirroring the existing `.vb-reveal` reduced-motion rule. State still changes; only the motion is removed.
+On the expanded face: background image gentle Ken-Burns `scale(1.06→1)`; eyebrow rises + fades in; gold rule draws (`scaleX(0→1)`, origin left). Shared across all sections because they live on the hero. All durations `calc(<base> * var(--vb-reveal-scale, 1))` (bases tuned in impl, e.g. body ≈ `520ms`, hero-stage ≈ `600ms`, Ken-Burns ≈ `1100ms`). Collapse runs the transitions in reverse.
 
-### D3.5 Implementation risk (flag for Codex + plan)
+### D3.5 Accessibility, reduced motion, navigation
 
-Cross-fading two structurally different hero forms while animating a fixed-px↔`vh` height can jank. **Primary approach:** height transition + opacity cross-fade of the two hero forms + grid-rows body + flourishes. **Fallback if janky:** keep an instant hero-form swap but animate (a) the body grid-rows reveal + lift and (b) the expanded-hero flourishes — this still reads as a smooth premium reveal because the eye is on the body opening and the hero image settling. The plan should build the primary and keep the fallback as a named contingency.
+- Keep `aria-expanded` on the hero button + `aria-controls={regionId}` + the APG `<h2>`>`<button>` structure. One stable button name (D3.2).
+- `inert`/`aria-hidden` bound to logical collapsed state. On **expand**, drop `inert` at animation start (content focusable as it reveals); on **collapse**, `inert` at collapse start is fine. Verify no focus trap mid-animation.
+- `@media (prefers-reduced-motion: reduce)` → all transitions `none` (instant), mirroring the existing `.vb-reveal` rule. State still changes; only motion is removed.
+- **Navigation must be animation-aware (Codex fix 3):** `components/viewbook/public/viewbook-navigate.ts` scrolls after one frame — adequate for an instant reveal but can target a still-moving nested anchor. Change to scroll on `transitionend` (or a corrective post-transition scroll), covering both the `vb:navigate` event path **and** the initial `location.hash` path. Add tests.
+
+### D3.6 Primary vs fallback (Codex fix 4)
+
+Build the **primary** (D3.2–D3.4). **Fall back** (instant hero-face swap; animate only the body grid-rows reveal + hero flourishes) if browser verification finds any of these **objective triggers**: duplicate assistive-tech names, incorrect anchor landing after navigation, bad rapid expand→collapse reversal, mobile long-frame jank, or unacceptable first-load CLS. **CLS is inherent:** the delayed auto-expand shifts layout; **measure it and explicitly accept the budget** in verification — the fallback reduces hero complexity but does not eliminate body-induced shift.
 
 ---
 
 ## D4 — Welcome auto-reveal (once per device)
 
-### D4.1 Per-device flag (`components/viewbook/public/useWelcomeAutoReveal.ts`, new)
+### D4.1 Collapse-state readiness (Codex fix 6) — `useCollapseState.ts`
 
-A small hook mirroring `useCollapseState`'s hydration-safe localStorage pattern (SSR-safe seed + mount `useEffect`, try/catch-wrapped read/write for private-mode safety):
+Extend `useCollapseState` to expose a **`ready`** flag (true once the mount `useEffect` has reconciled the stored value) and a **`markInteracted()`** (or `cancelAutoReveal`) callback. The hero button calls `markInteracted()` on any manual toggle. Do **not** rely on effect ordering between `useCollapseState`'s reconciliation and the welcome hook.
 
-- **Key:** `vb:welcome-revealed:${viewbookId}` (per-device, per-viewbook), value `'1'` once fired.
-- **Inputs:** `{ viewbookId, enabled, collapsed, expand, delayMs, previewMode }` where `enabled = stage === 'post-contract'` and `expand`/`collapsed` come from the section's `useCollapseState`.
-- **Behavior (mount effect, client only):**
-  - If `!enabled` or `previewMode` → do nothing.
-  - Read the flag. If already set → do nothing (never auto-reveal again — respects a user who later re-collapsed).
-  - If the section is already expanded (stored `'expanded'`) → set the flag, do nothing.
-  - Else arm `setTimeout(delayMs)`. On fire, if still collapsed and the user hasn't interacted → call `expand()` (persists `'expanded'`, so it stays open and the flourish plays via D3). Set the flag regardless of interaction.
-  - If the user manually toggles before the timer fires → clear the timer and set the flag (they've engaged; don't yank the UI).
-  - `delayMs === 0` → expand on the next frame (no timer), still set the flag.
-- Cleanup clears the timer on unmount.
+### D4.2 Per-device flag hook (`useWelcomeAutoReveal.ts`, new)
 
-Isolated and unit-testable with fake timers + a mock storage.
+Mirror `useCollapseState`'s hydration-safe localStorage pattern (SSR-safe seed + mount effect, try/catch read/write). Inputs `{ viewbookId, enabled, ready, collapsed, expand, interacted, delayMs, previewMode }`.
 
-### D4.2 Wiring
+- **Key:** `vb:welcome-revealed:${viewbookId}`, value `'1'` once fired.
+- **Arming (effect, client only):** only when `enabled` (stage `post-contract`) && `ready` && !`previewMode` && flag-unset && currently `collapsed` && !`interacted`. If the section is already `expanded` (stored) → set the flag, do nothing. Else `setTimeout(delayMs)` (or `requestAnimationFrame` when `delayMs === 0`).
+- **On fire:** **re-read the flag** (multi-tab). If still unset && still collapsed && !interacted → **write the flag first, then `expand()`** (persists `'expanded'` — the right call; ephemeral `forceExpand()` would leave it collapsed next visit despite the flag being consumed). Set the flag regardless of whether expand happened.
+- **Interaction during the window:** `interacted` flips (via `markInteracted`) → the effect's cleanup cancels the pending timer/RAF and the flag is set (they engaged; don't yank the UI).
+- **Cleanup:** clear **both** the timeout and any RAF on unmount so React StrictMode double-invoke is deterministic.
+- **Cross-tab (Codex fix 7, best-effort):** optionally listen for the `storage` event on the flag key to cancel this tab's pending timer when another tab reveals first. localStorage offers no atomic cross-tab claim — document as best-effort. If storage throws (private mode), fall back to a module-level/session flag; accept that it may reveal again on the next mount.
 
-- `PcIntroSection.tsx` passes `autoRevealMs={data.firstLoadDelayMs}` (and relies on `stage`, already available) down through `SectionShell` to `CollapsibleSection`.
-- `SectionShell.tsx` forwards an optional `autoRevealMs?: number` prop to `CollapsibleSection` (only `PcIntroSection` sets it; all other callers omit → `undefined` → no auto-reveal).
-- `CollapsibleSection.tsx` calls `useWelcomeAutoReveal({ viewbookId, enabled: autoRevealMs != null && stage === 'post-contract', collapsed, expand, delayMs: autoRevealMs ?? 0, previewMode })`. (Thread `stage` into `CollapsibleSection`, or gate `enabled` upstream so `CollapsibleSection` stays stage-agnostic — plan's call; gating upstream in `PcIntroSection` is cleaner.)
+### D4.3 Wiring
 
-### D4.3 Interaction with reduced motion
-
-Auto-expand still fires under `prefers-reduced-motion` (it is a content reveal, not decoration); the transition is simply instant per D3.4.
+- `PcIntroSection.tsx` gates upstream (keeps `CollapsibleSection` stage-agnostic): pass `autoRevealMs={data.stage === 'post-contract' ? data.firstLoadDelayMs : undefined}` down through `SectionShell` → `CollapsibleSection`.
+- `SectionShell.tsx` forwards optional `autoRevealMs?: number` (only `PcIntroSection` sets it; others omit → no auto-reveal).
+- `CollapsibleSection.tsx` calls `useWelcomeAutoReveal` with `enabled: autoRevealMs != null`, its own `useCollapseState` `{ collapsed, expand, ready, interacted, markInteracted }`, `delayMs: autoRevealMs ?? 0`, `previewMode`. The hero button calls `markInteracted()`.
+- Auto-expand still fires under `prefers-reduced-motion` (content reveal, not decoration); transition is instant per D3.5.
 
 ---
 
 ## Data flow (end to end)
 
 ```
-Viewbook.revealSpeed / firstLoadDelayMs  (DB columns)
-  → public-data loader (readPresentationConfig degrade)
-  → ViewbookPublicData { revealSpeed, firstLoadDelayMs }
-  → ViewbookShell: style={{ '--vb-reveal-speed': String(data.revealSpeed), ... }}   (inherits to all sections)
-  → PcIntroSection: autoRevealMs={data.firstLoadDelayMs}
+Viewbook.revealDurationScale / firstLoadDelayMs  (DB columns)
+  → public-data loader (readPresentationConfig clamp/degrade)
+  → ViewbookPublicData { revealDurationScale, firstLoadDelayMs }
+  → ViewbookShell: style={{ '--vb-reveal-scale': String(data.revealDurationScale), ... }}  (inherits to all sections)
+  → PcIntroSection: autoRevealMs = stage==='post-contract' ? firstLoadDelayMs : undefined
       → SectionShell → CollapsibleSection
-          → CSS reads var(--vb-reveal-speed) for all expand/collapse motion (D3)
-          → useWelcomeAutoReveal(delayMs=firstLoadDelayMs) arms the 3s once-per-device timer (D4)
+          → CSS reads var(--vb-reveal-scale) for all expand/collapse motion (D3)
+          → useWelcomeAutoReveal(delayMs=firstLoadDelayMs) arms the once-per-device timer (D4)
 
-Operator: PresentationEditor → PATCH /api/viewbooks/[id] { revealSpeed?, firstLoadDelayMs? }
+Operator: PresentationEditor → PATCH /api/viewbooks/[id] { revealDurationScale?, firstLoadDelayMs? }
   → parsePresentationPatch (validate+clamp) → updateViewbookPresentation (atomic, syncVersion bump)
 ```
 
 ## Error handling / edge cases
 
-- **Corrupt DB value** (e.g. legacy row, out-of-range) → `readPresentationConfig` degrades to the default; the viewer always gets a sane multiplier/delay.
-- **localStorage unavailable** (private mode) → try/catch swallows; auto-reveal still runs in-memory for the session (flag just isn't persisted; worst case it re-reveals next visit — harmless).
-- **`revealSpeed = 0` or negative** → impossible post-clamp (min `0.4`); `calc()` never produces a `0ms`/negative duration.
-- **Multiple tabs** → each tab reads/sets the flag independently; the first to fire persists it; others see it set. No coordination needed.
-- **User expands the welcome manually within the 3 s** → timer canceled, flag set (D4.1). No double-expand.
-- **Stage not `post-contract`** → welcome section may not even be in the lineup; auto-reveal disabled by `enabled` gate regardless.
-- **SSR/hydration** → initial render is always collapsed (matches SSR default-collapsed); the flag read + timer live in a mount effect, so no hydration mismatch.
+- **Corrupt/out-of-range DB value** → read clamps finite-out-of-range; defaults only on malformed. Viewer always gets a sane multiplier/delay.
+- **localStorage unavailable** (private mode) → try/catch; module/session fallback; worst case re-reveal next mount (harmless).
+- **`revealDurationScale ≤ 0`** → impossible post-clamp (min `0.4`); `calc()` never yields `0`/negative.
+- **Multiple tabs** → re-read flag on fire + write-before-expand + optional `storage`-event cancel (best-effort; no atomic claim).
+- **Manual expand/collapse within the delay** → `markInteracted` cancels the timer; flag set; no double-expand.
+- **StrictMode double-invoke / unmount** → cleanup cancels timeout + RAF.
+- **Stage ≠ `post-contract`** → `autoRevealMs` undefined → auto-reveal disabled.
+- **SSR/hydration** → initial render always collapsed (matches SSR default); flag read + timer live in the mount effect gated on `ready` → no hydration mismatch.
 
 ## Testing
 
-- **Unit — `presentation-config.test.ts`:** revealSpeed/firstLoadDelayMs reject non-finite/non-integer (no coercion), clamp at both ends, degrade-on-read. (D1.2)
-- **Unit — `section-display.test.ts`:** `pc-intro` no longer `always-open`; bookends resolve `normal`. (D2.2)
-- **Unit — `collapse.test.ts`:** bookends no longer specially rejected by the dormant guard. (D2.3)
-- **Unit — `useWelcomeAutoReveal` (new test):** fires once after `delayMs`; never fires with the flag set; canceled by manual interaction; `delayMs=0` immediate; `previewMode`/`!enabled` no-op. Fake timers + mock storage. (D4.1)
-- **Component — `PresentationEditor.test.tsx`:** the two new controls submit valid patches. (D1.5)
-- **Component/interaction — `CollapsibleSection`:** `data-vb-state` flips on toggle; reduced-motion path; accessibility (`aria-expanded`, `inert`) preserved across the animation. (D3)
-- **Gates:** `npx tsc --noEmit` + `vitest` green before any merge (in-build checks are disabled — local gates are the only type-check gate).
-- **Manual verify:** run the viewbook viewer locally; confirm (a) bookends default to compact rows, (b) welcome auto-expands ~3 s after first load and not on reload, (c) speed lever visibly changes pace, (d) reduced-motion makes it instant.
+- **Unit — `presentation-config.test.ts`:** write rejects non-finite/non-integer (no coercion) + clamps; read clamps finite-out-of-range, defaults only on malformed. (D1.2)
+- **Unit — `service` persistence + `public-data` threading tests:** patch persists; missing columns → defaults; set → passthrough. (D1.3)
+- **Unit — `section-display.test.ts`:** `pc-intro` resolves `normal`. **`collapse.test.ts`:** unsupported-key assertion retargeted. (D2.3)
+- **Unit — `useWelcomeAutoReveal` (new):** fires once after `delayMs`; no-op when flag set / `!ready` / `!enabled` / `previewMode`; canceled by `markInteracted`; `delayMs=0` RAF path; re-reads flag on fire; StrictMode/unmount cancels timeout+RAF; stored-`expanded` reconciliation; `storage`-event cancel. Fake timers + mock storage. (D4)
+- **Component — `PresentationEditor.test.tsx`:** both new controls submit valid patches. (D1.5)
+- **Component — `SectionShell.test.tsx`:** bookends now wrap `CollapsibleSection`. **`ViewbookShell` test:** `--vb-reveal-scale` emitted. (D1.4/D2.3)
+- **Component — `CollapsibleSection`:** `data-vb-state` flips; reduced-motion path; `aria-expanded`/`inert`/one-stable-name preserved across animation. **`viewbook-navigate` test:** scroll lands after transition for both event + initial-hash paths. (D3)
+- **Gates:** `npx tsc --noEmit` + `vitest` green before any merge (in-build checks disabled — local gates are the only type-check gate).
+- **Manual/browser verify (Codex "verify during implementation"):** Chrome + Safari, desktop + narrow mobile; reduced motion; rapid expand↔collapse reversal; focus during collapse; TOC/search navigation into a previously-collapsed nested anchor; **first-load CLS + frame perf on a large Data Source body**; StrictMode; two-tab; storage failure; zero-delay reveal; existing-row migration defaults (`1.0`, `3000`). Confirm (a) bookends default to compact rows, (b) welcome auto-expands ~3 s on first load and not on reload, (c) pace lever visibly changes speed, (d) reduced-motion is instant.
 
 ## Migration & rollout
 
-- One additive migration (`viewbook_reveal_pacing`), safe defaults; production migration runs via `prisma migrate deploy` in the deploy command.
+- One additive migration (`viewbook_reveal_pacing`), safe defaults; `prisma migrate dev` locally (commit the generated SQL), `prisma migrate deploy` in prod.
 - **Suggested PR sequence** (finalized by the plan):
-  1. **D1** — config levers plumbing + operator UI + `--vb-reveal-speed` injection (no visible behavior change yet; var present, transition still instant, bookends still excluded).
-  2. **D2** — bookends collapse like the rest (+ dormant-path/section-display test updates).
-  3. **D3** — cinematic animated transition on all expand/collapse (consumes `--vb-reveal-speed`).
+  1. **D1** — config levers plumbing + operator UI + `--vb-reveal-scale` injection (no visible behavior change yet; var present, transition still instant, bookends still excluded).
+  2. **D2** — bookends collapse like the rest (+ ripple tests/comments).
+  3. **D3** — cinematic animated transition on all expand/collapse (consumes `--vb-reveal-scale`; navigation + CLS work here).
   4. **D4** — welcome auto-reveal timer + per-device flag.
-- No deploy exposes anything dark-gated; all four ship together or in sequence with each independently correct.
+- Each PR is independently correct; all ship together or in sequence.
 
-## Open implementation risks (for Codex review + plan)
+## Open implementation risks (for the plan)
 
-1. **D3.5** hero cross-fade/height-morph jank — primary vs fallback approach.
-2. **D2.2** confirm no other consumer keys off `'always-open'` for `pc-intro`.
-3. **D4** exact seam for threading `stage`/`autoRevealMs` into `CollapsibleSection` (gate `enabled` in `PcIntroSection` vs inside the island).
+1. **D3.2/D3.6** hero cross-fade/height-morph — build primary; fall back on the objective triggers; measure & accept the CLS budget.
+2. **D3.5** navigation-into-collapsed-anchor timing.
+3. **D4.1** `useCollapseState` `ready`/`markInteracted` surface must land before the auto-reveal hook consumes it.
