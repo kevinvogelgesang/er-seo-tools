@@ -15,6 +15,8 @@ import {
   BROKEN_FINDING_TYPES,
   BROKEN_FINDING_TYPE_SET,
   BROKEN_FINDING_LABELS,
+  DEAD_PAGE_FINDING_TYPE,
+  DEAD_PAGE_FINDING_LABEL,
 } from './finding-type-sets'
 
 describe('finding-type-sets', () => {
@@ -62,5 +64,10 @@ describe('finding-type-sets', () => {
   it('on-page and broken type sets are disjoint', () => {
     const overlap = ONPAGE_FINDING_TYPES.filter((t) => (BROKEN_FINDING_TYPE_SET as Set<string>).has(t))
     expect(overlap).toEqual([])
+  })
+
+  it('registers the dead-page finding type and display label', () => {
+    expect(DEAD_PAGE_FINDING_TYPE).toBe('dead_page')
+    expect(DEAD_PAGE_FINDING_LABEL).toBe('Dead pages (404/410)')
   })
 })

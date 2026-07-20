@@ -63,3 +63,6 @@ const brokenLabels = {
   broken_external_links: 'Broken external links',
 } satisfies Record<BrokenFindingType, string>
 export const BROKEN_FINDING_LABELS: Readonly<Record<string, string>> = brokenLabels
+
+export const DEAD_PAGE_FINDING_TYPE = 'dead_page' as const
+export const DEAD_PAGE_FINDING_LABEL = 'Dead pages (404/410)'
