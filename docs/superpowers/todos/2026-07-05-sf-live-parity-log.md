@@ -425,3 +425,139 @@ this data. If archive-dup coverage is later wanted, the lever is discovery (hybr
 
 **Remaining for a fuller comparison:** re-crawl brownson with Crawl Analysis (the 6th); optionally SF
 `Bulk Export → Content → Near Duplicates` for page-pair (group-vs-group) detail.
+
+---
+
+## ✅ 2026-07-20 — cycles 3 & 4 (AUTONOMOUS, read-only): the weekly sweep now GENERATES parity data
+
+**No operator cookie needed.** The weekly-client-sweep infrastructure (deployed 2026-07-16;
+first scheduled sweep Mon 2026-07-20 01:00 UTC) runs a FULL `wcag21aa`+seoIntent audit of every
+registered client domain automatically. Two full-cohort sweeps have now completed —
+**2026-07-16** (cycle 3) and **2026-07-20** (cycle 4) — each covering **~29 client domains** (up
+from the hand-run 7 of cycles 1–2). Every fresh run carries `discoveryCoverageJson` +
+`contentSimilarityJson` + `contentSignalsJson`. This session read the numbers off prod (read-only
+Prisma probe; `parity-probe.ts` / `parity-analysis.ts`, scp'd + removed) — no scans triggered.
+
+**Headline: the parity dataset is now self-generating.** The Phase-1 gate (N≥5 clients × 2–3
+cycles) is over-satisfied on the cohort AND cycle-count dimensions — 29 clients × cycles 3–4, on
+top of the 7 × cycles 1–2. The remaining Phase-7 work is judgment (Kevin's retirement bar), not
+more data collection.
+
+### A. Cohort inventory (prod, 2026-07-20 19:28 UTC)
+
+| Metric | Value |
+|---|---|
+| `seo-parser` CrawlRuns total | 247 |
+| `live-scan` runs | 232 |
+| `sf-upload` runs | 15 |
+| seoIntent live-scan runs (all) | 63 fresh since 2026-07-08 + earlier |
+| **Parity pairs (domain has sf-upload + seoIntent live-scan)** | **11** (was 1 at cycle-0) |
+| `topicOverlapJson` present on ANY run | **0** — confirms C12 topic-overlap is still env-gated OFF (`VERIFIER_TOPIC_OVERLAP_ENABLED` default OFF, the ONNX-memory gate) |
+
+Parity pairs (SF half mostly 2026-07-06, live half 2026-07-20): healthcarecareercollege.edu,
+bocabeautyacademy.edu, discoverycommunitycollege.com, cambriacollege.ca, brownson.edu,
+bidwelltraining.edu, brockwaycatart.org, manhattanschool.edu, glowcollegecanada.ca, nuvani.edu,
+proway.erstaging.site (canary, `score:null` by noindex design — plumbing only).
+
+### B. ⚠→✅ The systematic live-score drop cycles 2→3 is the C19 recalibration (NOT a regression)
+
+Comparing cycle-2 (07-07, PRE-C19) live scores against the 07-16/07-20 sweeps (POST-C19) shows a
+uniform downward shift with **identical page/finding inputs** — the exact "bug-hunt, not a
+footnote" trigger. Root-caused to **C19 PR2+PR3 (PRs #143/#144, deployed 2026-07-10)**, which
+recalibrated the SEO scorer AFTER cycle 2 was recorded:
+
+| Client | cyc2 (07-07) | cyc3/4 (07-16/20) | pages | indexable | on-page findings | verdict |
+|---|---|---|---|---|---|---|
+| **bidwell** | **88** | **71** | 54 → 54 | 54 → 54 | **byte-identical** (missing_h1=2, missing_meta=10, thin=17, dup_meta=1) | smoking gun — same inputs, −17 |
+| manhattan | 91 | 77 | 97 → 97 | 71 → 71 | identical (thin 7→6) | −14 |
+| brownson | 90 | 74 | 84 → 84 | 84 → 84 | identical | −16 |
+| cambria | 100 | 97 | 90 → 91 | 90 → 91 | identical (dup_meta=1) | −3 |
+| nuvani | 100 | 100 | 122 → 122 | 122 → 122 | identical | 0 (no broken links → no penalty) |
+| boca | 90 | 87 | 314 → 316 | 195 → 197 | ≈identical | −3 |
+
+**What C19 changed** (from the tracker's C19 status log): (1) steepened all SEO curve knees
+(`SEO_KNEES`: missing-elements knee 2%→30%, error-rate 1%→20%, thin 5%→25%) so the same missing/
+thin ratios now earn fewer points; (2) added a **live broken-links factor** (`ScoringWeights.brokenLinks`
+weight 10) to the `scoreLiveSeo` denominator, active whenever the verify pass is complete. Sites
+with broken links (bidwell/manhattan/brownson) lose points on a factor that **did not exist** at
+cycle 2; the byte-identical nuvani (100→100) has no broken links, so it's unmoved — a clean control.
+
+**This is a cross-formula-version comparability break, exactly what C19's
+`comparabilityBreak:'version'` trend flag was built to signal — NOT a bug.** The C19 PR2 SF-replay
+evidence recorded fleet Δ 0..−11 (median ≈ −7); live runs drop a few points more because the
+broken-links factor also fires on them (SF replay honestly skipped live runs). **Cycles 1–2 scores
+are pre-C19 and must NOT be compared point-to-point against cycles 3–4.** The post-C19 baseline
+starts at cycle 3.
+
+### C. ✅ Cross-sweep reproducibility (07-16 vs 07-20): 26/29 identical over 4 days
+
+Both full sweeps ran the SAME 29-domain cohort 4 days apart under the SAME (post-C19) formula.
+Per-domain live scores:
+
+- **26 of 29 byte-identical** (tint 90, prowayhair 62, glow 91, ccbst 95, canadian 92, discovery 89,
+  valley 98, urbanriver 70, soma 91, cw 90, sutter 74, sdgku 86, prism 89, nuvani 100, nyinstitute 78,
+  manhattan 77, innovate 66, hilbert 94, healthcare 76, federico 75, brownson 74, brockway 68, boca 87,
+  bidwell 71, beonair 94, beal 75; proway null/null).
+- **Only 2 moved:** cambria 100→97 (−3), sws 88→87 (−1) — small, site-drift-plausible.
+
+**This is the strongest retirement-gate signal to date:** the live scanner produces stable,
+reproducible scores across independent weekly runs. Phase-7 wants "N consecutive weekly seoIntent
+runs with a non-null score and stable timing" — cycles 3–4 are the first two consecutive AUTOMATED
+weekly runs, and they agree.
+
+### D. Miss-rate distribution across 29 clients (cycle 4, 2026-07-20)
+
+The hybrid crawler (Increment 2) is live for all seoIntent audits. `sitemapMiss` = intrinsic gap
+(what the XML sitemap omits vs internal-link-reachable content); `residualMiss` = what remains
+UNfound after the crawler expanded the frontier — the success number.
+
+- **sitemapMiss** (29 clients): range 7.5%–92.2%, **median ≈ 19.4%, mean ≈ 24% (≈21.7% excluding the
+  healthcare outlier)** — consistent with cycles 1–2 (median ~21%). Sitemaps routinely omit reachable
+  content; the Increment-2 build decision remains well-founded.
+- **residualMiss**: **17 of 29 clients (59%) closed to <5%** (e.g. manhattan 38.5%→2.7%, boca
+  47.4%→3.0%, bidwell 8.5%→0%, sutter 41.9%→0%). Where the crawler expanded, it closed the gap hard.
+- **Sitemap-mode fallback (no expansion, residual = sitemapMiss):** glow (12.9%), cambria (19.5%),
+  nuvani (11.5%) — 3 clients the hybrid crawler declined to expand. **Under-expansion (hybrid but
+  residual stays high):** discovery (41%→41%, a 1287-page site that overruns the frontier), brownson
+  (18.3%→18.1%), federico (14.6%→14.5%). This reproduces the cycle-2 "hybrid-crawler expansion
+  inconsistency" follow-up — a candidate frontier/depth-tuning increment, measured here, not a bug.
+- **healthcarecareercollege.edu sitemapMiss 92.2%** is the sweep-error-triage 404-bearing client
+  (PR #227) — expected outlier, not a crawl failure; excluded from the distribution stats above.
+
+### E. SF-vs-newest-live parity (core 6 pairs, cycle 4)
+
+| Client | SF | Live (07-20) | scoreΔ | Jaccard | note |
+|---|---|---|---|---|---|
+| manhattan | 82 | 77 | −5 | 0.506 | post-C19 live now BELOW SF (broken-links + steeper knees) — inverts the pre-C19 sign |
+| bidwell | 90 | 71 | −19 | 0.667 | largest gap; bidwell has broken links + high thin ratio, both now penalized harder |
+| brownson | 81 | 74 | −7 | 0.395 | — |
+| cambria | 83 | 97 | +14 | 0.777 | still live>SF (clean site, few broken links) |
+| nuvani | 81 | 100 | +19 | 0.787 | clean control — live>SF unchanged |
+| boca | 81 | 87 | +6 | 0.759 | — |
+
+**Score-delta verdict:** under the post-C19 formula the live↔SF relationship is now **client-dependent**
+(sign flips both ways) rather than uniformly live>SF as in cycles 1–2. Explained: C19 deliberately
+tightened live scoring toward SF-comparable strictness AND added the broken-links factor SF has always
+had. Clean sites (cambria/nuvani/boca) still read above SF (live omits SF's crawl-depth/security-header/
+orphan/analytics penalties); link-heavy sites (bidwell/manhattan) now read at or below SF. **Different
+denominators, do not tune to zero** — the campaign posture is unchanged. Jaccard is SF-asset-inflated as
+before (the clean discovery instrument is `discoveryCoverageJson`, not raw page-set Jaccard).
+
+### Gate status after cycles 3–4
+
+- **Phase-1 parity gate (N≥5 × 2–3 cycles, every deviation explained):** **MET and then some** — 29
+  clients across cycles 3–4 (plus 7 across cycles 1–2), every deviation explained (the cycle-2→3
+  score shift = C19 recalibration; miss-rate under-expansion = known follow-up; healthcare 92% = the
+  404 client). No unexplained deviation → no open bug hunt.
+- **Cross-run stability (Phase-7 input):** 2 consecutive automated weekly runs agree 26/29 — the
+  first hard reproducibility evidence.
+- **Follow-ups surfaced (none blocking):** (1) hybrid-crawler under-expansion on ~6 clients
+  (discovery/brownson/federico/glow/cambria/nuvani) — frontier/depth tuning candidate; (2) the SF
+  halves for most pairs are 2026-07-06 uploads — a fresh SF re-crawl round would give a clean
+  same-week post-C19 score pair, but the score comparison is now dominated by the known formula
+  difference, so this is low-priority; (3) topic-overlap remains OFF pending the ONNX child-process
+  embed-worker follow-up (C12 gate, unchanged).
+- **Retirement-gate readiness:** the DATA side of Phase 7 (coverage, reproducibility, explained
+  variance) is essentially in hand for the fleet. What remains is Kevin's judgment call on the bar
+  (proposed N=8 consecutive weekly runs) + the analytics-independence and dashboards-default-to-live
+  criteria — process/decision items, not measurement gaps.
