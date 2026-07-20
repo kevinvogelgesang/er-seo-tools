@@ -43,27 +43,36 @@ export async function installBrowserRequestGuard(page: Page, opts: BrowserReques
   await page.setRequestInterception(true)
   page.on('request', (request: HTTPRequest) => {
     void (async () => {
-      // Only read frame() when host-pinning is active — the sitemap-fetch
-      // caller (no auditedHost) must not depend on frame() being present.
-      const isMainFrame = opts.auditedHost !== undefined ? request.frame() === page.mainFrame() : false
-      const verdict = classifyBrowserRequest(
-        {
-          url: request.url(),
-          resourceType: request.resourceType(),
-          isNavigationRequest: request.isNavigationRequest(),
-          isMainFrame,
-        },
-        opts,
-      )
-      if (verdict !== 'check-ssrf') {
-        if (!request.isInterceptResolutionHandled()) await request.abort('blockedbyclient').catch(() => {})
-        return
-      }
+      // Codex F3: the whole handler is wrapped so a throw from frame()/metadata
+      // during a page close/disconnect can never become an unhandled rejection
+      // (which could crash the job worker) — on any failure, best-effort abort.
       try {
-        await assertSafeHttpUrl(request.url())
-        if (!request.isInterceptResolutionHandled()) await request.continue()
+        // Only read frame() when host-pinning is active — the sitemap-fetch
+        // caller (no auditedHost) must not depend on frame() being present.
+        const isMainFrame = opts.auditedHost !== undefined ? request.frame() === page.mainFrame() : false
+        const verdict = classifyBrowserRequest(
+          {
+            url: request.url(),
+            resourceType: request.resourceType(),
+            isNavigationRequest: request.isNavigationRequest(),
+            isMainFrame,
+          },
+          opts,
+        )
+        if (verdict !== 'check-ssrf') {
+          if (!request.isInterceptResolutionHandled()) await request.abort('blockedbyclient').catch(() => {})
+          return
+        }
+        try {
+          await assertSafeHttpUrl(request.url())
+          if (!request.isInterceptResolutionHandled()) await request.continue()
+        } catch {
+          if (!request.isInterceptResolutionHandled()) await request.abort('blockedbyclient').catch(() => {})
+        }
       } catch {
-        if (!request.isInterceptResolutionHandled()) await request.abort('blockedbyclient').catch(() => {})
+        try {
+          if (!request.isInterceptResolutionHandled()) await request.abort('blockedbyclient').catch(() => {})
+        } catch { /* page gone — nothing more we can do */ }
       }
     })()
   })

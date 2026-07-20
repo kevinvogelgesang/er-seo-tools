@@ -1,6 +1,7 @@
 // lib/ada-audit/browser-request-guard.test.ts
-import { describe, it, expect } from 'vitest'
-import { classifyBrowserRequest } from './browser-request-guard'
+import { describe, it, expect, vi } from 'vitest'
+vi.mock('../security/safe-url', () => ({ assertSafeHttpUrl: vi.fn(async () => undefined) }))
+import { classifyBrowserRequest, installBrowserRequestGuard } from './browser-request-guard'
 
 const nav = (url: string) => ({ url, resourceType: 'document', isNavigationRequest: true, isMainFrame: true })
 const sub = (url: string, resourceType: string) => ({ url, resourceType, isNavigationRequest: false, isMainFrame: false })
@@ -25,5 +26,30 @@ describe('classifyBrowserRequest', () => {
   })
   it('does NOT host-pin a sub-frame or subresource request', () => {
     expect(classifyBrowserRequest(sub('https://evil.com/a.js', 'script'), { auditedHost: 'x.com' })).toBe('check-ssrf')
+  })
+})
+
+describe('installBrowserRequestGuard handler safety (Codex F3)', () => {
+  it('a request whose metadata throws is aborted and never escapes as an unhandled rejection', async () => {
+    const handlers: Array<(r: unknown) => void> = []
+    const page = {
+      setRequestInterception: vi.fn(async () => undefined),
+      on: vi.fn((ev: string, fn: (r: unknown) => void) => { if (ev === 'request') handlers.push(fn) }),
+      mainFrame: () => ({}),
+    }
+    await installBrowserRequestGuard(page as never, { auditedHost: 'x.com' })
+    const abort = vi.fn(async () => undefined)
+    const badReq = {
+      url: () => 'https://x.com/',
+      resourceType: () => { throw new Error('page closed') },
+      isNavigationRequest: () => true,
+      frame: () => { throw new Error('detached') },
+      isInterceptResolutionHandled: () => false,
+      abort,
+      continue: vi.fn(async () => undefined),
+    }
+    expect(() => handlers.forEach((h) => h(badReq))).not.toThrow()
+    await new Promise((r) => setImmediate(r))
+    expect(abort).toHaveBeenCalledWith('blockedbyclient')
   })
 })
