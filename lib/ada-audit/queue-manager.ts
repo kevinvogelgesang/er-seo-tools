@@ -461,6 +461,12 @@ export async function recoverQueue() {
     .then((m) => m.recoverBrokenLinkVerifies())
     .catch((err) => console.warn('[queue] broken-link verify recovery failed:', (err as Error).message))
 
+  // Manual sweep: re-enqueue fan-outs stranded by a crash between the route's
+  // row-create and enqueue. Guarded — never blocks recovery.
+  await import('@/lib/sweep/advance')
+    .then((m) => m.recoverManualSweeps(new Date()))
+    .catch((err) => console.warn('[queue] manual-sweep recovery failed:', (err as Error).message))
+
   await import('@/lib/viewbook/email')
     .then((m) => m.recoverViewbookEmailDeliveries())
     .catch((err) => console.warn('[queue] viewbook email recovery failed:', (err as Error).message))
