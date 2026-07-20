@@ -43,10 +43,14 @@ describe('setSectionCollapsedShared', () => {
     expect(r.collapsedShared).toBe(false)
   })
 
-  it('bookend sections cannot be collapsed (400)', async () => {
+  it('bookend sections (pc-intro/pc-thanks) are collapsible like any other section (2026-07-19 welcome-auto-reveal)', async () => {
     const vb = await mkViewbook()
-    await expect(setSectionCollapsedShared(vb, vb.token, { sectionKey: 'pc-intro', collapsed: true, isOperator: true }))
-      .rejects.toMatchObject({ status: 400 })
+    for (const sectionKey of ['pc-intro', 'pc-thanks'] as const) {
+      const before = await sync(vb.id)
+      const r = await setSectionCollapsedShared(vb, vb.token, { sectionKey, collapsed: true, isOperator: true })
+      expect(r.collapsedShared).toBe(true)
+      expect(await sync(vb.id)).toBe(before + 1)
+    }
   })
 
   it('an unknown sectionKey is rejected 400 invalid_section', async () => {

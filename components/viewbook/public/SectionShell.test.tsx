@@ -191,7 +191,32 @@ describe('SectionShell', () => {
     expect(btn.innerHTML).toContain('py-1')
   })
 
-  it('always-open (pc-intro) renders expanded with no toggle and NO collapse affordance/control', () => {
+  it('pc-intro (bookend) is collapsible like any other section — defaults to collapsed with a compact row + expand control (2026-07-19 welcome-auto-reveal)', () => {
+    render(
+      <SectionShell
+        {...baseProps}
+        section={section({ sectionKey: 'pc-intro' })}
+        title="Welcome"
+        heroUrl={null}
+        stage="post-contract"
+      >
+        <p>Body</p>
+      </SectionShell>,
+    )
+    // The outer viewer-collapse region is a real landmark, present but
+    // hidden while collapsed (default on a fresh machine) — same shape as
+    // every other collapsible section.
+    const region = document.getElementById('vb-region-pc-intro')
+    expect(region).not.toBeNull()
+    expect(region?.getAttribute('role')).toBe('region')
+    expect(region?.hasAttribute('hidden')).toBe(true)
+    const btn = screen.getByRole('button', { name: 'Welcome' })
+    expect(btn.getAttribute('aria-controls')).toBe('vb-region-pc-intro')
+    expect(btn.getAttribute('aria-expanded')).toBe('false')
+  })
+
+  it('pc-intro (bookend) renders expanded with the region visible when locally expanded', () => {
+    expandSection('pc-intro')
     render(
       <SectionShell
         {...baseProps}
@@ -204,8 +229,9 @@ describe('SectionShell', () => {
       </SectionShell>,
     )
     const region = document.getElementById('vb-region-pc-intro')
-    expect(region?.getAttribute('data-vb-expanded')).toBe('true')
-    expect(document.querySelector('button')).toBeNull()
+    expect(region?.hasAttribute('hidden')).toBe(false)
+    const btn = screen.getByRole('button', { name: 'Welcome' })
+    expect(btn.getAttribute('aria-expanded')).toBe('true')
   })
 })
 
@@ -343,7 +369,7 @@ describe('SectionShell PR3 restructure', () => {
     expect(container.querySelector('[data-operator-section]')).toBeNull()
   })
 
-  it('bookend sections (pc-intro/pc-thanks) render with NO collapse affordance/control', () => {
+  it('bookend sections (pc-intro/pc-thanks) render WITH a collapse affordance/control, like any other section (2026-07-19 welcome-auto-reveal)', () => {
     for (const key of ['pc-intro', 'pc-thanks'] as const) {
       const { container, unmount } = render(
         <SectionShell
@@ -356,7 +382,10 @@ describe('SectionShell PR3 restructure', () => {
           <p>Body</p>
         </SectionShell>,
       )
-      expect(container.querySelector('button')).toBeNull()
+      const btn = container.querySelector('button')
+      expect(btn).not.toBeNull()
+      expect(btn?.getAttribute('aria-expanded')).toBe('false')
+      expect(container.querySelector('[role="region"]')).not.toBeNull()
       unmount()
     }
   })

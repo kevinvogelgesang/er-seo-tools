@@ -26,8 +26,10 @@ export async function setSectionCollapsedShared(
 ): Promise<{ collapsedShared: boolean }> {
   const { sectionKey, collapsed, isOperator } = input
 
-  // Validate against REAL section keys — sectionSupportsCollapse only excludes
-  // the bookends, so an arbitrary string would otherwise pass.
+  // Validate against REAL section keys — an arbitrary string would otherwise
+  // pass. sectionSupportsCollapse is retained as a seam for a future carve-out
+  // but all sections are collapsible now (2026-07-19 welcome-auto-reveal); the
+  // guard excludes nothing.
   if (!(SECTION_KEYS as readonly string[]).includes(sectionKey)) throw new HttpError(400, 'invalid_section')
   if (!sectionSupportsCollapse(sectionKey)) throw new HttpError(400, 'invalid_section')
   // Shared-EXPAND (collapsed=false) is operator-only. Shared-COLLAPSE is open

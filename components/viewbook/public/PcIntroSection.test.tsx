@@ -64,9 +64,15 @@ describe('PcIntroSection', () => {
     expect(container.firstChild).toBeNull()
   })
 
-  it('never collapses and has no ack action in the normal (unacknowledged) case', () => {
+  it('renders as a collapsible section (compact row + expand control), not a permanently-open hero (2026-07-19 welcome-auto-reveal)', () => {
     const { container } = render(<PcIntroSection section={{ ...baseSection }} data={data()} token="t" />)
     expect(container.querySelector('details')).toBeNull()
-    expect(container.querySelector('button')).toBeNull()
+    // Default-collapsed on a fresh machine (no seeded localStorage) — same
+    // compact-row + expand-control shape as every other section now that
+    // pc-intro is no longer excluded from collapse.
+    const btn = container.querySelector('button')
+    expect(btn).not.toBeNull()
+    expect(btn?.getAttribute('aria-expanded')).toBe('false')
+    expect(container.querySelector('[role="region"]')).not.toBeNull()
   })
 })

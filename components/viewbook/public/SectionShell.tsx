@@ -14,7 +14,9 @@
 // (`heroExpanded`, `heroCollapsed`, `body`) — never a function prop.
 //
 // Display modes (lib/viewbook/section-display.ts):
-//   always-open (pc-intro)  → expanded, no toggle, never collapses
+//   always-open             → expanded, no toggle, never collapses (currently
+//                             no section key uses this mode — retained as a
+//                             seam for a future permanently-open section)
 //   normal                  → open per the stage policy, click-toggle only
 //   done / ack-collapsed    → start collapsed, celebratory summary face, open
 //                             on deliberate toggle or vb:navigate
@@ -23,35 +25,40 @@
 // local-revision.md): the viewer-facing collapse-to-hero state is now
 // PURELY LOCAL (per-machine localStorage, default collapsed) — this file no
 // longer reads `section.collapsedShared` at all (that column is DORMANT; see
-// prisma/schema.prisma). Two bookend sections (pc-intro / pc-thanks) are
-// collapse-INELIGIBLE (`sectionSupportsCollapse`) and render the plain hero +
-// body with NO affordance/control at all — never wrapped in CollapsibleSection.
+// prisma/schema.prisma).
+//
+// 2026-07-19 welcome-auto-reveal follow-up: ALL sections are now collapse-
+// eligible (`sectionSupportsCollapse`, theme.ts's COLLAPSE_EXCLUDED_SECTION_
+// KEYS is empty) — the former bookend carve-out (pc-intro / pc-thanks
+// rendered with no CollapsibleSection wrapper at all) is retired. The
+// `collapsible ? … : …` branch below is kept as a dormant path for any future
+// carve-out rather than deleted.
 //
 // Post-review a11y fix (2026-07-19): a <button> may not validly contain a
 // block heading. `buildExpandedHero`/`buildCompactRow` used to render the
 // section title as an <h2> INSIDE the hero markup that CollapsibleSection
 // then wrapped in a <button> — invalid nesting. The title is now always built
 // as a plain <span> here; CollapsibleSection supplies the real <h2> WRAPPING
-// its <button> for collapsible sections (APG Accordion pattern). Bookend
-// sections (pc-intro/pc-thanks) have no button at all, so buildExpandedHero
-// renders the title as a real <h2> for them instead — `collapsible` picks
-// the tag.
+// its <button> for collapsible sections (APG Accordion pattern). Any future
+// collapse-ineligible section (`collapsible === false`) has no button at all,
+// so buildExpandedHero renders the title as a real <h2> for it instead —
+// `collapsible` picks the tag.
 //
 // Round-2 review fix (same date): a <button> may ALSO only contain PHRASING
 // content, but `buildCompactRow`/`buildExpandedHero` wrap their decorative
 // image/gradient/accent/cluster layers in <div>s — invalid when this hero
-// ends up inside CollapsibleSection's <button> (collapsible sections; the
-// two bookends render this markup directly with no button, where either tag
-// would have been fine). Every decorative wrapper below is now a <span>
-// instead — visually inert, since each one already carries an explicit
-// Tailwind `flex` class (sets `display:flex` outright) or `absolute`
-// positioning (CSS forces `display:block` on an absolutely-positioned
-// element regardless of its default), except the OUTER compact-row wrapper,
-// which gets an explicit `block` class since it relies on `mx-auto` alone.
-// This also means the button's only VISIBLE content is the title span (every
-// decorative span is aria-hidden), which is what lets CollapsibleSection
-// derive the button's accessible name from content instead of an aria-label
-// (see CollapsibleSection.tsx).
+// ends up inside CollapsibleSection's <button> (collapsible sections; a
+// collapse-ineligible section would render this markup directly with no
+// button, where either tag would have been fine). Every decorative wrapper
+// below is now a <span> instead — visually inert, since each one already
+// carries an explicit Tailwind `flex` class (sets `display:flex` outright) or
+// `absolute` positioning (CSS forces `display:block` on an absolutely-
+// positioned element regardless of its default), except the OUTER
+// compact-row wrapper, which gets an explicit `block` class since it relies
+// on `mx-auto` alone. This also means the button's only VISIBLE content is
+// the title span (every decorative span is aria-hidden), which is what lets
+// CollapsibleSection derive the button's accessible name from content
+// instead of an aria-label (see CollapsibleSection.tsx).
 import type { ReactNode } from 'react'
 import type { PublicSection } from '@/lib/viewbook/public-types'
 import type { ViewbookStage } from '@/lib/viewbook/stages'
@@ -231,17 +238,19 @@ export function SectionShell({
     const heightClass = heroUrl ? 'min-h-[38vh]' : 'min-h-[30vh]'
     // Collapsible sections render inside CollapsibleSection's <button>, which
     // is wrapped in the real <h2> there (a <button> may not contain a
-    // heading) — so the title here is a plain <span>. Bookend sections
-    // (pc-intro/pc-thanks, collapsible=false) render this hero directly with
-    // no button at all, so THEY need the real heading here.
+    // heading) — so the title here is a plain <span>. A collapse-ineligible
+    // section (collapsible=false — none exist as of 2026-07-19
+    // welcome-auto-reveal, retained as a seam) renders this hero directly
+    // with no button at all, so it needs the real heading here.
     const TitleTag = collapsible ? 'span' : 'h2'
     return (
       // <span> (not <div>) — collapsible sections render this hero inside
       // CollapsibleSection's <button>, which permits only phrasing content
-      // (see the file banner); bookends render it directly with no button,
-      // where a span works identically since every layer below sets its own
-      // `display` via an explicit Tailwind class (`flex`) or absolute
-      // positioning (CSS forces block regardless of the element's default).
+      // (see the file banner); a collapse-ineligible section would render it
+      // directly with no button, where a span works identically since every
+      // layer below sets its own `display` via an explicit Tailwind class
+      // (`flex`) or absolute positioning (CSS forces block regardless of the
+      // element's default).
       <span
         className={`relative flex ${heightClass} items-end overflow-hidden`}
         style={{ background: 'var(--vb-primary)' }}
@@ -368,8 +377,11 @@ export function SectionShell({
           previewMode={previewMode}
         />
       ) : (
-        // Bookends (pc-intro / pc-thanks): no collapse state at all — always
-        // the full hero + header strip + body, no affordance/control.
+        // Dormant path: as of 2026-07-19 welcome-auto-reveal no section key
+        // is collapse-ineligible (COLLAPSE_EXCLUDED_SECTION_KEYS is empty),
+        // so this branch never runs today — retained as the seam for a
+        // future carve-out. When it does run: no collapse state at all —
+        // always the full hero + header strip + body, no affordance/control.
         <>
           {buildExpandedHero()}
           {headerStrip}

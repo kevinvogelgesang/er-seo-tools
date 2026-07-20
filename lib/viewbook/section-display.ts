@@ -3,7 +3,11 @@ import type { ViewbookStage } from './stages'
 
 export type SectionDisplayMode = 'always-open' | 'done' | 'ack-collapsed' | 'normal'
 
-const ALWAYS_OPEN_KEYS = new Set(['pc-intro'])
+// 2026-07-19 welcome-auto-reveal: pc-intro no longer wins over done/ack — it
+// now follows the same display-mode rules as every other section (collapse
+// eligibility lives in theme.ts's COLLAPSE_EXCLUDED_SECTION_KEYS, now empty).
+// Retained (now empty) as the seam for any future permanently-open section.
+const ALWAYS_OPEN_KEYS = new Set<string>()
 
 export function sectionDisplayMode(section: PublicSection, stage: ViewbookStage): SectionDisplayMode {
   if (ALWAYS_OPEN_KEYS.has(section.sectionKey)) return 'always-open'

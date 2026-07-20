@@ -11,8 +11,9 @@
 // sectionKey):
 //   - stored value is 'expanded' | 'collapsed' | absent.
 //   - absent ⇒ default COLLAPSED — every collapsible section starts
-//     collapsed on a fresh machine/browser (SectionShell excludes the two
-//     bookend sections from this entirely — they never collapse).
+//     collapsed on a fresh machine/browser. All sections are collapsible now
+//     (2026-07-19 welcome-auto-reveal) — the two bookend sections (pc-intro/
+//     pc-thanks) are no longer excluded; the guard excludes nothing now.
 // expand()/collapse() persist the choice (unless previewMode, which never
 // touches localStorage — ThemePreview only ever renders visuals, it is not a
 // real viewbook). forceExpand() is an EPHEMERAL, never-persisted override
