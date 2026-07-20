@@ -13,6 +13,15 @@ export const CLIENT_SWEEP_JOB_TYPE = 'client-sweep'
 export const SWEEP_DIGEST_JOB_TYPE = 'sweep-digest'
 export const SWEEP_SCAN_PROFILE = { wcagLevel: 'wcag21aa', seoIntent: true, seoOnly: false } as const // D8
 
+// A WeeklySweep row is either the Sunday scheduled sweep or an on-demand manual
+// full-cohort sweep ("Queue all clients"). Stored on WeeklySweep.origin.
+export type SweepOrigin = 'scheduled' | 'manual'
+
+/** Fail-safe: any unknown/legacy value reads as 'scheduled' (the pre-origin default). */
+export function asSweepOrigin(s: string | null | undefined): SweepOrigin {
+  return s === 'manual' ? 'manual' : 'scheduled'
+}
+
 // D8 cadences — the SINGLE source of truth shared by the system-schedule seed
 // and the digest's sweep-slot derivation (which must agree on the 01:00 hour).
 export const SWEEP_CADENCE = 'weekly:1@01:00' // fan-out: Monday 01:00 server-local
