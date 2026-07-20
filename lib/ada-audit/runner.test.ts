@@ -15,6 +15,16 @@ vi.mock('@/lib/ada-audit/browser-pool', () => ({
 }))
 vi.mock('@/lib/security/safe-url', () => ({
   assertSafeHttpUrl: vi.fn(async (input: string | URL) => new URL(String(input))),
+  // classifyRunnerError (imported transitively via runner-errors) does an
+  // `instanceof SafeUrlError` check — the mock must export a real constructor
+  // or the instanceof throws "right-hand side is not callable".
+  SafeUrlError: class SafeUrlError extends Error {
+    reason: string
+    constructor(message: string, reason = 'policy') {
+      super(message)
+      this.reason = reason
+    }
+  },
 }))
 vi.mock('@/lib/ada-audit/lighthouse-provider', () => ({
   getLighthouseProvider: vi.fn(() => 'off'),
@@ -38,7 +48,7 @@ const { acquirePage, releasePage } = await import('@/lib/ada-audit/browser-pool'
 const { gotoWithRetryOn5xx } = await import('@/lib/ada-audit/page-load')
 const { harvestLinks } = await import('@/lib/ada-audit/link-harvest')
 const { harvestPdfLinks } = await import('@/lib/ada-audit/pdf-discovery')
-const { runAxeAudit } = await import('./runner')
+const { runAxeAudit, acquirePageWithRetry } = await import('./runner')
 
 function makeResponse() {
   return {
@@ -100,5 +110,46 @@ describe('runAxeAudit renderOnly', () => {
     expect(harvestLinks).toHaveBeenCalledTimes(1)
     // Page released exactly once (finally).
     expect(releasePage).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('B3 — acquirePageWithRetry + pool-stability', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it('retries ONCE on an infrastructure acquire failure, then succeeds', async () => {
+    const page = makePage()
+    ;(acquirePage as ReturnType<typeof vi.fn>)
+      .mockRejectedValueOnce(new Error('Protocol error (Target.createTarget): ...'))
+      .mockResolvedValueOnce(page)
+    const got = await acquirePageWithRetry(0)
+    expect(got).toBe(page)
+    expect(acquirePage).toHaveBeenCalledTimes(2)
+  })
+
+  it('rethrows a non-infrastructure acquire failure immediately (no retry)', async () => {
+    ;(acquirePage as ReturnType<typeof vi.fn>).mockRejectedValueOnce(new Error('HTTP 404 — gone'))
+    await expect(acquirePageWithRetry(0)).rejects.toThrow(/HTTP 404/)
+    expect(acquirePage).toHaveBeenCalledTimes(1)
+  })
+
+  it('in-nav retry whose re-acquire fails twice releases the old page EXACTLY once (no double-release)', async () => {
+    vi.useFakeTimers()
+    try {
+      ;(acquirePage as ReturnType<typeof vi.fn>)
+        .mockResolvedValueOnce(makePage()) // initial acquire → old page
+        .mockRejectedValue(new Error('Protocol error (Target.createTarget): ...')) // both re-acquire attempts fail
+      // Force the in-nav transient-retry path.
+      ;(gotoWithRetryOn5xx as ReturnType<typeof vi.fn>).mockRejectedValue(new Error('Navigating frame was detached'))
+      const promise = runAxeAudit('https://example.edu/', 'wcag21aa', undefined, { auditId: 'a1' })
+      const rejects = expect(promise).rejects.toThrow(/Target\.createTarget/)
+      await vi.advanceTimersByTimeAsync(2000) // drain the 750ms in-nav re-acquire delay
+      await rejects
+      // Old page released once (before re-acquire); finally does NOT release again.
+      expect(releasePage).toHaveBeenCalledTimes(1)
+    } finally {
+      vi.useRealTimers()
+    }
   })
 })

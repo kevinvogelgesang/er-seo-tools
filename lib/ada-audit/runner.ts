@@ -11,6 +11,7 @@ import type { RawPageSeo } from './seo/parse-seo-dom'
 import { gotoWithRetryOn5xx, postLoadSettle } from './page-load'
 import { isNoiseRequest } from './scanner-noise'
 import { isTransientRunnerError } from './runner-retry'
+import { classifyRunnerError } from './runner-errors'
 import { detectRedirect } from './redirect-detect'
 import { trimAxeResultsForStorage } from './axe-trim'
 import type { StoredAxeResults } from './types'
@@ -116,6 +117,20 @@ export type RunAxeResult =
       harvestedPageSeo: RawPageSeo | null
     }
 
+// Bucket 3: one fixed-delay retry when the pool/Chrome refuses a page
+// (Target.createTarget / Target closed under load). INFRASTRUCTURE ONLY — every
+// other acquire failure propagates unchanged. Covers BOTH the initial acquire
+// and the in-nav re-acquire. `delayMs` is injectable so tests don't wait.
+export async function acquirePageWithRetry(delayMs = 750): Promise<Page> {
+  try {
+    return await acquirePage()
+  } catch (err) {
+    if (classifyRunnerError(err).kind !== 'infrastructure') throw err
+    await new Promise((r) => setTimeout(r, delayMs))
+    return await acquirePage() // second failure propagates
+  }
+}
+
 export async function runAxeAudit(
   targetUrl: string,
   wcagLevel: string = 'wcag21aa',
@@ -131,7 +146,13 @@ export async function runAxeAudit(
   const parsed = await assertSafeHttpUrl(targetUrl)
 
   await progress(10, 'Launching browser…')
-  let page = await acquirePage()
+  let page = await acquirePageWithRetry()
+  // Ownership guard for the `finally` release. When the in-nav retry releases
+  // the failing page and then re-acquires, a throw from the re-acquire would
+  // otherwise leave `page` pointing at the already-released page and the finally
+  // would release it a SECOND time (corrupting a pool slot). We flip this false
+  // across the release→re-acquire window so the finally never double-releases.
+  let pageOwned = true
 
   let lighthouseSummary: LighthouseSummary | null = null
   let lighthouseError: string | null = null
@@ -369,8 +390,13 @@ export async function runAxeAudit(
         // insufficient for `Navigating frame was detached` because Puppeteer's
         // frame tree may be in an unrecoverable state. A fresh page also clears
         // any half-applied request-interception state.
+        // Transfer ownership OUT before re-acquiring (Bucket 3): flip the guard
+        // false so that if `acquirePageWithRetry` below throws, the finally does
+        // not release this already-released page a second time.
+        pageOwned = false
         await releasePage(page).catch(() => {})
-        page = await acquirePage()
+        page = await acquirePageWithRetry()
+        pageOwned = true
 
         // Re-apply hardening from browser-pool (idempotent) and re-register the
         // request handler on the new page.
@@ -524,6 +550,6 @@ export async function runAxeAudit(
 
     return { kind: 'audited', axe: axe as StoredAxeResults, lighthouseSummary, lighthouseError, harvestedPdfUrls, harvestedLinks, harvestedLinksTruncated, harvestedPageSeo, heroScreenshotPng }
   } finally {
-    await releasePage(page)
+    if (pageOwned) await releasePage(page)
   }
 }

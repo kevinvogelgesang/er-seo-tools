@@ -29,6 +29,7 @@
 import { Prisma } from '@prisma/client'
 import { prisma } from '@/lib/db'
 import { runAxeAudit } from '@/lib/ada-audit/runner'
+import { classifyRunnerError } from '@/lib/ada-audit/runner-errors'
 import { dispatchPdfScans } from '@/lib/ada-audit/pdf-orchestrator'
 import { finalizeSiteAudit } from '@/lib/ada-audit/site-audit-finalizer'
 import { enqueuePsiJob } from '@/lib/ada-audit/lighthouse-queue'
@@ -298,6 +299,11 @@ export async function runSiteAuditPageJob(payload: unknown): Promise<void> {
       captureHeroScreenshot: wantHero,
     })
   } catch (err) {
+    // Bucket 3: an infrastructure failure (Chrome/pool/protocol) is NOT a domain
+    // result — rethrow so the durable queue (maxAttempts:3 + backoff) retries the
+    // whole page job on a fresh worker tick. onSiteAuditPageExhausted still
+    // settles a terminal child `error` when the attempts run out (no infinite loop).
+    if (classifyRunnerError(err).kind === 'infrastructure') throw err
     // Domain failure: settle and complete the job — no per-page retry,
     // matching the legacy loop's catch.
     const msg = err instanceof Error ? err.message : 'Audit failed'

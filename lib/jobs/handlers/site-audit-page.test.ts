@@ -132,6 +132,17 @@ describe('jobs/handlers/site-audit-page', () => {
     expect(finalizeSiteAudit).toHaveBeenCalledWith(site.id)
   })
 
+  it('B3: an INFRASTRUCTURE throw rethrows (no settle) so the durable queue retries', async () => {
+    vi.mocked(runAxeAudit).mockRejectedValue(new Error('Protocol error (Target.createTarget): ...'))
+    const { site, child, payload } = await seed('infra-err')
+    await expect(runSiteAuditPageJob(payload)).rejects.toThrow(/Target\.createTarget/)
+    // Child NOT settled to a domain error; counters untouched; no finalize.
+    const c = await prisma.adaAudit.findUnique({ where: { id: child.id } })
+    expect(c?.status).not.toBe('error')
+    expect((await prisma.siteAudit.findUnique({ where: { id: site.id } }))?.pagesError).toBe(0)
+    expect(finalizeSiteAudit).not.toHaveBeenCalled()
+  })
+
   it('claims a "running" child (crash re-run) and re-audits it', async () => {
     vi.mocked(runAxeAudit).mockResolvedValue(AXE_OK)
     const { child, payload } = await seed('rerun', 'running')
