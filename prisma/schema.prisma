@@ -878,7 +878,7 @@ model Viewbook {
   csmName          String?
   clientNotifyJson String    @default("[]")
   pcCompletedAt    DateTime?
-  collapseAffordance  String @default("bar")  // 'bar' | 'pill' | 'chevron' (presentation config, PR4)
+  collapseAffordance  String @default("chevron")  // 'pill' | 'chevron' (presentation config, PR4; 'bar' dropped 2026-07-19 — a legacy 'bar' row still degrades to the default at read time, see readPresentationConfig)
   heroOverlayStrength Int    @default(55)      // 0..100 hero overlay opacity
   createdBy       String? // operator email
   createdAt       DateTime  @default(now())
@@ -902,7 +902,7 @@ model ViewbookSection {
   viewbook   Viewbook  @relation(fields: [viewbookId], references: [id], onDelete: Cascade)
   sectionKey String // 'welcome' | 'milestones' | 'data-source' | 'brand' | 'assessment' | 'strategy' | 'materials'
   state      String    @default("active") // 'hidden' | 'active' | 'done'
-  collapsedShared Boolean @default(false) // viewer-facing shared collapse default (orthogonal to state)
+  collapsedShared Boolean @default(false) // DORMANT (2026-07-19): no longer read by any render path — collapse is now purely local (localStorage); see docs/superpowers/specs/2026-07-19-viewbook-collapse-local-revision.md. Column retained (not deleted) for a possible future shared-collapse revival; the write path (lib/viewbook/collapse.ts + POST /api/viewbook/[token]/collapse) is kept functional but unused.
   doneAt     DateTime?
   introNote  String? // operator-written per-client intro (plain text)
   narrative  String? // assessment narrative / brand philosophy prose (plain text)

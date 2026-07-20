@@ -8,7 +8,7 @@ afterEach(() => {
   vi.unstubAllGlobals()
 })
 
-const CONFIG = { collapseAffordance: 'bar' as const, heroOverlayStrength: 55 }
+const CONFIG = { collapseAffordance: 'chevron' as const, heroOverlayStrength: 55 }
 
 describe('PresentationEditor', () => {
   it('changing the affordance select PATCHes {collapseAffordance} then calls onSaved', async () => {
@@ -88,7 +88,7 @@ describe('PresentationEditor', () => {
     const select = screen.getByLabelText('Collapse affordance') as HTMLSelectElement
     expect(select.value).toBe('chevron')
 
-    fireEvent.change(select, { target: { value: 'bar' } })
+    fireEvent.change(select, { target: { value: 'pill' } })
     expect(select.disabled).toBe(true)
 
     resolveFetch({ ok: true, json: async () => ({ ok: true }) })

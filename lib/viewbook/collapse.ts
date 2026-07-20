@@ -1,3 +1,10 @@
+// DORMANT (2026-07-19): no longer called by the client — the viewer-facing
+// collapse state is now purely local (localStorage), never shared/written to
+// the server. See docs/superpowers/specs/2026-07-19-viewbook-collapse-local-
+// revision.md. This module + its route + the middleware matcher are kept
+// FUNCTIONAL (not deleted) in case a future "shared collapse" mode revives
+// them; its tests still verify a working-but-unused route.
+//
 // v2 PR2: shared-collapse write (spec §6). Any token-holder may shared-COLLAPSE
 // a section; shared-EXPAND is operator-only (a viewer collapsing something is
 // reversible/low-stakes, re-expanding a book-wide default is an operator call).

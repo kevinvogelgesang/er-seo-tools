@@ -9,11 +9,15 @@
 
 import { HttpError } from '@/lib/api/errors'
 
-export const COLLAPSE_AFFORDANCES = ['bar', 'pill', 'chevron'] as const
+// 2026-07-19 collapse local-only revision: the bar affordance is dropped —
+// chevron (icon-only) and pill (labeled) are the only two looks. A legacy
+// stored 'bar' row is NOT a valid member below, so readPresentationConfig
+// degrades it to the default with no data migration required.
+export const COLLAPSE_AFFORDANCES = ['chevron', 'pill'] as const
 export type CollapseAffordanceKind = (typeof COLLAPSE_AFFORDANCES)[number]
 
 export const PRESENTATION_DEFAULTS = {
-  collapseAffordance: 'bar' as CollapseAffordanceKind,
+  collapseAffordance: 'chevron' as CollapseAffordanceKind,
   heroOverlayStrength: 55,
 }
 

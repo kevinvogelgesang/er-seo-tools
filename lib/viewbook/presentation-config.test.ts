@@ -36,7 +36,11 @@ describe('parsePresentationPatch', () => {
 
 describe('readPresentationConfig', () => {
   it('read degrades a corrupt stored affordance to the default', () => {
-    expect(readPresentationConfig({ collapseAffordance: 'garbage', heroOverlayStrength: 55 }).collapseAffordance).toBe('bar')
+    expect(readPresentationConfig({ collapseAffordance: 'garbage', heroOverlayStrength: 55 }).collapseAffordance).toBe('chevron')
+  })
+
+  it('degrades a legacy stored "bar" row to the default (bar dropped 2026-07-19, no data migration)', () => {
+    expect(readPresentationConfig({ collapseAffordance: 'bar', heroOverlayStrength: 55 }).collapseAffordance).toBe('chevron')
   })
 
   it('passes through a valid stored row unchanged', () => {

@@ -1,3 +1,9 @@
+// DORMANT (2026-07-19): no longer called by the client — collapse is now
+// purely local (localStorage); see docs/superpowers/specs/2026-07-19-
+// viewbook-collapse-local-revision.md. Kept functional (not deleted) for a
+// possible future shared-collapse revival; its tests still verify a
+// working-but-unused route.
+//
 // Public shared-collapse route (v2 PR2 spec §6). Preflight chain is
 // load-bearing and MUST stay in this order: requireSameSite →
 // requireJsonContentType → requireViewbookToken (token preflight) →

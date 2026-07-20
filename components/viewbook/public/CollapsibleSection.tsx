@@ -1,44 +1,31 @@
 'use client'
 
-// PR3 Task 3: the client island that gives every viewer an in-hero
-// expand/collapse control. Effective collapse comes from useCollapseState
-// (personal override wins over the shared default). Writes:
-//   - client expand  → personal only (localStorage override), NO fetch
-//   - client collapse → shared write {collapsed:true} (open to any token holder)
-//   - operator expand → shared write {collapsed:false} (operator-only per the
-//     PR2 route — a non-operator can never reach this branch since the
-//     "Collapse for everyone" control this island renders when EXPANDED is
-//     the only shared-collapse entry point; operators additionally get the
-//     shared-expand affordance while collapsed)
+// The client island that gives every viewer an in-hero expand/collapse
+// control. 2026-07-19 revision (docs/superpowers/specs/2026-07-19-viewbook-
+// collapse-local-revision.md): collapse is now PURELY LOCAL — no fetch, no
+// shared/server state, no operator distinction. Every viewer (operator
+// included) sees their own collapse preference on their own machine via
+// useCollapseState (localStorage, default collapsed).
 //
-// The controlled region is ALWAYS rendered (Codex FIX-7): collapse toggles
-// hidden/inert/aria-hidden, never DOM presence, so `aria-controls` always
-// resolves to a real element regardless of collapsed state.
+// The WHOLE hero band — collapsed compact row OR expanded hero — is a single
+// real <button> (native keyboard activation, no manual role/tabIndex/keydown
+// plumbing needed) that toggles collapse state. The body below is NEVER a
+// collapse target, so its links/content stay clickable.
+//
+// The controlled region is ALWAYS rendered (collapse toggles hidden/inert,
+// never DOM presence) so `aria-controls` always resolves to a real element
+// regardless of collapsed state.
 //
 // This island does NOT emit `data-operator-section` — OperatorSectionWrapper
-// (rendered OUTSIDE every section component, server-side in the page) already
-// owns that single scroll-spy marker (Codex FIX-8).
-//
-// Codex FIX-9: every shared write that SUCCEEDS calls markAwaitingShared()
-// (latches the just-written value so useCollapseState's reconcile effect
-// holds it rather than snapping back to the still-stale collapsedShared prop
-// the instant endPending() reruns it) AND requestRefresh() (the house
-// convention — see SectionQuickControls — that nudges useViewbookSync's poll
-// so the real prop catches up sooner, shrinking the latched window). Personal
-// client expand writes neither: no fetch, nothing shared to refresh.
+// (rendered OUTSIDE every section component, server-side in the page) owns
+// that single scroll-spy marker.
 import { useEffect, type ReactNode } from 'react'
-import { CollapseAffordance } from './CollapseAffordance'
-import type { CollapseAffordanceKind } from '@/lib/viewbook/presentation-config'
 import { useCollapseState } from './useCollapseState'
-import { requestRefresh } from './useViewbookSync'
 
 export function CollapsibleSection({
   viewbookId,
-  token,
   sectionKey,
-  collapsedShared,
-  isOperator,
-  affordance,
+  title,
   heroExpanded,
   heroCollapsed,
   body,
@@ -46,138 +33,47 @@ export function CollapsibleSection({
   previewMode = false,
 }: {
   viewbookId: number
-  token: string
   sectionKey: string
-  collapsedShared: boolean
-  isOperator: boolean
-  affordance: CollapseAffordanceKind
-  heroExpanded: ReactNode // full hero (image+overlay+title+done check)
-  heroCollapsed: ReactNode // shrunken hero variant
+  title: string
+  heroExpanded: ReactNode // full hero (image+overlay+title+done-check+collapse cue)
+  heroCollapsed: ReactNode // compact accordion row (image+wash+accent+title+done-check+affordance)
   body: ReactNode // SectionReveal body — ALWAYS rendered, hidden when collapsed
   regionId: string
-  previewMode?: boolean // ThemePreview: render visuals but NEVER POST (FIX-8)
+  previewMode?: boolean // ThemePreview: render visuals but NEVER touch localStorage
 }) {
-  const {
-    collapsed,
-    pending,
-    beginPending,
-    endPending,
-    setPersonalExpanded,
-    forceExpandedLocal,
-    clearPersonalOverride,
-    restorePersonalOverride,
-    setCollapsedOptimistic,
-    markAwaitingShared,
-  } = useCollapseState({ viewbookId, sectionKey, collapsedShared })
+  const { collapsed, expand, collapse, forceExpand } = useCollapseState({
+    viewbookId,
+    sectionKey,
+    previewMode,
+  })
 
   useEffect(() => {
-    // vb:navigate / hash → force-open (in-memory, not persisted).
+    // vb:navigate (TOC/inspector clicks) / initial #hash → force-open,
+    // in-memory only — never persisted (see useCollapseState).
     function onNav(e: Event) {
-      const d = (e as CustomEvent).detail as { sectionKey?: string } | null
-      if (d?.sectionKey === sectionKey) forceExpandedLocal()
+      const detail = (e as CustomEvent).detail as { sectionKey?: string } | null
+      if (detail?.sectionKey === sectionKey) forceExpand()
     }
     window.addEventListener('vb:navigate', onNav)
-    if (window.location.hash === `#${sectionKey}`) forceExpandedLocal()
+    if (window.location.hash === `#${sectionKey}`) forceExpand()
     return () => window.removeEventListener('vb:navigate', onNav)
-  }, [sectionKey, forceExpandedLocal])
-
-  async function writeShared(nextCollapsed: boolean): Promise<boolean> {
-    const res = await fetch(`/api/viewbook/${token}/collapse`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ sectionKey, collapsed: nextCollapsed }),
-    })
-    return res.ok
-  }
-
-  async function onCollapse() {
-    if (previewMode) {
-      setCollapsedOptimistic(true)
-      return
-    }
-    if (!beginPending()) return // synchronous double-fire guard (FIX-5)
-    setCollapsedOptimistic(true)
-    const prevOverride = clearPersonalOverride() // snapshot for rollback (FIX-6)
-    try {
-      if (!(await writeShared(true))) throw new Error('collapse_failed')
-      // FIX-9: latch the written value so the reconcile effect holds this
-      // collapsed view instead of reverting to the still-stale prop the
-      // instant endPending() reruns it, and nudge the shared poller so the
-      // real prop catches up sooner.
-      markAwaitingShared(true)
-      requestRefresh()
-    } catch {
-      setCollapsedOptimistic(false)
-      restorePersonalOverride(prevOverride) // restore localStorage too
-    } finally {
-      endPending()
-    }
-  }
-
-  async function onExpand() {
-    if (previewMode) {
-      setCollapsedOptimistic(false)
-      return
-    }
-    if (!isOperator) {
-      setPersonalExpanded() // client expand = personal, no fetch
-      return
-    }
-    if (!beginPending()) return
-    setCollapsedOptimistic(false)
-    try {
-      if (!(await writeShared(false))) throw new Error('expand_failed')
-      clearPersonalOverride()
-      // FIX-9: see onCollapse — latch + nudge the poller on success only.
-      markAwaitingShared(false)
-      requestRefresh()
-    } catch {
-      setCollapsedOptimistic(true)
-    } finally {
-      endPending()
-    }
-  }
-
-  const expandName = isOperator ? 'Expand (visible to everyone)' : 'Expand (just for you)'
+  }, [sectionKey, forceExpand])
 
   return (
     <div>
-      {collapsed ? (
-        // The whole shrunken hero is a click target (not just the affordance
-        // button) — a plain (non-semantic) onClick on this wrapper, with the
-        // REAL accessible control being the CollapseAffordance button inside
-        // (which stops propagation so one click doesn't double-invoke).
-        <div className="relative cursor-pointer" onClick={onExpand}>
-          {heroCollapsed}
-          <CollapseAffordance
-            kind={affordance}
-            regionId={regionId}
-            accessibleName={expandName}
-            onExpand={onExpand}
-            disabled={pending}
-          />
-        </div>
-      ) : (
-        <div className="relative">
-          {heroExpanded}
-          {/* Shared-collapse is open to ANY token holder (PR2 route) — not
-              gated on isOperator. Positioned bottom-right to avoid colliding
-              with the top-right done badge (SectionShell). */}
-          <button
-            type="button"
-            aria-expanded="true"
-            aria-controls={regionId}
-            disabled={pending}
-            onClick={onCollapse}
-            className="absolute bottom-4 right-4 z-[3] rounded-full border border-white/30 bg-black/25 px-3.5 py-1.5 text-xs font-semibold text-white shadow-md transition hover:bg-black/35 disabled:opacity-50"
-          >
-            Collapse for everyone
-          </button>
-        </div>
-      )}
+      <button
+        type="button"
+        aria-expanded={!collapsed}
+        aria-controls={regionId}
+        aria-label={`${collapsed ? 'Expand' : 'Collapse'} ${title}`}
+        onClick={collapsed ? expand : collapse}
+        className="group block w-full appearance-none rounded-xl border-0 bg-transparent p-0 text-left outline-none focus-visible:ring-2 focus-visible:ring-white/80 focus-visible:ring-offset-2"
+      >
+        {collapsed ? heroCollapsed : heroExpanded}
+      </button>
       {/* Region ALWAYS present; hidden+inert while collapsed so aria-controls
-          resolves (FIX-7). `inert` (React 19 boolean) + aria-hidden +
-          display:none is the tab-order/a11y guard incl. older engines. */}
+          resolves. `inert` (React 19 boolean) + aria-hidden + display:none is
+          the tab-order/a11y guard incl. older engines. */}
       <div
         id={regionId}
         role="region"
