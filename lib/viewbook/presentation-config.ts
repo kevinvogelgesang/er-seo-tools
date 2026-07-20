@@ -19,6 +19,17 @@ export type CollapseAffordanceKind = (typeof COLLAPSE_AFFORDANCES)[number]
 export const PRESENTATION_DEFAULTS = {
   collapseAffordance: 'chevron' as CollapseAffordanceKind,
   heroOverlayStrength: 55,
+  revealDurationScale: 1.0,
+  firstLoadDelayMs: 3000,
+}
+
+const REVEAL_SCALE_MIN = 0.4
+const REVEAL_SCALE_MAX = 1.6
+const FIRST_LOAD_DELAY_MIN = 0
+const FIRST_LOAD_DELAY_MAX = 6000
+
+function clamp(n: number, lo: number, hi: number): number {
+  return Math.max(lo, Math.min(hi, n))
 }
 
 function isAffordance(v: unknown): v is CollapseAffordanceKind {
@@ -27,8 +38,18 @@ function isAffordance(v: unknown): v is CollapseAffordanceKind {
 
 export function parsePresentationPatch(
   raw: Record<string, unknown>,
-): Partial<{ collapseAffordance: CollapseAffordanceKind; heroOverlayStrength: number }> {
-  const patch: Partial<{ collapseAffordance: CollapseAffordanceKind; heroOverlayStrength: number }> = {}
+): Partial<{
+  collapseAffordance: CollapseAffordanceKind
+  heroOverlayStrength: number
+  revealDurationScale: number
+  firstLoadDelayMs: number
+}> {
+  const patch: Partial<{
+    collapseAffordance: CollapseAffordanceKind
+    heroOverlayStrength: number
+    revealDurationScale: number
+    firstLoadDelayMs: number
+  }> = {}
   if ('collapseAffordance' in raw) {
     if (!isAffordance(raw.collapseAffordance)) throw new HttpError(400, 'invalid_affordance')
     patch.collapseAffordance = raw.collapseAffordance
@@ -39,13 +60,30 @@ export function parsePresentationPatch(
     if (typeof n !== 'number' || !Number.isInteger(n)) throw new HttpError(400, 'invalid_overlay')
     patch.heroOverlayStrength = Math.max(0, Math.min(100, n))
   }
+  if ('revealDurationScale' in raw) {
+    const n = raw.revealDurationScale
+    if (typeof n !== 'number' || !Number.isFinite(n)) throw new HttpError(400, 'invalid_reveal_scale')
+    patch.revealDurationScale = clamp(n, REVEAL_SCALE_MIN, REVEAL_SCALE_MAX)
+  }
+  if ('firstLoadDelayMs' in raw) {
+    const n = raw.firstLoadDelayMs
+    if (typeof n !== 'number' || !Number.isInteger(n)) throw new HttpError(400, 'invalid_first_load_delay')
+    patch.firstLoadDelayMs = clamp(n, FIRST_LOAD_DELAY_MIN, FIRST_LOAD_DELAY_MAX)
+  }
   return patch
 }
 
 export function readPresentationConfig(row: {
   collapseAffordance: string
   heroOverlayStrength: number
-}): { collapseAffordance: CollapseAffordanceKind; heroOverlayStrength: number } {
+  revealDurationScale?: number
+  firstLoadDelayMs?: number
+}): {
+  collapseAffordance: CollapseAffordanceKind
+  heroOverlayStrength: number
+  revealDurationScale: number
+  firstLoadDelayMs: number
+} {
   return {
     collapseAffordance: isAffordance(row.collapseAffordance)
       ? row.collapseAffordance
@@ -53,5 +91,11 @@ export function readPresentationConfig(row: {
     heroOverlayStrength: Number.isFinite(row.heroOverlayStrength)
       ? Math.max(0, Math.min(100, Math.round(row.heroOverlayStrength)))
       : PRESENTATION_DEFAULTS.heroOverlayStrength,
+    revealDurationScale: Number.isFinite(row.revealDurationScale as number)
+      ? clamp(row.revealDurationScale as number, REVEAL_SCALE_MIN, REVEAL_SCALE_MAX)
+      : PRESENTATION_DEFAULTS.revealDurationScale,
+    firstLoadDelayMs: Number.isFinite(row.firstLoadDelayMs as number)
+      ? clamp(Math.round(row.firstLoadDelayMs as number), FIRST_LOAD_DELAY_MIN, FIRST_LOAD_DELAY_MAX)
+      : PRESENTATION_DEFAULTS.firstLoadDelayMs,
   }
 }
