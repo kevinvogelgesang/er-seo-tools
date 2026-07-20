@@ -2,7 +2,7 @@
 
 **Date:** 2026-07-20
 **Author:** Claude (session: SF-retirement Phase 2, under-expansion fix)
-**Status:** Draft → Codex review → plan
+**Status:** Codex-reviewed (gpt-5.6-sol, "accept with named fixes" — all 6 applied) → plan
 **Campaign:** SF-retirement Phase 2 (hybrid discovery). Gates the fleet-wide
 `residualMissRate ≤ 5%` STRICT retirement bar Kevin set 2026-07-20.
 **Roadmap:** `docs/superpowers/nyi/2026-06-04-screaming-frog-retirement-roadmap.md` Phase 2.
@@ -135,88 +135,152 @@ Codex → TDD → gate → PR → merge → deploy → prod re-measure). L1 ship
    - account: first segment ∈ `{my-account}` (WooCommerce)
    These are applied uniformly to `linked` and every `base` set (`fullBaseline`,
    `sitemapSet`) so both numerator and denominator measure content pages only.
-4. **Transparency:** `residualMissRate` becomes content-filtered (the gate
-   number). Retain the unfiltered figure as `residualMissRateRaw` and add
-   `nonContentExcludedCount` so nothing is hidden (parity log + ledger cite
-   both). This is NOT the rejected dual-*gate* design — one gate number, one
-   companion audit number. The same content filter applies to `missRate` and
-   `sitemapMissRate` for consistency (documented).
+   **Honesty caveat (Codex F4):** taxonomy/author/pagination are NOT categorically
+   non-content — they can be indexable landing pages, and pagination bridges to
+   older articles. Thank-you/account are the safer exclusions. We keep the fuller
+   set per Kevin's locked decision, but the metric and copy must call this a
+   **"policy-filtered"** residual, never claim the heuristics identify "indexable
+   content."
+4. **Transparency (Codex F4):** `residualMissRate` becomes the single
+   policy-filtered **gate** number. Retain the unfiltered `residualMissRateRaw`
+   and add `nonContentExcludedCount` — **defined as distinct normalized URLs
+   excluded** (not occurrences, not summed set sizes) — plus a per-reason
+   breakdown `excludedByReason: { param, malformed, pagination, taxonomy,
+   thankyou, account }` (counts, with bounded per-reason samples) so the parity
+   log/ledger can show *which rule produced the pass*. One gate number, full
+   transparency — NOT the rejected dual-*gate* design. The same content filter
+   applies to `missRate` and `sitemapMissRate` for consistency (documented). The
+   read-time `sample` (UI) is drawn from the **filtered** off-baseline set so it
+   never shows URLs the metric no longer counts.
 
 **Tests:** pure `computeDiscoveryCoverage` fixtures — one per pattern class
-(param collapse, `%C2%A0` collapse, pagination, taxonomy, thank-you, account),
-plus a "raw vs filtered" fixture asserting `residualMissRateRaw` ≥
-`residualMissRate` and `nonContentExcludedCount` correct. Existing tests updated
-for the new fields.
+(param collapse, `%C2%A0` collapse, pagination, taxonomy, thank-you, account) +
+`excludedByReason` correctness + `nonContentExcludedCount` as distinct-URL count.
+**Codex F4 correction:** `residualMissRateRaw ≥ residualMissRate` is NOT an
+invariant — filtering both sides can make the filtered rate *rise* (e.g. 100
+content + 100 excluded baseline + 10 missed-content → raw `10/210 = 4.76%`,
+filtered `10/110 = 9.09%`). Do NOT assert monotonicity; instead add an explicit
+fixture proving the filtered rate can exceed the raw rate. Existing tests updated
+for the new fields; sales `sitemapMissRatePct` consumer (`components/sales/
+sections.tsx`) + `DiscoveryCoverageSection` re-checked against the filtered value.
 
 **Expected effect** (from samples): soma clears (~all pagination), nuvani → ~4%,
 federico → ~7%, cambria → ~9% (real program pages remain → needs L2).
 
 ### L2 — rendered-DOM adaptive discovery (fixes the JS-blind clients)
 
-**New file:** `lib/ada-audit/seo/rendered-crawl.ts` (or extend
-`sitemap-crawler-browser-fetch.ts`) exporting
+**New file:** `lib/ada-audit/seo/rendered-crawl.ts` exporting
 `fetchPageLinksViaBrowser(url, auditedHost): Promise<FetchedPage | null>` —
 renders via `acquirePage()`, navigates (`domcontentloaded` + a short bounded
 settle), `page.evaluate` reads `[...document.querySelectorAll('a[href]')]
-.map(a => a.href)`, returns `{ links, finalUrl }`. Owns its **own SSRF
-request-interception layer** (mirror `fetchSitemapViaBrowser` exactly — the
-runner's interception is not inherited). `releasePage` in `finally`. Same
-`FetchedPage` shape as the raw fetcher, so it plugs straight into
-`hybridCrawl(deps.fetchPageLinks)`.
+.map(a => a.href)`, returns `{ links, finalUrl }`. `releasePage` in `finally`.
+Same `FetchedPage` shape as the raw fetcher so it plugs into `hybridCrawl`.
+
+**Per-render bounds (Codex F1) — 40 pages is not a byte/DOM bound:**
+- **Shared SSRF interceptor** (Codex F2): extract the request-interception layer
+  from `fetchSitemapViaBrowser` into one helper both callers use (do not
+  re-copy). It `assertSafeHttpUrl`s every request AND **aborts an off-domain
+  main-frame redirect *before* the page renders** (rejecting `finalUrl`
+  afterward would already have scanned a third-party page — the owner rule).
+- The interceptor also **blocks `image`/`media`/`font`/`stylesheet` subresource
+  loads** (we only need the DOM's `<a href>` graph) — caps per-render memory/time.
+- **Cap returned anchors** per page (`HYBRID_RENDER_MAX_ANCHORS_PER_PAGE`,
+  default ~1500) so a pathological DOM can't balloon the result array.
+
+**Absolute discovery deadline (Codex F1) — the zombie-handler guard:** introduce
+ONE absolute deadline (`Date.now() + budget`) covering seed resolution + raw
+crawl + probe + rendered crawl + `INSERT_RESERVE`. Every phase checks it; nav +
+settle timeouts are **clamped to the remaining deadline**; no new render wave
+starts after it; `acquirePage()` is wrapped so a waiter that would block past the
+deadline is **cancelled without leaking a semaphore slot** (a timed-out handler
+must not later acquire and orphan a page). The existing pre-wave time check in
+`hybridCrawl` is insufficient because `acquirePage()` can block indefinitely
+behind other audits.
 
 **Wiring** in `discoverPages` / `discoverPagesWithDeps`:
-1. Run the existing raw-HTTP hybrid crawl (unchanged — cheap, catches raw-HTML
-   sites: manhattan/healthcarecareer/beal).
-2. **JS-blindness probe** (1 render): render the homepage, count same-domain
-   rendered links; compare to the raw-HTTP homepage same-domain link count. If
-   `rendered − raw ≥ HYBRID_RENDER_PROBE_MIN_DELTA` (default 5), the site is
-   JS-rendered → proceed. Else skip the whole rendered pass (raw-HTML site).
-3. **Bounded rendered BFS:** reuse `hybridCrawl` with
-   `deps.fetchPageLinks = fetchPageLinksViaBrowser`, seeds = existing discovered
-   set + the homepage's rendered links (+ a detected `/site-map*` page if
-   present — highest link yield), and **tight bounds**:
+1. Run the existing raw-HTTP hybrid crawl (unchanged — cheap; catches raw-HTML
+   sites: manhattan/healthcarecareer). Record the raw-discovered normalized-URL
+   set as `knownUrls`.
+2. **JS-blindness probe (Codex F3)** — bounded, novelty-based, not a raw-count
+   delta. Render a **small bounded probe set**: the homepage **plus 1–2
+   representative shallow hubs / `/site-map*` candidates** (catches the
+   "SSR home, CSR-deep" shape a homepage-only probe misses). For each, collect
+   rendered links, normalize + admit them through the **normal filters**
+   (same-domain, robots `isAllowed`, non-page ext, path-segment, query-variant).
+   Trigger the rendered pass when the count of **admissible rendered URLs novel
+   vs `knownUrls`** ≥ `HYBRID_RENDER_PROBE_MIN_NOVEL` (default 5). This needs no
+   raw-homepage-link instrumentation (novelty is measured against the raw crawl's
+   output, which we already have). **Record probe failures** (nav error / WAF /
+   consent block) as a distinct `renderProbe: 'failed'` state — NOT conflated
+   with `'no-delta'` — so a blocked homepage is visible, not silently skipped.
+3. **Bounded rendered BFS — corrected seed model (Codex F2).** Reuse
+   `hybridCrawl` with `deps.fetchPageLinks = fetchPageLinksViaBrowser`, but do
+   NOT pass the existing set as seeds (seeds bypass robots + traps and all become
+   depth-0 fetch frontier → 40 renders wasted re-fetching known URLs, and
+   homepage links would bypass robots). Instead the crawl takes three distinct
+   inputs:
+   - `knownUrls` — used for **dedup only, never fetched** (a new param on the
+     crawl, or a pre-seeded `sources` map at a sentinel depth that is never
+     enqueued to the frontier);
+   - **true publisher seeds** — the homepage (+ detected `/site-map*`), fetched
+     first, depth 0;
+   - **rendered link candidates** — the probe's admissible novel URLs, entering
+     through the **normal same-domain/robots/depth/query/non-page filters** (NOT
+     as trusted seeds).
+   The rendered frontier **prioritizes novel hubs** over already-known URLs.
+   Bounds:
    - `HYBRID_RENDER_MAX_DEPTH` (default 2)
    - `HYBRID_RENDER_MAX_FETCHES` (default 40)
    - `HYBRID_RENDER_MAX_ADDED` (default 300)
-   - `HYBRID_RENDER_CONCURRENCY` (default 2 — ≤ pool size 4, pool-safe)
-   - `timeBudgetMs` = `min(HYBRID_RENDER_TIME_BUDGET_MS default 90_000,
-     remaining job budget − INSERT_RESERVE)`; if `< CRAWL_FLOOR_MS`, skip.
-4. **Union + dedupe** raw-crawl urls ∪ rendered-crawl urls, apply `HARD_CAP`.
-   `mode` = `'hybrid'` (rendered pass recorded in coverage stats:
-   `renderedProbeTriggered`, `renderedFetches`, `renderedAdded`, `renderStoppedBy`).
+   - `HYBRID_RENDER_CONCURRENCY` (default 2 — ≤ pool size 4)
+   - deadline-clamped `timeBudgetMs` (above); skip if `< CRAWL_FLOOR_MS` remain.
+4. **Merge by `normalizeCoverageUrl` with precedence (Codex F2)** — NOT a string
+   `Set`. Union raw + rendered on the coverage key, preserving deterministic
+   real-URL selection and source precedence (`sitemap > seed > shallow >
+   rendered > linked`). Slice the merged result to `HARD_CAP` with the **same
+   normalized-key operation** used for `discoveredUrls`. **Define HARD_CAP-full
+   behavior:** if the raw pass already fills `HARD_CAP`, rendered URLs cannot
+   silently vanish while the run reports healthy — either the rendered pass is
+   skipped (recorded as `renderStoppedBy: 'hardCapPrefull'`) or novel rendered
+   hubs displace lowest-precedence known URLs, deterministically; the chosen rule
+   is recorded in coverage stats. `mode = 'hybrid'`; coverage stats gain
+   `renderProbe` (`'skipped' | 'no-delta' | 'triggered' | 'failed'`),
+   `renderedFetches`, `renderedAdded`, `renderStoppedBy`.
 
 **Memory safety (the crux):**
-- Discovery runs *before* this audit's page jobs fan out, so the pool is not
-  contended by this audit. A concurrent standalone ADA audit (≤2) shares the
-  pool; the pool semaphore serializes — the rendered crawl *waits* for slots,
-  never oversubscribes. `BROWSER_POOL_SIZE` unchanged (≤4).
-- `HYBRID_RENDER_CONCURRENCY` default 2 ⇒ ≤2 in-flight Chrome pages from
-  discovery. `HYBRID_RENDER_MAX_FETCHES` (40) bounds total renders. The pool's
-  recycle gate (`SITE_AUDIT_BROWSER_RECYCLE_PAGES`) still applies.
-- The probe is a single render (~5 s); the whole pass is time-budgeted and
-  degrades to whatever it found by the deadline (never fails discovery).
+- Discovery runs *before* this audit's page jobs fan out. A concurrent standalone
+  ADA audit (≤2) shares the pool; the semaphore serializes — worst case is
+  render-discovery (2) + standalone (2) = the full 4-slot pool, never exceeding
+  it. `BROWSER_POOL_SIZE` unchanged (≤4).
+- Per-render subresource blocking + anchor cap (above) bound each render's RSS.
+  `HYBRID_RENDER_MAX_FETCHES` (40) bounds total renders; recycle gate applies.
+- The absolute deadline + cancellable acquire prevent a zombie handler from
+  holding/awaiting pages past the job timeout (Codex F1).
 
-**Time safety:** discover job timeout 300 s, `INSERT_RESERVE` 60 s, raw crawl
-≤120 s. Rendered pass budget is clamped to remaining headroom and skipped when
-insufficient (crash-resume late in the window falls back to raw-only).
+**Tests:** wire-level via injected deps (mirror `discoverPagesWithDeps`) — a fake
+browser fetcher returns rendered links; assert: probe triggers on ≥ N **novel
+admissible** URLs (not raw-count delta); the SSR-home/CSR-deep shape triggers via
+a shallow-hub probe; probe-failure recorded distinctly from no-delta; `knownUrls`
+are deduped but never fetched; rendered candidates pass through robots (a
+`Disallow`ed rendered link is dropped); merge precedence + HARD_CAP-full rule;
+deadline halts a new wave; a simulated blocking `acquire` past the deadline does
+not leak a slot. `fetchPageLinksViaBrowser` (Chrome-bound) + the redirect-abort
+interceptor are exercised in prod verification; the interceptor's abort predicate
+gets a unit test (extract it as a pure function of request URL + type + host).
 
-**Tests:** wire-level via injected deps (mirror the existing
-`discoverPagesWithDeps` deps pattern) — a fake browser fetcher returns rendered
-links; assert: probe triggers the pass when `rendered−raw ≥ delta`; skips when
-below; skips on insufficient time budget; union/dedupe correct; rendered urls
-appear in output with correct provenance. `fetchPageLinksViaBrowser` itself
-(Chrome-bound) is exercised only in prod verification; its SSRF interception is
-copied verbatim from the proven `fetchSitemapViaBrowser` and asserted by a unit
-test of the interception predicate if extractable.
-
-**Prod verification:** re-run the ledger probe on cambria/glow/nuvani/brownson/
-federico → residual drops below 5%; confirm PM2 memory stays flat during a
-rendered-discovery audit (watch `mem` in `pm2 status` across a scan).
+**Prod verification (Codex F1 — strengthened):** re-run the ledger probe on
+cambria/glow/nuvani/brownson/federico → policy-filtered residual < 5%. Memory:
+run the **worst case** — a render-discovery audit **while 2 standalone ADA audits
+run** — and record **total process-tree RSS** (parent + all Chromium
+descendants, e.g. `ps --ppid`/`pstree` RSS sum, not just `pm2 status` which omits
+descendant RSS and short peaks), system memory headroom, and PM2 restart count,
+against a **numeric pass threshold** (peak tree RSS stays under a stated MB
+ceiling with ≥ N MB headroom, 0 restarts).
 
 ### L3 — bound adaptivity for large raw-HTML sites
 
 For sites where raw HTTP *is* productive (healthcarecareer maxAdded@300; soma
-maxFetches@400; beal timeBudget). Two parts:
+maxFetches@400). Two parts:
 1. **Raise raw-crawl default bounds** with headroom analysis:
    `HYBRID_CRAWL_MAX_FETCHES` 400→800, `HYBRID_CRAWL_MAX_ADDED` 300→600. Time
    budget stays 120 s (raise only if the job-timeout headroom proves it safe —
@@ -226,31 +290,80 @@ maxFetches@400; beal timeBudget). Two parts:
 2. Confirm bounds are still *honestly* reported (`stoppedBy`, `capped`) so a
    client that still caps is flagged, not silently passed.
 
-**Tests:** `hybridCrawl` bound-respect tests already exist; add cases at the new
-default magnitudes; assert `stoppedBy`/`capped` unchanged in meaning.
+**Codex F6 — Beal correction:** Beal stops on the **120 s time budget**, not on
+maxFetches/maxAdded, so raising fetch/added caps does nothing for it. Two
+options, decide in the plan: (a) under the single **absolute deadline** (L2/F1),
+let a productive raw crawl consume unused rendered-pass headroom (a raw-HTML site
+never triggers the rendered pass, so its budget is free) — this is the preferred
+fix and helps Beal without a fixed-budget bump; or (b) drop Beal from L3's
+expected effect and let it ride the deadline. **Do not** claim L3's cap raises
+help Beal.
 
-**Note:** L3 helps healthcarecareer/soma/beal; discovery needs L2 (JS-blind).
+**Tests:** `hybridCrawl` bound-respect tests already exist; add cases at the new
+default magnitudes; assert `stoppedBy`/`capped` unchanged in meaning; if (a),
+test that a raw-only run may use the freed rendered budget.
+
+**Note:** L3 helps healthcarecareer/soma (+ Beal via option (a)); discovery
+needs L2 (JS-blind).
+
+### Persistence & provenance contract (Codex F5)
+
+Both discovery passes are computed **before one row update** (never persist the
+raw pass as an intermediate state), preserving atomic URL/source tuples. Guards
+must be exact, not the spec's earlier loose phrasing:
+- **Fresh discovery** persist is guarded by `discoveredUrls: null` (+
+  `status: 'running'`); **pre-discovered expansion** by
+  `discoverySourcesJson: null` (+ `status: 'running'`). Preserve BOTH explicitly.
+- **Deterministic source-map merge:** raw + rendered maps merge by
+  `normalizeCoverageUrl` key with the fixed precedence above. A new
+  `rendered`/`rendered-linked` provenance value ⇒ bump `discoverySourcesJson`
+  to **`{ v: 2, ... }`** (readers tolerate v1).
+- The source map is **sliced by the exact same normalized-key HARD_CAP
+  operation** as `discoveredUrls`, so `sources` and `urls` stay 1:1.
+- **Concurrent-attempt test:** two attempts producing different rendered results
+  → exactly one coherent (urls, sources) tuple wins; the loser re-reads that
+  tuple and the ensure-normalize step never overwrites it back to raw-only.
+
+### Fail-closed: clients no lever can solve (Codex F6)
+
+The coverage metric only sees targets harvested from **audited** pages, so an
+entirely unlinked cluster is absent from its own denominator. Explicitly accept
+that some clients cannot reach ≤5% by L1–L3 and must **stay on SF / manual
+discovery** — an honest campaign outcome, not a design failure. A client stays on
+fallback (and its N=8 clock does NOT start) when:
+- it has **> 1,000 relevant pages** while the `HARD_CAP` semantics are unchanged;
+- routes are exposed only by **form POST, button click, infinite scroll, or
+  router state with no rendered `href`** (invisible even to the rendered pass —
+  out of scope);
+- there are **isolated link clusters** with no link from any audited page.
+Surface this as a labeled state in the ledger (`fallback: 'sf-required'` +
+reason), never a silent sub-5% pass.
 
 ## 5. Falsifiable gate (per increment)
 
 The single falsifiable number is **per-client `discoveryCoverageJson
-.residualMissRate` (content-filtered) ≤ 5%**, re-measured on prod after each
+.residualMissRate` (policy-filtered) ≤ 5%**, re-measured on prod after each
 increment via the session's ledger probe
 (`.claude/skills/.../scripts` or the scratch probe). Before/after per client is
-recorded in the parity log. This feature's job is to get the *per-run* residual
-≤5%; the **N=8 qualifying-sweeps clock** (campaign Phase 7) is separate and
-starts only after a client's coverage first reaches ≤5%.
+recorded in the parity log alongside `residualMissRateRaw` +
+`nonContentExcludedCount` + the per-reason breakdown. This feature's job is to
+get the *per-run* residual ≤5%; the **N=8 qualifying-sweeps clock** (campaign
+Phase 7) is separate and starts only after a client's coverage first reaches ≤5%
+(and never starts for a `fallback: 'sf-required'` client).
 
 ## 6. Risks & mitigations
 
 | Risk | Mitigation |
 |---|---|
-| Chrome memory regression (the scars) | `HYBRID_RENDER_CONCURRENCY` 2, `MAX_FETCHES` 40, pool size unchanged, discovery precedes fan-out, prod `mem` watch in verification |
-| Rendered pass blows the discover job timeout | Time-budget-clamped to remaining headroom − INSERT_RESERVE; skip below CRAWL_FLOOR; degrade to partial |
-| L1 reads as goalpost-gaming | Fuller filter is documented in the parity log; `residualMissRateRaw` + `nonContentExcludedCount` retained; only well-known non-content patterns; functional params never stripped |
-| Non-content classifier over-excludes a real page | Conservative patterns (pagination/taxonomy/thank-you/account only); fixtures per class; raw number stays visible for audit |
-| SSRF via the browser fetcher | Own request-interception layer copied verbatim from `fetchSitemapViaBrowser`; `assertSafeHttpUrl` on nav + every intercepted request; `lib/seo-fetch`/safe-url untouched |
-| Two-pass discovery double-runs on crash-resume | Reuse the existing `discoverySourcesJson: null` first-writer-wins guard; rendered stats are part of the same atomic persist |
+| Chrome memory regression (the scars) | `HYBRID_RENDER_CONCURRENCY` 2 + per-render subresource blocking + anchor cap; pool size unchanged; discovery precedes fan-out; worst-case process-tree-RSS verification with a numeric threshold (Codex F1) |
+| Zombie handler holds/awaits pages past job timeout | Single absolute discovery deadline across all phases; cancellable `acquirePage` that never leaks a slot; nav/settle clamped to remaining deadline; no wave starts after deadline (Codex F1) |
+| Rendered pass wastes budget re-fetching known URLs / bypasses robots | Corrected seed model: `knownUrls` deduped-not-fetched, homepage = only publisher seed, rendered candidates through normal robots/filters, novel hubs prioritized (Codex F2) |
+| Probe false-negative (SSR home, CSR-deep; sparse home; WAF-blocked home) | Novelty-based trigger over a bounded probe set (home + 1–2 shallow hubs); probe-failure recorded distinctly from no-delta (Codex F3) |
+| L1 reads as goalpost-gaming | Single **policy-filtered** gate + `residualMissRateRaw` + `nonContentExcludedCount` + per-reason breakdown, all in the parity log; functional params never stripped; wording never claims "indexable content" (Codex F4) |
+| Non-content classifier over-excludes a real page | Taxonomy/pagination flagged as NOT categorically non-content (Codex F4); per-reason samples visible; raw number retained; thank-you/account are the safe exclusions |
+| SSRF via the browser fetcher | ONE extracted (not re-copied) interceptor; `assertSafeHttpUrl` per request; **off-domain main-frame redirect aborted before render**; subresources blocked; `lib/seo-fetch`/safe-url untouched (Codex F2) |
+| Two-pass persist race / provenance drift | Exact guards (`discoveredUrls:null` fresh / `discoverySourcesJson:null` pre-discovered, both + `status:'running'`); no intermediate raw persist; deterministic merge; `sources` sliced by same HARD_CAP op; concurrent-attempt test (Codex F5) |
+| Client unsolvable by any lever | Explicit `fallback: 'sf-required'` state + reason; N=8 clock never starts; never a silent sub-5% pass (Codex F6) |
 
 ## 7. Sequencing & session plan
 
@@ -271,10 +384,17 @@ follow (own plans, possibly next session).
   fields (ledger/log only — no UI change required, but check
   `components/site-audit/DiscoveryCoverageSection.tsx` for raw-vs-filtered
   labeling).
-- L2: new `lib/ada-audit/seo/rendered-crawl.ts`; `sitemap-crawler.ts`
-  (`discoverPages`/`discoverPagesWithDeps` wiring, new env tunables);
+- L2: new `lib/ada-audit/seo/rendered-crawl.ts` (`fetchPageLinksViaBrowser` +
+  probe); **extract** the shared SSRF interceptor from
+  `sitemap-crawler-browser-fetch.ts` into a helper both callers use (redirect
+  abort-before-render + subresource blocking); `hybrid-crawl.ts` (`knownUrls`
+  dedup-not-fetched input + novel-hub priority + absolute-deadline plumbing);
+  a cancellable `acquirePage` wrapper (in `rendered-crawl.ts` or `browser-pool.ts`);
+  `sitemap-crawler.ts` (`discoverPages`/`discoverPagesWithDeps` wiring, deadline,
+  merge-by-normalized-key, HARD_CAP-full rule, new env tunables); the
+  `site-audit-discover.ts` persist branches (exact guards + v2 source map);
   `lib/jobs/config` env parsing; tests.
-- L3: `sitemap-crawler.ts` env defaults; `hybrid-crawl.test.ts` cases;
-  `docs`/config-and-flags reference.
+- L3: `sitemap-crawler.ts` env defaults + (option a) raw-crawl budget reuse;
+  `hybrid-crawl.test.ts` cases; `docs`/config-and-flags reference.
 - No `prisma/schema.prisma` change (coverage is JSON on `CrawlRun`; discovery
   provenance columns already exist).
