@@ -7,6 +7,7 @@ import { buildSummaryFromFindings } from '@/lib/ada-audit/findings-fallback'
 import { computeScoreFromCounts } from '@/lib/ada-audit/scoring'
 import { parseScoreVersion } from '@/lib/scoring/breakdown-version'
 import { BrokenLinksSection } from '@/components/site-audit/BrokenLinksSection'
+import { DeadPagesSection } from '@/components/site-audit/DeadPagesSection'
 import { OnPageSeoSection } from '@/components/site-audit/OnPageSeoSection'
 import { TechnicalSeoSection } from '@/components/site-audit/TechnicalSeoSection'
 import { DiscoveryCoverageSection } from '@/components/site-audit/DiscoveryCoverageSection'
@@ -86,6 +87,7 @@ export default async function SharedSiteAuditPage({ params }: { params: Promise<
   ) : liveScanRun ? (
     <>
       <BrokenLinksSection run={liveScanRun} />
+      <DeadPagesSection run={liveScanRun} />
       <OnPageSeoSection
         run={liveScanRun}
         analyzed={onPageAnalyzed}

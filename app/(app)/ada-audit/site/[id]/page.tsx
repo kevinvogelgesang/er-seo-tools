@@ -9,6 +9,7 @@ import { buildSummaryFromFindings } from '@/lib/ada-audit/findings-fallback'
 import { getSiteAuditInstanceDiff } from '@/lib/services/site-audit-diff'
 import SiteAuditDiffPanel from '@/components/ada-audit/SiteAuditDiffPanel'
 import { BrokenLinksSection } from '@/components/site-audit/BrokenLinksSection'
+import { DeadPagesSection } from '@/components/site-audit/DeadPagesSection'
 import { OnPageSeoSection } from '@/components/site-audit/OnPageSeoSection'
 import { DiscoveryCoverageSection } from '@/components/site-audit/DiscoveryCoverageSection'
 import { ReachabilitySection } from '@/components/site-audit/ReachabilitySection'
@@ -291,6 +292,7 @@ export default async function SiteAuditResultPage({ params }: Props) {
   ) : liveScanRun ? (
     <>
       <BrokenLinksSection run={liveScanRun} />
+      <DeadPagesSection run={liveScanRun} />
       <OnPageSeoSection
         run={liveScanRun}
         analyzed={onPageAnalyzed}
