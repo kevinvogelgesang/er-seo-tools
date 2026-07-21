@@ -239,3 +239,17 @@ describe('TocRail', () => {
     expect(nav.getAttribute('data-vb-open')).toBe('true')
   })
 })
+
+describe('TocRail — active-marker hook (continuous viewer)', () => {
+  it('top-level entries carry data-vb-toc-section; child sub-entries do not', () => {
+    const { container } = render(<TocRail toc={toc} searchIndex={searchIndex} verbose />)
+    expect(container.querySelector('[data-vb-toc-section="welcome"]')).not.toBeNull()
+    expect(container.querySelector('[data-vb-toc-section="data-source"]')).not.toBeNull()
+    // The 'Programs' child sub-entry must NOT carry the section hook.
+    const child = Array.from(container.querySelectorAll('[data-vb-toc-entry]')).find(
+      (b) => b.textContent?.includes('Programs'),
+    )
+    expect(child).toBeTruthy()
+    expect((child as HTMLElement).getAttribute('data-vb-toc-section')).toBeNull()
+  })
+})
