@@ -54,9 +54,13 @@ Not editable (stay code-owned in `section-copy.ts`): `cta` and `INPUT_EXPECTING_
 2. **Company-wide** row (if present and valid) — else…
 3. **Code default** `SECTION_COPY[sectionKey]` (always present for all 13 keys).
 
-Whole-object (not per-field-merge) because it matches the existing override semantics (each override is a full stored body) and keeps resolution trivially auditable. The editors **pre-fill the currently-resolved values**, so "I only want to tweak whatWeNeed" never means retyping the other fields. `whatWeNeed` empty-string is normalized to `null` on write (= "nothing needed").
+Whole-object (not per-field-merge) because it matches the existing override semantics (each override is a full stored body) and keeps resolution trivially auditable. The editors **pre-fill the currently-resolved values**, so "I only want to tweak whatWeNeed" never means retyping the other fields.
 
-> **Codex check:** whole-object-per-layer vs field-level fallthrough. Field-level would allow "company-wide purpose + code-default whatThis," but needs an inherit-vs-explicit-null sentinel per field and a more complex editor. Recommending whole-object for simplicity; confirm.
+**Normalization + fallthrough (Codex fix 1):**
+- `whatWeNeed: ""` (empty/whitespace) normalizes to `null` on **both read and write** (= "nothing needed") — so a legacy or hand-corrupted `""` row can never conflict with the declared `string | null` invariant.
+- An **invalid/corrupt layer behaves as ABSENT**, not as "reset to code default": an invalid per-viewbook override falls through to a **valid company-wide** row (if any), and only then to the code default. `resolveSectionCopy` therefore takes the already-`validateSectionCopy`-filtered (`null`-on-invalid) values for each layer and picks the highest present one. (The `guarded('section-copy', …)` fault-isolation in §A4 is refined to match — see there.)
+
+> **Codex ruling:** whole-object-per-layer confirmed as the right call (avoids an inherit-vs-explicit-null sentinel; editors prefill the resolved object). Field-level fallthrough rejected for the sentinel + editor complexity.
 
 ## A2. Storage — reuse existing tables, no migration
 
@@ -96,28 +100,36 @@ resolveSectionCopy(                                        // PURE — unit-test
 // Server store
 getSectionCopyGlobal(sectionKey): Promise<SectionCopyContent | null>
 getAllSectionCopyGlobal(): Promise<Partial<Record<SectionKey, SectionCopyContent>>>
-putSectionCopyGlobal(sectionKey, raw, updatedBy): Promise<void>   // bumpAll
-deleteSectionCopyGlobal(sectionKey): Promise<void>               // revert to code default; bumpAll
+putSectionCopyGlobal(sectionKey, raw, updatedBy): Promise<void>   // upsert + bumpAll, in ONE array-form txn
+deleteSectionCopyGlobal(sectionKey): Promise<void>               // EXISTS-fenced deleteMany + bumpAll; 404 on 0 rows
 getSectionCopyOverride(viewbookId, sectionKey): Promise<SectionCopyContent | null>
-putSectionCopyOverride(viewbookId, sectionKey, raw, updatedBy): Promise<void>  // bump(viewbookId)
-deleteSectionCopyOverride(viewbookId, sectionKey): Promise<void>              // bump(viewbookId)
+putSectionCopyOverride(viewbookId, sectionKey, raw, updatedBy): Promise<void>  // viewbook-exists check, then upsert + bump(viewbookId)
+deleteSectionCopyOverride(viewbookId, sectionKey): Promise<void>              // EXISTS-fenced deleteMany + bump(viewbookId); 404 on 0 rows
 ```
 
-Validation caps (proposed, Codex to confirm): `purpose` ≤ 240, `whatThis` ≤ 600, `whatWeNeed` ≤ 600, unknown-key reject, exactly the three fields.
+**Query discipline (Codex fix 2):** the store queries the namespace by an **exact key set** — `where: { key: { in: SECTION_KEYS.map(sectionCopyKey) } }` — NEVER `startsWith('section-copy:')` (a prefix scan could match a future foreign key). `getAllSectionCopyGlobal` is **one `findMany`**, not 13 `findUnique`s. Every store + route entry point validates the `sectionKey` suffix against the `SectionKey` catalog (reject off-catalog).
+
+**Write/bump discipline (Codex fix 3) — mirror `putContentOverride`/`deleteContentOverride` exactly:**
+- Global `put`: `viewbookGlobalContent.upsert` + `syncVersionBumpAllStatement()` in one `$transaction([...])`.
+- Global `delete`: `EXISTS`-fenced `syncVersionBumpAllWhere(fence)` + `deleteMany` in one txn; **404 on 0 rows** (never bump when nothing was deleted).
+- Override `put`: `viewbook.findUnique` existence check first (404 if gone), then `viewbookContentOverride.upsert` + `syncVersionBumpStatement(viewbookId)` in one txn.
+- Override `delete`: `EXISTS`-fenced `syncVersionBumpWhere(viewbookId, fence)` + `deleteMany`; **404 on 0 rows**.
+
+Validation caps: `purpose` ≤ 240, `whatThis` ≤ 600, `whatWeNeed` ≤ 600 (empty→`null`), unknown-key reject, exactly the three fields.
 
 ## A4. Data flow into the viewer
 
 Today `SectionShell` imports `SECTION_COPY` directly and reads `copy.whatThis/whatWeNeed/purpose/cta`. After A:
 
-- `public-data.ts` resolves section copy for **every rendered section** and threads the resolved map into `ViewbookPublicData` (new field, e.g. `sectionCopy: Record<SectionKey, ResolvedSectionCopy>`), assembled through a **fault-isolated `guarded('section-copy', …)` block** (a corrupt row degrades that section to the code default — the page never blanks).
+- `public-data.ts` resolves section copy for **every rendered section** and threads the resolved map into `ViewbookPublicData` (new field, e.g. `sectionCopy: Record<SectionKey, ResolvedSectionCopy>`), assembled through a **fault-isolated `guarded('section-copy', …)` block** so the whole block can never blank the page. Per-layer degradation is finer-grained than "reset to code default" (Codex fix 1): because each layer is `validateSectionCopy`-filtered to `null`-on-invalid before `resolveSectionCopy`, a corrupt **override** still falls through to a valid **company-wide** row, and only a corrupt company-wide row (with no override) falls to the code default. The `guarded` fallback (whole-block failure → all code defaults) is the outer net, not the per-section rule.
   - Load company-wide once (`getAllSectionCopyGlobal`) + per-viewbook overrides once (a single `findMany` on `ViewbookContentOverride` filtered to `section-copy:*`), then `resolveSectionCopy` per visible section key. No N+1.
 - `SectionShell` (and its callers, e.g. `ViewbookShell`/section renderers) receive the resolved copy as a **prop**; it stops reading `whatThis/whatWeNeed/purpose` from `SECTION_COPY` directly. `cta` continues to come from `SECTION_COPY` (code-owned).
 
 ## A5. ⓘ placement & tooltip
 
 - **`Tooltip.tsx`:** widen `label: string` → `label: ReactNode` so the tooltip can render the labelled multi-line body (What this is / What we need). Keep the always-focusable, `aria-describedby`-wired trigger. Add an optional trigger-tone prop (default dark `text-black/40`; **on-primary/white** variant for use over the hero).
-- **Continuous viewer (`buildContinuousHero`, active/default):** ⓘ renders next to the real `<h2>` inside the hero band, using the on-primary tone. The `<h2>` is not inside a button here → a focusable trigger is valid.
-- **Collapse viewer (`buildCompactRow`/`buildExpandedHero`, dormant):** the title is a `<span>` inside `CollapsibleSection`'s `<button>` — a focusable trigger may not nest there. The ⓘ therefore renders in the **`headerStrip`** (the strip below the hero, above the body — a sibling of the button, not inside it). Resolves the flagged a11y wrinkle with no accordion restructuring.
+- **Continuous viewer (`buildContinuousHero`, active/default):** ⓘ renders as a **sibling of** the real `<h2>` inside the hero band (in the same flex cluster, NOT nested inside the `<h2>`), using the on-primary tone. **Never inside the `<h2>`** — nesting the trigger in the heading would fold the ⓘ glyph into the heading's accessible name (name-from-content). The `<h2>` is not inside a button here → a sibling focusable trigger is valid.
+- **Collapse viewer (`buildCompactRow`/`buildExpandedHero`, dormant):** the title is a `<span>` inside `CollapsibleSection`'s `<h2><button>…</button></h2>` — a focusable trigger may **never** nest inside that `<button>` (invalid) or that `<h2>` (accessible-name pollution). The ⓘ therefore renders in the **`headerStrip`** (the strip below the hero, above the body — a sibling of the whole `<h2><button>` heading, not inside it). `headerStrip` is correctly inert when the collapsed body is inaccessible. Resolves the flagged a11y wrinkle with no accordion restructuring.
 - **Tooltip body content:** "What this is" blurb always; "What we need" block only when `whatWeNeed != null`. `purpose` is NOT repeated in the tooltip (it already shows in the chapter header) — but it IS editable (A1) and the chapter header renders the resolved `purpose`.
 
 ## A6. Removal
@@ -154,11 +166,14 @@ Add a persistent floating circular hamburger (☰) that completely hides the des
 - Add an **always-visible** circular hamburger button, `position: fixed`, positioned above the rail card's column (same side as the rail).
 - **Expanded (default):** hamburger + full rail card both visible. Clicking the hamburger **removes the rail `<nav>` card from the DOM** (complete hide), leaving only the hamburger.
 - **Hidden:** only the hamburger remains; clicking restores the card and moves focus into it (or to the first rail entry).
-- This is a *complete hide*, distinct from the retired shrink-to-40px-dots path. Leave `DESKTOP_RAIL_COLLAPSIBLE` (and its shrink branch) retired/removed as part of this change — the new hide toggle supersedes it, so there is exactly one desktop collapse concept.
+- This is a *complete hide*, distinct from the retired shrink-to-40px-dots path.
+
+**Full retirement of the old desktop state (Codex fix 6):** remove `DESKTOP_RAIL_COLLAPSIBLE`, its 40px-width branch, the `onFocus`-forces-open focus-safety hook tied to that width, and the desktop `Escape`-collapse logic. The single `hidden` state is the ONLY desktop collapse concept after this change.
 
 ## B2. No competing concepts
 
 - **Desktop-only.** The `isMobile` branch (FAB + bottom-sheet, `< 768px`) is unchanged — it is already a hide-until-tapped model; adding a second hamburger there would be the duplication Kevin flagged. The new hamburger renders only in the desktop branch.
+- **Mobile first-paint guard (Codex fix 6):** `isMobile` settles *after* hydration (SSR/first paint renders the desktop branch). So the desktop hamburger also carries a CSS `max-md:hidden` safeguard — it cannot flash as a second visible hamburger on a phone during the pre-effect window.
 
 ## B3. Persistence
 
@@ -166,9 +181,11 @@ Add a persistent floating circular hamburger (☰) that completely hides the des
 
 ## B4. a11y / CLS
 
-- Hamburger: `type="button"`, `aria-label` (e.g. "Hide section navigation" / "Show section navigation" reflecting state), `aria-expanded={!hidden}`, `aria-controls={railRegionId}`. Keyboard-operable (native button). On show, return focus into the rail; on hide, focus stays on the hamburger.
-- Rail `<nav>` gets a stable `id` for `aria-controls`.
+- Hamburger: `type="button"`, `aria-label` reflecting state ("Hide section navigation" when expanded / "Show section navigation" when hidden), `aria-expanded={!hidden}`, native keyboard-operable.
+- **`aria-controls` reconciled with DOM removal (Codex fix 5, the one real a11y bug):** because *hidden* removes the rail `<nav>` from the DOM, the hamburger **omits `aria-controls` while hidden** and only sets it (pointing at the rail `<nav>`'s stable `id`) when the nav is actually mounted. `aria-controls` must never dangle to an unmounted id. `aria-expanded={false}` stays set while hidden.
+- **Focus on restore:** showing the rail focuses the first rail entry after mount (or the `<nav>` itself via `tabIndex={-1}` when there are no entries); hiding leaves focus on the hamburger.
 - Rail + hamburger are both `position: fixed` → toggling never reflows the reading column (no CLS). Respect `prefers-reduced-motion` for any show/hide transition (instant or fade; no motion under reduce). Watch the documented `overflow:clip` sticky gotcha — not expected to apply (these are fixed, not sticky), but verify no clipping of the hamburger.
+- **Persisted-hidden flash (Codex fix 6):** a device with `vb:toc-hidden=true` renders the rail on first paint (SSR default = expanded) until the mount effect reconciles, so the rail can briefly flash before hiding. Fixed positioning means no reading-column CLS from this, but it IS an explicit **browser-eyeball regression check** at deploy.
 
 ## B5. Feature B testing
 
