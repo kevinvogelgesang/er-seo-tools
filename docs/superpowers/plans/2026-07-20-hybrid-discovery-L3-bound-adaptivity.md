@@ -27,7 +27,7 @@ L3's code surface is deliberately tiny — two default literals, one extracted t
 - `lib/ada-audit/sitemap-crawler.ts` — **modify.** Raise the `HY_MAX_ADDED` / `HY_MAX_FETCHES` env defaults (lines 32–33); extract the inline raw-crawl `CrawlBounds` construction (currently lines 396–405 inside `discoverPagesWithDeps`) into a small exported, unit-testable helper `resolveRawCrawlBounds(deadlineMs, now)`; add a wave-arithmetic doc comment. No behavior change beyond the two default values.
 - `lib/ada-audit/sitemap-crawler.test.ts` — **create if absent / modify.** Unit-test `resolveRawCrawlBounds` returns the new count defaults with env unset (red→green on the value change), and that the raw sub-budget stays `min(120 s, remaining-deadline)` (unchanged).
 - `lib/ada-audit/seo/hybrid-crawl.test.ts` — **modify.** Add magnitude regression cases: `hybridCrawl` stops at `maxAdded: 600` (`stoppedBy: 'maxAdded'`) and `maxFetches: 800` (`stoppedBy: 'maxFetches'`) with a generated wide graph — guarding against any hidden fixed-size assumption.
-- `lib/ada-audit/seo/discovery-coverage.test.ts` — **verify (likely no change).** Confirm the existing `capped` derivation is independent of `maxAdded`/`maxFetches` stops (only `hardCap`/`seedCapped`/`hardCapPrefull` set `capped`); add an assertion if not already covered.
+- `lib/ada-audit/seo/discovery-coverage.test.ts` — **no change expected.** The `capped`-vs-`stoppedBy` honesty assertion lives in `sitemap-crawler.test.ts` (Task 2 Step 3), at the `discoverPagesWithDeps` layer that actually derives `capped` — the right place to prove the distinction.
 - `.claude/skills/er-seo-tools-config-and-flags/` (SKILL.md or its reference) — **modify if it lists these defaults.** Update the documented defaults for `HYBRID_CRAWL_MAX_FETCHES`/`HYBRID_CRAWL_MAX_ADDED`.
 - `docs/superpowers/todos/2026-07-05-sf-live-parity-log.md` — **append.** L3 before/after ledger scaffold (filled during prod re-measure).
 - Tracker + HANDOFF — updated in the closing ritual (not a TDD task).
@@ -44,6 +44,16 @@ The spec (§L3, Codex F6) requires a decision between (a) letting a productive r
 - **Why not implement (a) now:** a *reserve-based* raw-budget raise trades directly against the rendered pass — a JS-blind site's rendered BFS (`HYBRID_RENDER_MAX_FETCHES` 40 @ concurrency 2) needs ~100 s, and a raw-productive site wants that same time; there is no single reserve size that serves both. The clean form (run raw at 120 s, probe, then *resume* the raw crawl only when the probe returns no-render) requires making `hybridCrawl` resumable — a refactor of the crawl core the L2 change just stabilized. Neither is "the small increment" L3 is scoped to be, and both reopen the L2 deadline plumbing.
 - **Why (b) is safe/honest:** Beal's 6.9 % residual predates L1's content-filtering, which strips exactly the pagination/param/thank-you noise Beal likely carried — Beal may already be ≤5 % post-L1. We do not yet have the post-L1+L2 re-measure. L3 explicitly does **not** claim its cap raises help Beal (Codex F6 forbids that claim). The prod re-measure (below) records Beal's real post-L1+L2+L3 number.
 - **Follow-up trigger:** if the re-measure shows soma or Beal (or any raw-HTML site) still >5 % **and** `coverage.stoppedBy === 'timeBudget'** (time-bound, not cap-bound), open a separate spec for the resume-based freed-budget consumption — its own Codex review, its own PR. Fail-closed: such a client stays `sf-required` in the ledger until then; its N=8 clock does not start.
+
+---
+
+## Timing & tail-reserve (Codex review fixes 1–2)
+
+The plan does **not** claim 800 fetches fit in 120 s; that is unknown per-site and is a measurement, not an assertion (fix #1). Two backstop facts govern the timing envelope:
+
+- **Wave loop:** `hybrid-crawl.ts:131` checks the time budget *before* each wave. The raw BFS fetcher `fetchPageLinks` (`sitemap-crawler.ts:126`) uses a **fixed `FETCH_TIMEOUT` = 15 s** and is **not** deadline-clamped (unlike `fetchHtml`, which is). So a final wave started at t≈119 s can run to t≈134 s — the discovery pass can overrun its 120 s raw sub-budget by up to one `FETCH_TIMEOUT`.
+- **Insert reserve:** the discover job (300 s timeout) carves `INSERT_RESERVE_MS` = 60 s for the ≤1000-row fan-out after discovery returns. A 134 s discovery leaves ~166 s before the 300 s job timeout — the fan-out (chunked `createMany`, chunk 50 → ~20 fast inserts) completes in well under that. **This tail overrun is pre-existing (L2) and unchanged in magnitude by L3** — one wave = 15 s regardless of `maxFetches` (raising the count cap adds *waves*, not per-wave duration). L3 therefore does not worsen it.
+- **Optional hardening (NOT in L3):** deadline-clamping `fetchPageLinks` to the remaining deadline (as `fetchHtml` already is) would remove the tail overrun entirely. It's a small change but touches the raw fetcher signature/L2 plumbing — deferred unless the prod re-measure shows insert-reserve pressure. Recorded here so the decision is explicit.
 
 ---
 
@@ -114,12 +124,18 @@ In `lib/ada-audit/sitemap-crawler.ts`, change lines 32–33:
 ```typescript
 // L3 (2026-07-20): raised from 300/400. Large raw-HTML client sites
 // (healthcarecareer hit maxAdded@300; soma hit maxFetches@400) were cut off
-// before finishing a productive raw crawl. Wave arithmetic: with
-// HYBRID_CRAWL_CONCURRENCY=6, 800 fetches ≈ 134 sequential waves; each wave is
-// one concurrent batch of ≤6 fetches (FETCH_TIMEOUT=15s worst case), so a
-// healthy host reaches 800 well inside the 120s raw sub-budget, and a slow host
-// is still cut by that 120s budget (stoppedBy:'timeBudget') — the count raise
-// never removes the time backstop. HARD_CAP (1000) still bounds total pages.
+// before finishing a productive raw crawl. The count raise does NOT touch the
+// time budget: the raw crawl still self-caps at HY_TIME_BUDGET (120s) and
+// HARD_CAP (1000) still bounds total pages. Whether a site can actually reach
+// 800 fetches within 120s depends on that site's per-fetch latency (concurrency
+// 6, a wave = one batch of ≤6 fetches) — UNKNOWN until measured. So the count
+// raise only helps a site with genuine time/hardCap headroom: a site already
+// near the 120s budget at 400 fetches will instead stop at
+// stoppedBy:'timeBudget' with little extra work (honestly reported, no silent
+// gain). FETCH_TIMEOUT (15s) is a backstop, not a throughput guarantee. NOTE:
+// maxAdded is checked BEFORE hardCap, so a maxAdded stop can co-exist with a
+// latent 1000-page hardCap limit — the re-measure must inspect discovered count
+// vs HARD_CAP, not just stoppedBy. See the plan's "Timing & tail-reserve" note.
 const HY_MAX_ADDED = () => parsePositiveInt(process.env.HYBRID_CRAWL_MAX_ADDED, 600)
 const HY_MAX_FETCHES = () => parsePositiveInt(process.env.HYBRID_CRAWL_MAX_FETCHES, 800)
 ```
@@ -198,15 +214,21 @@ Add to `lib/ada-audit/seo/hybrid-crawl.test.ts` inside the existing `describe('h
     expect(r.stoppedBy).toBe('maxAdded')
   })
 
-  it('stops at maxFetches at the L3 magnitude (800)', async () => {
-    // a chain deep enough that fetching is the binding constraint
-    const g: Record<string, string[]> = {}
-    for (let i = 0; i < 1000; i++) g[`https://x.com/n${i}`] = [`https://x.com/n${i + 1}`]
-    g['https://x.com/n1000'] = []
+  it('stops at maxFetches at the L3 magnitude (800), wide frontier', async () => {
+    // WIDE star (Codex fix #5 — a chain would be a no-concurrency 800-wave case,
+    // not the wide-frontier shape the raise targets): seed links to 1000 leaves,
+    // so bounded concurrency processes real waves and the fetch cap is the bind.
+    const children = Array.from({ length: 1000 }, (_, i) => `https://x.com/p${i}`)
+    const g: Record<string, string[]> = { 'https://x.com/': children }
+    for (const c of children) g[c] = []
     const r = await hybridCrawl(
-      [{ url: 'https://x.com/n0', source: 'sitemap' }], HOST,
-      B({ maxFetches: 800, maxAdded: 5000, maxDepth: 5000, hardCap: 5000, concurrency: 6 }), graph(g), { disallow: [], allow: [] },
+      [{ url: 'https://x.com/', source: 'sitemap' }], HOST,
+      B({ maxFetches: 800, maxAdded: 5000, hardCap: 5000, concurrency: 6 }), graph(g), { disallow: [], allow: [] },
     )
+    // Boundary guard: strictly past the OLD 400 cap (proves the raise took
+    // effect) and never over the new 800 cap. (House convention uses <= for the
+    // upper bound — the wave-trim at hybrid-crawl.ts:135 caps at maxFetches.)
+    expect(r.fetches).toBeGreaterThan(400)
     expect(r.fetches).toBeLessThanOrEqual(800)
     expect(r.stoppedBy).toBe('maxFetches')
   })
@@ -217,35 +239,57 @@ Add to `lib/ada-audit/seo/hybrid-crawl.test.ts` inside the existing `describe('h
 Run: `DATABASE_URL="file:./local-dev.db" npx vitest run lib/ada-audit/seo/hybrid-crawl.test.ts`
 Expected: PASS. (These are regression guards — `hybridCrawl` already honors bounds as parameters; the value is proving no fixed-size assumption breaks at 600/800. If either fails, that is a real bug to fix in `hybrid-crawl.ts` before proceeding.)
 
-- [ ] **Step 3: Verify `capped` is independent of the count-cap stops (honesty rule)**
+- [ ] **Step 3: Prove capped-vs-stoppedBy at the layer that derives it (Codex fix #4)**
 
-Read `lib/ada-audit/seo/discovery-coverage.test.ts` and `sitemap-crawler.ts:501`. Confirm `capped = seedCapped || crawl.stoppedBy === 'hardCap' || renderStoppedBy === 'hardCapPrefull'` — i.e. `stoppedBy: 'maxAdded'`/`'maxFetches'` does NOT set `capped`; the truth is carried by `coverage.stoppedBy`. If `discovery-coverage.test.ts` does not already assert this, add:
+The coarse `capped` flag (`sitemap-crawler.ts:501`) is `seedCapped || crawl.stoppedBy === 'hardCap' || renderStoppedBy === 'hardCapPrefull'` — a `maxAdded`/`maxFetches` stop must NOT set it; the truth is carried by `coverage.stoppedBy`. Test this at `discoverPagesWithDeps` (forcing the caps via env, which ALSO proves `resolveRawCrawlBounds` is wired into discovery — the earlier plan draft tested `computeDiscoveryCoverage`, which only echoes its `discoveryCapped` input and proves nothing about count-cap stops). Add to `lib/ada-audit/sitemap-crawler.test.ts` (add `discoverPagesWithDeps` to the import from `./sitemap-crawler`):
 
 ```typescript
-  it('a maxAdded/maxFetches stop is reported via stoppedBy, not the coarse capped flag', () => {
-    // capped stays false for a count-cap stop; the ledger reads coverage.stoppedBy for the truth
-    const cov = computeDiscoveryCoverage({
-      discoveredUrls: ['https://x.com/', 'https://x.com/a'],
-      internalLinks: ['https://x.com/', 'https://x.com/a'],
-      discoveryMode: 'hybrid',
-      discoveryCapped: false,
+describe('discoverPagesWithDeps honest cap reporting (L3)', () => {
+  const saved = { ...process.env }
+  afterEach(() => { process.env = { ...saved } })
+
+  it('a maxAdded stop is reported via coverage.stoppedBy, not the coarse capped flag', async () => {
+    process.env.HYBRID_CRAWL_MAX_ADDED = '2' // force the count cap through resolveRawCrawlBounds
+    const g: Record<string, string[]> = {
+      'https://x.com/': ['https://x.com/a', 'https://x.com/b', 'https://x.com/c', 'https://x.com/d'],
+      'https://x.com/a': [], 'https://x.com/b': [], 'https://x.com/c': [], 'https://x.com/d': [],
+    }
+    const r = await discoverPagesWithDeps('x.com', { hybrid: true }, {
+      resolveSeeds: async () => ({ urls: ['https://x.com/'], mode: 'sitemap', capped: false }),
+      fetchPageLinks: async (u) => (u in g ? { links: g[u], finalUrl: u } : null),
+      now: () => 0, robots: { disallow: [], allow: [] },
     })
-    expect(cov.capped).toBe(false)
+    expect(r.coverage!.stoppedBy).toBe('maxAdded')
+    expect(r.capped).toBe(false) // a count-cap stop is NOT a coarse-capped run
   })
+
+  it('a maxFetches stop is reported via coverage.stoppedBy, not the coarse capped flag', async () => {
+    process.env.HYBRID_CRAWL_MAX_FETCHES = '2'
+    const g: Record<string, string[]> = {
+      'https://x.com/': ['https://x.com/a', 'https://x.com/b', 'https://x.com/c'],
+      'https://x.com/a': [], 'https://x.com/b': [], 'https://x.com/c': [],
+    }
+    const r = await discoverPagesWithDeps('x.com', { hybrid: true }, {
+      resolveSeeds: async () => ({ urls: ['https://x.com/'], mode: 'sitemap', capped: false }),
+      fetchPageLinks: async (u) => (u in g ? { links: g[u], finalUrl: u } : null),
+      now: () => 0, robots: { disallow: [], allow: [] },
+    })
+    expect(r.coverage!.stoppedBy).toBe('maxFetches')
+    expect(r.capped).toBe(false)
+  })
+})
 ```
 
-(Adjust the `computeDiscoveryCoverage` call to match its real signature in `discovery-coverage.ts` — verify the argument shape before writing the assertion; the point is `discoveryCapped:false` in ⇒ `capped:false` out regardless of a count-cap stop.)
+- [ ] **Step 4: Run the crawler suites**
 
-- [ ] **Step 4: Run the coverage suite**
-
-Run: `DATABASE_URL="file:./local-dev.db" npx vitest run lib/ada-audit/seo/discovery-coverage.test.ts`
+Run: `DATABASE_URL="file:./local-dev.db" npx vitest run lib/ada-audit/sitemap-crawler.test.ts lib/ada-audit/seo/discovery-coverage.test.ts`
 Expected: PASS.
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add lib/ada-audit/seo/hybrid-crawl.test.ts lib/ada-audit/seo/discovery-coverage.test.ts
-git commit -m "test(discovery): L3 magnitude guards for maxAdded/maxFetches stops; capped independence"
+git add lib/ada-audit/seo/hybrid-crawl.test.ts lib/ada-audit/sitemap-crawler.test.ts
+git commit -m "test(discovery): L3 magnitude guards + discoverPagesWithDeps honest cap reporting"
 ```
 
 ---
@@ -265,7 +309,15 @@ If any hit shows the old `400`/`300` defaults, update them to `800`/`600` with a
 
 - [ ] **Step 2: Add the L3 ledger scaffold to the parity log**
 
-Append a dated L3 section to `docs/superpowers/todos/2026-07-05-sf-live-parity-log.md` with a per-client table to be filled during prod re-measure — columns: `client | pre-L3 residualMissRate | post-L3 residualMissRate | stoppedBy | maxAdded/maxFetches hit? | verdict (cleared / still >5% cap-bound / still >5% time-bound → sf-required)`. Pre-populate the rows for `healthcarecareer`, `soma`, `beal`. Include a one-line statement of the Beal/time-bound decision (option (b), follow-up gated on the re-measure).
+Append a dated L3 section to `docs/superpowers/todos/2026-07-05-sf-live-parity-log.md`. Each per-client row records, for the affected run:
+- `client`
+- `pre-L3` / `post-L3`: `residualMissRate` (policy-filtered — the gate number) **AND** `residualMissRateRaw` **AND** `nonContentExcludedCount` + the per-reason `excludedByReason` breakdown — the full L1 transparency set the spec (§L1/F4) requires, not just the filtered rate (Codex fix #7).
+- `sitemapCount`, total `discovered` count **vs `HARD_CAP` (1000)** — surfaces the maxAdded-before-hardCap masking (a `maxAdded` stop can hide a latent 1000-page limit; Codex fix #3), raw `fetches`, and raw additions = **count of `sources` labeled `'linked'`** (`addedByCrawl` is NOT persisted in `discoverySourcesJson` — derive it from the `sources` map; Codex fix #7), plus `renderedAdded`.
+- `stoppedBy` **AND** `renderStoppedBy` — inspect BOTH (Codex fix #6).
+- `thresholdResult`: `cleared` only when `residualMissRate ≤ 5%` AND the run wasn't silently truncated (`stoppedBy === 'exhausted'`); a ≤5% run that still stopped on a cap/time/depth bound is `cleared-watch`, never a bare `cleared`.
+- `fallback` (`none` | `sf-required`) + `fallbackReason` — matching spec F6. A run >5% that no lever can fix is `sf-required` and its N=8 clock does not start; never a silent sub-5% pass (Codex fix #6).
+
+Pre-populate rows for `healthcarecareer`, `soma`, `beal`, **and `discoverycommunitycollege.com`** (Codex fix #3 — the raised defaults affect it too; it previously stopped at `maxFetches@400`, though it is primarily JS-blind → L2's job). Include a one-line statement of the Beal/time-bound decision (option (b); the freed-budget follow-up is gated on this re-measure showing a site still >5% AND `stoppedBy:'timeBudget'`).
 
 - [ ] **Step 3: Commit**
 
@@ -278,14 +330,16 @@ git commit -m "docs(discovery): L3 config-reference defaults + parity-log ledger
 
 ## Rollout & verification (change-control closing — not TDD steps)
 
-- [ ] **Gates (all three, in the worktree):**
+- [ ] **Pre-deploy baseline capture (Codex fix #3 — do BEFORE predicting or deploying):** probe the current prod runs for `healthcarecareer`, `soma`, `beal`, `discoverycommunitycollege.com` and record each one's `stoppedBy`, `renderStoppedBy`, `fetches`, `sitemapCount`, total discovered count (vs `HARD_CAP`), and `residualMissRate`/`residualMissRateRaw` into the L3 ledger `pre-L3` column. This establishes whether the count raise even has headroom (a site already at `stoppedBy:'timeBudget'` near 120 s will NOT be helped by more count budget — record that honestly rather than predicting a drop).
+- [ ] **Gates (in the worktree):**
   - `npm run lint`
-  - `DATABASE_URL="file:./local-dev.db" npm test` (known pre-existing flake to ignore: `components/viewbook/admin/ViewbookEditor.test.tsx > "copies the public URL from the secondary masthead action"` — a parallel-run flake unrelated to discovery)
+  - `DATABASE_URL="file:./local-dev.db" npm test` — must be green. The `components/viewbook/admin/ViewbookEditor.test.tsx > "copies the public URL from the secondary masthead action"` case is a known **parallel-run** flake: if it fails in the full run, re-run it in isolation (`npx vitest run components/viewbook/admin/ViewbookEditor.test.tsx`) to CONFIRM it passes alone before treating the suite as green — do not blanket-ignore a red suite (Codex fix #7).
   - `npm run build`
+  - `npm run smoke` — the end-to-end Playwright gate. Required because L3 changes the ADA discovery pipeline's behavior (Codex fix #7). (Worktree already has `node_modules` symlinked + `.env`; smoke runs a full build + Playwright.)
 - [ ] **Codex pre-merge review** (P1 risky-diff) via `codex-review` / background `codex exec` on the branch diff. Apply named fixes.
 - [ ] **PR** `feat/hybrid-discovery-L3` → `main`; record the gate output in the body. **`git push` first, then `gh pr merge`; verify the merged tip and prod source** (L2 merge-slip lesson).
 - [ ] **Deploy** (autonomous, gate-green): `git push` → `ssh $PROD_SSH "~/deploy.sh"`. No `.env` step — defaults ship in code. **Post-deploy health check is mandatory:** `/api/health` 200, 0 PM2 restarts, RSS within envelope.
-- [ ] **Prod re-measure** (the falsifiable gate): re-run the ledger probe for `healthcarecareer`, `soma`, `beal` and read each run's `discoveryCoverageJson.residualMissRate` (policy-filtered, L1) + `discoverySourcesJson.stoppedBy` + `fetches`/`addedByCrawl`. Record before/after in the parity log. Expected: healthcarecareer + soma no longer stop at `maxAdded`/`maxFetches` (should now stop at `exhausted`/`timeBudget`/`hardCap`), residual drops. Beal: record its post-L1+L2+L3 number; if still >5% AND `stoppedBy:'timeBudget'`, label `sf-required` and open the option-(a) follow-up spec (do NOT start its N=8 clock). Prod DB probe = `node` + `PrismaClient` via a scp'd temp script (tsx importing app source hits the `server-only` guard — replicate raw logic inline).
+- [ ] **Prod re-measure** (the falsifiable gate): trigger a fresh seoIntent audit per affected client, then read each run's `discoveryCoverageJson.residualMissRate` (+ `residualMissRateRaw` + `excludedByReason`) and `discoverySourcesJson.{stoppedBy, renderStoppedBy, fetches, sources, renderedAdded}`. Raw additions = count of `sources` entries labeled `'linked'` (NOT `addedByCrawl`, which is not persisted — Codex fix #7). Record `post-L3` in the ledger with the `thresholdResult`/`fallback`/`fallbackReason` rules from Task 3 Step 2. Expected IF headroom exists: `healthcarecareer` (was `maxAdded@300`) + `soma` (was `maxFetches@400`) stop later (`exhausted`/`hardCap`/`timeBudget`) with more `'linked'` sources and lower residual — but a site that merely flips to `stoppedBy:'timeBudget'` with little extra work is honestly `cleared-watch`/`sf-required`, not a win. `beal` + `discoverycommunitycollege.com`: record their post-L1+L2+L3 numbers; if still >5% AND time-bound (`stoppedBy:'timeBudget'`, or JS-blind for discovery), label `sf-required` + reason and (for the time-bound case) open the option-(a) follow-up spec — do NOT start their N=8 clock. Prod DB probe = `node` + `PrismaClient` via a scp'd temp script (tsx importing app source hits the `server-only` guard — replicate raw logic inline).
 - [ ] **Docs ritual:** tracker checkbox + dated status-log line for the SF-retirement Phase-2 L3 item; rewrite `docs/superpowers/todos/HANDOFF-improvement-roadmap.md` (current state, next item, gotchas) in the **same commit**; end the session reply with the paste-in prompt. On ship, `git mv` the L3 spec + this plan into `docs/superpowers/archive/{specs,plans}/`.
 
 ---
@@ -294,6 +348,8 @@ git commit -m "docs(discovery): L3 config-reference defaults + parity-log ledger
 
 **Spec coverage (§L3):** Part 1 "raise raw-crawl default bounds 400→800 / 300→600 with headroom analysis" → Task 1 (defaults + wave-arithmetic comment). Part 2 "confirm bounds still honestly reported (`stoppedBy`, `capped`)" → Task 2 (magnitude guards + capped-independence). "Time budget stays 120 s" → honored (resolver keeps the 120 s sub-cap unchanged; Task 1 Step 4). Codex F6 Beal decision → recorded as option (b) with a data-gated follow-up (dedicated section + parity-log entry). Tests "add cases at the new default magnitudes; assert stoppedBy/capped unchanged" → Task 2. §8 files touched: `sitemap-crawler.ts` env defaults ✓, `hybrid-crawl.test.ts` cases ✓, config-and-flags reference ✓; "(option a) raw-crawl budget reuse" → deliberately deferred (documented). No `prisma/schema.prisma` change ✓.
 
-**Placeholder scan:** every code step shows the exact code; test bodies are complete; the one "adjust to match the real signature" note (Task 2 Step 3) instructs verifying `computeDiscoveryCoverage`'s argument shape before asserting — the intent (capped independence) and the assertion are concrete.
+**Placeholder scan:** every code step shows the exact code; test bodies are complete and use the real injected-deps shapes (`discoverPagesWithDeps` / `hybridCrawl` conventions verified against the existing test files).
+
+**Codex P0 review (2026-07-20, gpt-5.6-sol, applied):** verdict ACCEPT WITH NAMED FIXES; Codex agreed deferring option (a) is correct for a small increment. All 7 named fixes applied in place: (1) removed the unsupported "800 fits in 120 s" throughput claim — now measurement, not assertion; (2) documented the ≤15 s last-wave tail overrun + insert-reserve math in "Timing & tail-reserve" (raw `fetchPageLinks` is not deadline-clamped; pre-existing, unchanged by L3); (3) added a pre-deploy baseline capture + `discoverycommunitycollege.com` + the maxAdded-before-hardCap masking caveat; (4) moved the capped test to `discoverPagesWithDeps` forced-cap tests (proves the resolver is wired); (5) rewrote the maxFetches magnitude test to a wide frontier with a `>400 ∧ ≤800` boundary guard; (6) ledger now carries `thresholdResult`/`fallback`/`fallbackReason` + inspects `renderStoppedBy`; (7) fixed the `addedByCrawl`→`sources 'linked'` derivation, added the full L1 transparency fields to the ledger, reworded the flake gate (prove-in-isolation, not ignore), and added `npm run smoke`.
 
 **Type consistency:** `resolveRawCrawlBounds(deadlineMs, now): CrawlBounds` — same name/signature in the interface block, the implementation (Task 1 Step 4), and the call site rewire. `CrawlBounds`/`FetchedPage` imported from `./hybrid-crawl` as the existing test and module already do. `stoppedBy` values (`'maxAdded'`/`'maxFetches'`/`'timeBudget'`/`'hardCap'`/`'exhausted'`/`'depth'`) match `hybrid-crawl.ts:43`.
