@@ -9,6 +9,7 @@ import { DEFAULT_THEME } from '@/lib/viewbook/theme'
 import type { PublicSection, ViewbookPublicData } from '@/lib/viewbook/public-types'
 import { ViewbookShell } from './ViewbookShell'
 import { StickyOffsetProbe } from './StickyOffsetProbe'
+import { ReadingProgressController } from './ReadingProgressController'
 import { __resetSyncRegistry } from './useViewbookSync'
 
 // ViewbookShell now mounts ViewbookSyncClient (PR2 Task 6), a 'use client'
@@ -20,11 +21,16 @@ vi.mock('next/navigation', () => ({ useRouter: () => ({ refresh: () => {} }) }))
 // regardless of which branch (anonymous vs operator) is rendering it.
 vi.mock('./StickyOffsetProbe', () => ({ StickyOffsetProbe: vi.fn(() => null) }))
 
+// Task 10: ReadingProgressController is a 'use client' leaf (renders null) —
+// mock it the same way so we can assert ViewbookShell mounts it exactly once.
+vi.mock('./ReadingProgressController', () => ({ ReadingProgressController: vi.fn(() => null) }))
+
 afterEach(() => {
   cleanup()
   __resetSyncRegistry()
   vi.unstubAllGlobals()
   vi.mocked(StickyOffsetProbe).mockClear()
+  vi.mocked(ReadingProgressController).mockClear()
 })
 
 const sec = (sectionKey: PublicSection['sectionKey']): PublicSection => ({
@@ -309,5 +315,108 @@ describe('ViewbookShell TOC rail wiring', () => {
     // … but the search box is verbose-only, and verbose is `stage ===
     // 'building'` — outside that stage there is no input[type=search] at all.
     expect(container.querySelector('input[type="search"]')).toBeNull()
+  })
+})
+
+// Task 10: real per-section meta (replacing the Task 7 interim index-based
+// wiring) — lead promotion, the "In this stage" overview, and the reading
+// controller mount. PreviousStages coverage (real component behavior) lives
+// in PreviousStages.test.tsx (Lane D); here we only assert ViewbookShell
+// wires carried sections through it instead of the retired EarlierSteps.
+describe('ViewbookShell real meta + overview + previous-stages wiring (Task 10)', () => {
+  it('promotes the first rendered primary section to a full hero and the rest to chapter', () => {
+    const primary = [sec('welcome'), sec('milestones'), sec('strategy'), sec('kickoff-next')]
+    const seen: Record<string, string> = {}
+    render(
+      <ViewbookShell
+        token="tok"
+        data={data({ stage: 'kickoff', primarySections: primary })}
+        primarySections={primary}
+        carriedSections={[]}
+        renderSection={(s, meta) => {
+          seen[s.sectionKey] = meta.heroSize
+          return <div />
+        }}
+      />,
+    )
+    expect(seen[primary[0].sectionKey]).toBe('full')
+    expect(seen[primary[1].sectionKey]).toBe('chapter')
+    expect(seen[primary[2].sectionKey]).toBe('chapter')
+    expect(seen[primary[3].sectionKey]).toBe('chapter')
+  })
+
+  it('assigns increasing chapterNumber and a real (non-hardcoded) status per section', () => {
+    const primary = [sec('welcome'), sec('milestones')]
+    // milestones acknowledged -> 'complete' per computeSectionStatuses, NOT
+    // the interim hardcoded 'current' every section got in Task 7.
+    primary[1] = { ...primary[1], state: 'active', acknowledgedAt: '2026-07-01T00:00:00.000Z' }
+    const seenMeta: Record<string, { chapterNumber: number | null; status: string }> = {}
+    render(
+      <ViewbookShell
+        token="tok"
+        data={data({ stage: 'kickoff', primarySections: primary })}
+        primarySections={primary}
+        carriedSections={[]}
+        renderSection={(s, meta) => {
+          seenMeta[s.sectionKey] = { chapterNumber: meta.chapterNumber, status: meta.status }
+          return <div />
+        }}
+      />,
+    )
+    expect(seenMeta['welcome'].chapterNumber).toBe(1)
+    expect(seenMeta['milestones'].chapterNumber).toBe(2)
+    expect(seenMeta['milestones'].status).toBe('complete')
+  })
+
+  it('renders the In this stage overview with one entry per primary section', () => {
+    const primary = [sec('welcome'), sec('milestones'), sec('strategy')]
+    const { container } = render(
+      <ViewbookShell
+        token="tok"
+        data={data({ stage: 'kickoff', primarySections: primary })}
+        primarySections={primary}
+        carriedSections={[]}
+        renderSection={() => <div />}
+      />,
+    )
+    const overview = container.querySelector('[aria-label="In this stage"]')
+    expect(overview).toBeTruthy()
+    expect(overview!.querySelectorAll('button').length).toBe(primary.length)
+  })
+
+  it('renders carried sections through PreviousStages, not the retired EarlierSteps', () => {
+    const primary = [sec('welcome')]
+    const carried = [sec('pc-setup'), sec('pc-invite')]
+    const { container } = render(
+      <ViewbookShell
+        token="tok"
+        data={data({ stage: 'kickoff', primarySections: primary, carriedSections: carried })}
+        primarySections={primary}
+        carriedSections={carried}
+        renderSection={(s) => <p data-testid={`section-${s.sectionKey}`}>{s.sectionKey} body</p>}
+      />,
+    )
+    // PreviousStages groups by origin stage under an h2 heading — the
+    // retired EarlierSteps rendered a <details>/"Earlier steps" summary
+    // instead, so asserting the h2 + absence of that summary text proves the
+    // swap actually happened rather than both components coincidentally
+    // rendering the section bodies.
+    expect(container.textContent).not.toContain('Earlier steps')
+    expect(container.querySelector('h2')).not.toBeNull()
+    expect(container.querySelector('[data-testid="section-pc-setup"]')).not.toBeNull()
+    expect(container.querySelector('[data-testid="section-pc-invite"]')).not.toBeNull()
+  })
+
+  it('mounts ReadingProgressController exactly once', () => {
+    render(
+      <ViewbookShell
+        token="tok"
+        data={data({ stage: 'kickoff', primarySections: [sec('welcome')] })}
+        primarySections={[sec('welcome')]}
+        carriedSections={[]}
+        renderSection={() => <div />}
+      />,
+    )
+    expect(vi.mocked(ReadingProgressController)).toHaveBeenCalledTimes(1)
   })
 })
