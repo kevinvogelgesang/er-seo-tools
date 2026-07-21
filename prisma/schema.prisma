@@ -902,6 +902,7 @@ model Viewbook {
   heroOverlayStrength Int    @default(55)      // 0..100 hero overlay opacity
   revealDurationScale Float @default(1.0)  // 0.4..1.6 animation DURATION multiplier (higher = slower); presentation config
   firstLoadDelayMs    Int   @default(3000) // 0..6000 ms before the welcome auto-expands on first device load
+  viewerMode          String @default("continuous") // 'continuous' | 'collapse' — public reading viewer mode (unknown value degrades to continuous at read time)
   createdBy       String? // operator email
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt
