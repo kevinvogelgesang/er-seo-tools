@@ -43,6 +43,18 @@ function resolveThemeRoot(): HTMLElement {
   return marked ?? document.documentElement
 }
 
+// The event seam ReadingProgressController listens to so it can rebuild its
+// IntersectionObserver's rootMargin when the sticky offset changes (rootMargin
+// cannot consume a CSS var live). Never throws.
+function dispatchStickyOffsetChange(offset: number): void {
+  if (typeof window === 'undefined') return
+  try {
+    window.dispatchEvent(new CustomEvent('vb:sticky-offset-change', { detail: { offset } }))
+  } catch {
+    /* CustomEvent unavailable — never throw */
+  }
+}
+
 export function StickyOffsetProbe() {
   useEffect(() => {
     let operatorEl: HTMLElement | null = document.getElementById(OPERATOR_BAR_ID)
@@ -63,6 +75,7 @@ export function StickyOffsetProbe() {
         root.style.setProperty('--vb-operator-bar-height', `${operatorHeight}px`)
         root.style.setProperty('--vb-sticky-offset', `${sticky}px`)
       }
+      dispatchStickyOffsetChange(sticky)
     }
 
     // Initial measurement — independent of whether/when the observers below

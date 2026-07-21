@@ -182,4 +182,21 @@ describe('StickyOffsetProbe', () => {
     expect(ro.disconnected).toBe(true)
     expect(moDisconnect).toHaveBeenCalled()
   })
+
+  it('dispatches vb:sticky-offset-change with the summed offset (64px nav)', async () => {
+    const events: number[] = []
+    const handler = (e: Event) => events.push((e as CustomEvent).detail.offset)
+    window.addEventListener('vb:sticky-offset-change', handler)
+    render(
+      <div>
+        <div data-vb-theme-root="">
+          <div id="vb-progress-nav" />
+        </div>
+        <StickyOffsetProbe />
+      </div>,
+    )
+    await waitFor(() => expect(events.length).toBeGreaterThan(0))
+    expect(events[0]).toBe(64)
+    window.removeEventListener('vb:sticky-offset-change', handler)
+  })
 })
