@@ -107,4 +107,22 @@ describe('loadOperatorViewbookData', () => {
     expect(data?.revealDurationScale).toBe(1.6)
     expect(data?.firstLoadDelayMs).toBe(0)
   })
+
+  it('surfaces viewerMode, defaulting to continuous and reflecting a persisted collapse value (P2-2)', async () => {
+    const client = await prisma.client.create({ data: { name: `${PREFIX}${crypto.randomUUID()}` } })
+    const created = await createViewbook(client.id, 'upgrade', 'operator@example.com')
+
+    // Creation default: continuous.
+    let data = await loadOperatorViewbookData(created.id)
+    expect(data?.viewerMode).toBe('continuous')
+
+    await prisma.viewbook.update({ where: { id: created.id }, data: { viewerMode: 'collapse' } })
+    data = await loadOperatorViewbookData(created.id)
+    expect(data?.viewerMode).toBe('collapse')
+
+    // A corrupt stored value degrades to continuous (readPresentationConfig contract).
+    await prisma.viewbook.update({ where: { id: created.id }, data: { viewerMode: 'bogus' } })
+    data = await loadOperatorViewbookData(created.id)
+    expect(data?.viewerMode).toBe('continuous')
+  })
 })

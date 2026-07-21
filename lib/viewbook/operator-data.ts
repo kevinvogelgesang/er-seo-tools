@@ -6,7 +6,7 @@ import type { PublicDocRow } from './public-types'
 import type { SectionKey, ViewbookTheme } from './theme'
 import { parseStoredThemeWide, resolveThemeFonts } from './theme-server'
 import type { ResolvedThemeFonts } from './resolved-theme-fonts'
-import { readPresentationConfig, type CollapseAffordanceKind, type CollapseMorphKind } from './presentation-config'
+import { readPresentationConfig, type CollapseAffordanceKind, type CollapseMorphKind, type ViewerMode } from './presentation-config'
 
 const iso = (value: Date | null): string | null => value?.toISOString() ?? null
 
@@ -73,6 +73,7 @@ export interface OperatorViewbookData {
   heroOverlayStrength: number
   revealDurationScale: number
   firstLoadDelayMs: number
+  viewerMode: ViewerMode
 }
 
 function parseClientNotifyEmails(raw: string): string[] {
@@ -111,6 +112,7 @@ export async function loadOperatorViewbookData(viewbookId: number): Promise<Oper
         heroOverlayStrength: true,
         revealDurationScale: true,
         firstLoadDelayMs: true,
+        viewerMode: true,
         // Explicit select (Fix 4, post-review): EXCLUDES the dormant
         // `collapsedShared` column so it can never round-trip onto the
         // operator-facing OperatorSectionData payload — nothing reads it.

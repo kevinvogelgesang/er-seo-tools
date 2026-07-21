@@ -8,12 +8,14 @@
 // onSaved.
 
 import { useState } from 'react'
-import { jsonFetch, REVEAL_PACE_PRESETS } from './viewbook-admin-shared'
+import { jsonFetch, REVEAL_PACE_PRESETS, VIEWER_MODE_LABELS } from './viewbook-admin-shared'
 import {
   COLLAPSE_AFFORDANCES,
   COLLAPSE_MORPHS,
+  VIEWER_MODES,
   type CollapseAffordanceKind,
   type CollapseMorphKind,
+  type ViewerMode,
 } from '@/lib/viewbook/presentation-config'
 
 // Operator-facing labels for the collapse↔hero morph treatments (the value
@@ -39,6 +41,7 @@ export function PresentationEditor({
     heroOverlayStrength: number
     revealDurationScale: number
     firstLoadDelayMs: number
+    viewerMode: ViewerMode
   }
   onSaved: () => void
   // Fired on EVERY overlay-slider change (drag included) so the parent can
@@ -96,6 +99,26 @@ export function PresentationEditor({
         Controls how a collapsed section's expand affordance appears and how strong the hero overlay reads over photos.
       </p>
       {error && <p role="alert" className="mt-3 rounded-lg bg-red-50 p-3 text-sm text-red-700 dark:bg-red-500/10 dark:text-red-300">{error}</p>}
+
+      <label className={`mt-4 block min-w-0 ${editorLabelClass}`}>
+        Reading viewer
+        <select
+          disabled={busy}
+          defaultValue={config.viewerMode}
+          onChange={(e) => void save({ viewerMode: e.target.value })}
+          className={`mt-1 ${editorInputClass}`}
+        >
+          {VIEWER_MODES.map((m) => (
+            <option key={m} value={m}>
+              {VIEWER_MODE_LABELS[m]}
+            </option>
+          ))}
+        </select>
+        <span className="mt-1 block text-xs font-normal text-gray-500 dark:text-white/55">
+          Continuous is the default reading experience. Collapse-first restores the legacy
+          expand/collapse viewer; the collapse controls below only take effect in that mode.
+        </span>
+      </label>
 
       <label className={`mt-4 block min-w-0 ${editorLabelClass}`}>
         Collapse affordance

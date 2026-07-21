@@ -132,3 +132,32 @@ describe('firstLoadDelayMs', () => {
     expect(PRESENTATION_DEFAULTS.firstLoadDelayMs).toBe(3000)
   })
 })
+
+describe('viewerMode (write)', () => {
+  it('rejects an unknown viewerMode with HttpError(400, invalid_viewer_mode)', () => {
+    try {
+      parsePresentationPatch({ viewerMode: 'weird' })
+      throw new Error('expected parsePresentationPatch to throw')
+    } catch (err) {
+      expect((err as { status?: number }).status).toBe(400)
+      expect((err as { code?: string }).code).toBe('invalid_viewer_mode')
+    }
+  })
+  it('rejects a non-string viewerMode (400)', () => {
+    expect(() => parsePresentationPatch({ viewerMode: 7 })).toThrow()
+    expect(() => parsePresentationPatch({ viewerMode: null })).toThrow()
+  })
+  it('accepts both members verbatim', () => {
+    expect(parsePresentationPatch({ viewerMode: 'continuous' })).toEqual({ viewerMode: 'continuous' })
+    expect(parsePresentationPatch({ viewerMode: 'collapse' })).toEqual({ viewerMode: 'collapse' })
+  })
+  it('threads alongside other fields in one patch', () => {
+    expect(parsePresentationPatch({ viewerMode: 'collapse', heroOverlayStrength: 10 })).toEqual({
+      viewerMode: 'collapse',
+      heroOverlayStrength: 10,
+    })
+  })
+  it('defaults present', () => {
+    expect(PRESENTATION_DEFAULTS.viewerMode).toBe('continuous')
+  })
+})

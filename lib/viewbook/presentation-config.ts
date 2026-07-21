@@ -74,6 +74,7 @@ export function parsePresentationPatch(
   heroOverlayStrength: number
   revealDurationScale: number
   firstLoadDelayMs: number
+  viewerMode: ViewerMode
 }> {
   const patch: Partial<{
     collapseAffordance: CollapseAffordanceKind
@@ -81,6 +82,7 @@ export function parsePresentationPatch(
     heroOverlayStrength: number
     revealDurationScale: number
     firstLoadDelayMs: number
+    viewerMode: ViewerMode
   }> = {}
   if ('collapseAffordance' in raw) {
     if (!isAffordance(raw.collapseAffordance)) throw new HttpError(400, 'invalid_affordance')
@@ -105,6 +107,10 @@ export function parsePresentationPatch(
     const n = raw.firstLoadDelayMs
     if (typeof n !== 'number' || !Number.isInteger(n)) throw new HttpError(400, 'invalid_first_load_delay')
     patch.firstLoadDelayMs = clamp(n, FIRST_LOAD_DELAY_MIN, FIRST_LOAD_DELAY_MAX)
+  }
+  if ('viewerMode' in raw) {
+    if (!isViewerMode(raw.viewerMode)) throw new HttpError(400, 'invalid_viewer_mode')
+    patch.viewerMode = raw.viewerMode
   }
   return patch
 }
