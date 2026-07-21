@@ -24,14 +24,38 @@
 
 ---
 
-### Task 1: Schema migration — anchor columns
+### Task 0: Worktree setup (one-time, before any gate/migration)
+
+This is a fresh worktree with a symlinked `node_modules` and no `.env`. Prisma + the smoke test need both.
+
+- [ ] **Step 1: Symlink node_modules + copy .env from the primary checkout** (NEVER `.env.local`)
+
+```bash
+# from the worktree root:
+[ -e node_modules ] || ln -s ../../../node_modules node_modules
+[ -f .env ] || cp ../../../.env .env
+```
+Verify `.env` has a `DATABASE_URL=file:...` line. (Ref: memory `reference_worktree_smoke_node_modules`.)
+
+---
+
+### Task 1: Schema migration — anchor columns + CrawlRunInput field
 
 **Files:**
 - Modify: `prisma/schema.prisma` (`model HarvestedLink` ~437, `model CrawlRun`)
+- Modify: `lib/findings/types.ts` (`CrawlRunInput` ~32-58) — add the optional field so `bundle.run.anchorSummaryJson` type-checks (fix #1)
 - Create: `prisma/migrations/<timestamp>_anchor_text_capture/migration.sql` (generated)
 
 **Interfaces:**
-- Produces: `HarvestedLink.anchorText String?`, `CrawlRun.anchorSummaryJson String?` (used by Tasks 4, 7, 8).
+- Produces: `HarvestedLink.anchorText String?`, `CrawlRun.anchorSummaryJson String?`, `CrawlRunInput.anchorSummaryJson?: string | null` (used by Tasks 4, 7, 8).
+
+- [ ] **Step 0: Add `anchorSummaryJson` to `CrawlRunInput`** (fix #1)
+
+In `lib/findings/types.ts`, in the `CrawlRunInput` interface, alongside the other optional `*Json` fields (e.g. `schemaTypesJson?`), add:
+```ts
+  anchorSummaryJson?: string | null
+```
+Without this, `bundle.run.anchorSummaryJson` (Task 7) is an excess property and `tsc` fails.
 
 - [ ] **Step 1: Add the columns to the schema**
 
@@ -46,7 +70,8 @@ In `model CrawlRun`, alongside the other nullable `*Json` columns (e.g. near `sc
 
 - [ ] **Step 2: Generate the migration + client**
 
-Run: `npx prisma migrate dev --name anchor_text_capture`
+Run (the `.env` from Task 0 supplies `DATABASE_URL`; if it is still unset, prefix `DATABASE_URL="file:./local-dev.db"`):
+`npx prisma migrate dev --name anchor_text_capture`
 Expected: creates `prisma/migrations/<ts>_anchor_text_capture/migration.sql` with two `ALTER TABLE ... ADD COLUMN`, regenerates the client, no errors.
 
 - [ ] **Step 3: Verify the migration SQL is additive-only**
@@ -57,8 +82,8 @@ Expected: exactly two `ALTER TABLE "HarvestedLink" ADD COLUMN "anchorText" TEXT;
 - [ ] **Step 4: Commit**
 
 ```bash
-git add prisma/schema.prisma prisma/migrations
-git commit -m "feat(anchor-text): additive schema — HarvestedLink.anchorText + CrawlRun.anchorSummaryJson"
+git add prisma/schema.prisma prisma/migrations lib/findings/types.ts
+git commit -m "feat(anchor-text): additive schema + CrawlRunInput.anchorSummaryJson"
 ```
 
 ---
@@ -328,27 +353,32 @@ git commit -m "feat(anchor-text): in-page anchor extraction + classify attaches 
 - Consumes: `normalizeAnchorText` (Task 2), `HarvestedTarget.anchorText` (Task 3).
 - Produces: `HarvestedLink` rows where internal-link rows carry `anchorText` (string, `''` if empty), image/external carry `null`.
 
-- [ ] **Step 1: Write the failing test** — assert the row mapping
+- [ ] **Step 1: Export `persistHarvest` for testing + write a REAL-DB test** (fix #3 — `site-audit-page.test.ts` imports the real Prisma client; `createMany` is not a Vitest mock, so `.mockImplementation` throws)
 
-Add to `lib/jobs/handlers/site-audit-page.test.ts` (follow the file's existing prisma-mock pattern; if `persistHarvest` isn't exported, export it for testing like `persistPageSeo` is):
+First, `export` `persistHarvest` in `site-audit-page.ts` (mirroring the exported `persistPageSeo`). Then add to `lib/jobs/handlers/site-audit-page.test.ts` (follow the file's existing real-DB / seeded-SiteAudit pattern — create a SiteAudit row, call the handler, query real rows):
 ```ts
 it('persistHarvest maps anchorText: string for internal, null for image/external', async () => {
-  const created: any[] = []
-  vi.mocked(prisma.harvestedLink.createMany).mockImplementation(async ({ data }: any) => { created.push(...data); return { count: data.length } })
-  await persistHarvest('sa1', 'https://ex.com/p', [
+  const sa = await prisma.siteAudit.create({ data: { /* minimal required fields per the file's helper */ } })
+  await persistHarvest(sa.id, 'https://ex.com/p', [
     { targetUrl: 'https://ex.com/a', kind: 'internal-link', anchorText: '  Programs ' },
     { targetUrl: 'https://ex.com/b', kind: 'internal-link', anchorText: '' },
     { targetUrl: 'https://cdn.ex.com/i.png', kind: 'image' },
     { targetUrl: 'https://other.com', kind: 'external-link' },
   ], false)
-  expect(created.map((r) => r.anchorText)).toEqual(['Programs', '', null, null])
+  const rows = await prisma.harvestedLink.findMany({ where: { siteAuditId: sa.id }, orderBy: { targetUrl: 'asc' } })
+  const byTarget = Object.fromEntries(rows.map((r) => [r.targetUrl, r.anchorText]))
+  expect(byTarget['https://ex.com/a']).toBe('Programs')
+  expect(byTarget['https://ex.com/b']).toBe('')
+  expect(byTarget['https://cdn.ex.com/i.png']).toBeNull()
+  expect(byTarget['https://other.com']).toBeNull()
 })
 ```
+Use the exact SiteAudit-creation helper the existing tests in this file use (copy their required-field set verbatim).
 
 - [ ] **Step 2: Run, verify fail**
 
 Run: `npx vitest run lib/jobs/handlers/site-audit-page.test.ts -t anchorText`
-Expected: FAIL (`anchorText` undefined on rows).
+Expected: FAIL (`anchorText` is `undefined`/absent on the persisted rows).
 
 - [ ] **Step 3: Implement** — in `persistHarvest`, import `normalizeAnchorText` and extend the row map:
 
@@ -452,15 +482,19 @@ const UNIT_LABEL: Record<IssueUnit, string> = {
 }
 ```
 
-- [ ] **Step 5: Run the type-set + sweep type tests**
+- [ ] **Step 5: Add explicit `'links'` coverage to the sweep parse + chips tests** (fix #4 — running `lib/sweep` alone does not prove strict-parse accepts `'links'`, and no test renders the `'links'` unit)
 
-Run: `npx vitest run lib/findings/finding-type-sets.test.ts lib/sweep`
-Expected: PASS (the sweep's strict-parse tests accept `'links'`).
+In `lib/sweep/types.test.ts`, add a case asserting `parseSnapshot` accepts an `IssueGroup` with `unit: 'links'` (build a valid snapshot from the file's existing `VALID_SNAPSHOT` helper, set one group's `unit` to `'links'`, expect a non-null parse). In `components/issues/chips.test.tsx` (create it if absent, `// @vitest-environment jsdom` + `afterEach(cleanup)`), render the chip/`ChangeChip` path that shows the unit noun with `unit: 'links'` and assert the text `links` appears.
 
-- [ ] **Step 6: Commit**
+- [ ] **Step 6: Run the type-set + sweep + chips tests**
+
+Run: `npx vitest run lib/findings/finding-type-sets.test.ts lib/sweep/types.test.ts components/issues/chips.test.tsx`
+Expected: PASS (strict-parse accepts `'links'`; chip renders the `'links'` noun).
+
+- [ ] **Step 7: Commit**
 
 ```bash
-git add lib/findings/finding-type-sets.ts lib/sweep/types.ts components/issues/chips.tsx lib/findings/finding-type-sets.test.ts
+git add lib/findings/finding-type-sets.ts lib/sweep/types.ts components/issues/chips.tsx lib/findings/finding-type-sets.test.ts lib/sweep/types.test.ts components/issues/chips.test.tsx
 git commit -m "feat(anchor-text): register 3 anchor finding types + IssueUnit 'links' end-to-end"
 ```
 
@@ -523,11 +557,30 @@ describe('mapAnchorTextFindings', () => {
     const agg = { ...base(), singleVariationCount: 11, singleVariationTargets: ['x'], targetsTruncated: true }
     expect(mapAnchorTextFindings(agg, deps())[0].affectedComplete).toBe(false)
   })
+  it('non_descriptive_anchor_text: notice severity, run + page rows, affectedSource + dedupKeys', () => {
+    const agg = { ...base(), nonDescriptiveCount: 2, nonDescriptiveSources: [{ url: 'https://e/p1', count: 2 }] }
+    const f = mapAnchorTextFindings(agg, deps())
+    const run = f.find((x) => x.scope === 'run' && x.type === 'non_descriptive_anchor_text')!
+    const page = f.find((x) => x.scope === 'page' && x.type === 'non_descriptive_anchor_text')!
+    expect(run.severity).toBe('notice')
+    expect(run.count).toBe(2)
+    expect(run.affectedSource).toBe('live-scan-anchor')
+    expect(page.affectedSource).toBe('live-scan-anchor')
+    // dedupKeys differ run vs page and are keyed by source page
+    expect(run.dedupKey).not.toBe(page.dedupKey)
+    expect(typeof run.dedupKey).toBe('string')
+    expect(typeof page.dedupKey).toBe('string')
+  })
+  it('empty/non-descriptive affectedComplete tracks harvestTruncated', () => {
+    const agg = { ...base(), emptyCount: 1, emptySources: [{ url: 'https://e/p', count: 1 }], harvestTruncated: true }
+    for (const x of mapAnchorTextFindings(agg, deps())) expect(x.affectedComplete).toBe(false)
+  })
   it('emits nothing when all counts zero', () => {
     expect(mapAnchorTextFindings(base(), deps())).toEqual([])
   })
 })
 ```
+The `dedupKey` assertions confirm run vs page keys diverge and page keys are source-scoped (via `pageFindingKey(type, source)`); if `FindingInput` requires additional fields, mirror `onpage-seo-mapper.ts` verbatim (Step 3 note).
 
 - [ ] **Step 2: Run, verify fail**
 
@@ -700,17 +753,26 @@ Add `...anchorFindings` to the `findings` array (line ~653). Add `anchorSummaryJ
 
 - [ ] **Step 4: Write the anchor-aware integration test** (new file `broken-link-verify.anchor.test.ts`, following the DB-backed pattern of the existing builder tests)
 
-Seed a SiteAudit + HarvestedLink rows: two internal rows to distinct targets with empty anchors from two source pages, one non-descriptive (`'click here'`), and 11 distinct targets each linked once with a single distinct anchor (to trip >10). Run the builder. Assert the live-scan run's findings include `empty_anchor_text` (count 2), `non_descriptive_anchor_text` (count 1), `single_anchor_variation` (count 11, run-scope), and `anchorSummaryJson` is non-null. Then seed a run with all `anchorText: null` and assert zero anchor findings + `anchorSummaryJson` null.
+Fixture math must be exact (fix #6 — `singleVariationCount` = distinct targets whose set of distinct **non-empty** anchors is size 1). Seed a SiteAudit + internal-link `HarvestedLink` rows:
+- **empty:** 2 distinct targets each with `anchorText: ''`, from 2 different source pages (→ `empty_anchor_text` count 2; these empty-anchor targets never enter the single-variation map).
+- **single-variation set:** **11** distinct targets, each linked once with ONE distinct non-empty anchor — and make **one of those 11** use a non-descriptive anchor (e.g. `'click here'`) so it ALSO counts as `non_descriptive_anchor_text` (count 1) WITHOUT adding a 12th single-variation target.
+- **multiple=true control:** 1 additional target linked from two source rows with two DIFFERENT non-empty anchors (`'Nursing Program'`, `'RN Program'`) → `multiple=true` → excluded from single-variation.
 
-- [ ] **Step 5: Run the anchor test + the FROZEN characterization (must still pass unchanged)**
+Run the builder. Assert the live-scan run's findings: `empty_anchor_text` run count 2, `non_descriptive_anchor_text` run count 1, `single_anchor_variation` run-scope count **11** (the multiple-anchor target is excluded), and `anchorSummaryJson` non-null. Then seed a second audit with all `anchorText: null` → assert zero anchor findings + `anchorSummaryJson` null.
 
-Run: `npx vitest run lib/jobs/handlers/broken-link-verify.anchor.test.ts lib/jobs/handlers/broken-link-verify.characterization.test.ts`
-Expected: PASS both. The characterization is byte-identical because its fixture rows have `anchorText: null` → `anyAnchorData` false → no findings, `anchorSummaryJson` null.
+- [ ] **Step 5: Extend the existing RSS-guard test** (fix #6)
 
-- [ ] **Step 6: Commit**
+In `lib/jobs/handlers/broken-link-verify.test.ts` (the RSS-trip case ~1240-1252), after the trip, assert the built run has NO anchor findings and `anchorSummaryJson === null` (the accumulator was cleared in `onChunkEnd`).
+
+- [ ] **Step 6: Run the anchor test + RSS test + the FROZEN characterization (must still pass unchanged)**
+
+Run: `npx vitest run lib/jobs/handlers/broken-link-verify.anchor.test.ts lib/jobs/handlers/broken-link-verify.test.ts lib/jobs/handlers/broken-link-verify.characterization.test.ts`
+Expected: PASS all. The characterization is byte-identical because its fixture rows have `anchorText: null` → `anyAnchorData` false → no findings, `anchorSummaryJson` null (Codex confirmed the characterization does not compare the full CrawlRun row).
+
+- [ ] **Step 7: Commit**
 
 ```bash
-git add lib/jobs/handlers/broken-link-verify.ts lib/jobs/handlers/broken-link-verify.anchor.test.ts
+git add lib/jobs/handlers/broken-link-verify.ts lib/jobs/handlers/broken-link-verify.anchor.test.ts lib/jobs/handlers/broken-link-verify.test.ts
 git commit -m "feat(anchor-text): builder reducer + mapper wiring + anchorSummaryJson marker"
 ```
 
@@ -730,10 +792,14 @@ git commit -m "feat(anchor-text): builder reducer + mapper wiring + anchorSummar
 
 - [ ] **Step 1: Write the failing component test** — `components/site-audit/AnchorTextSection.test.tsx`
 
+The first line MUST be the jsdom pragma (fix #8 — Vitest defaults to the Node environment per `vitest.config.mts`, so `render()` has no `document` otherwise):
 ```tsx
-import { describe, it, expect } from 'vitest'
-import { render } from '@testing-library/react'
+// @vitest-environment jsdom
+import { describe, it, expect, afterEach } from 'vitest'
+import { render, cleanup } from '@testing-library/react'
 import { AnchorTextSection } from './AnchorTextSection'
+
+afterEach(() => cleanup())
 
 const run = (over: any) => ({ anchorSummaryJson: null, findings: [], ...over }) as any
 
@@ -766,21 +832,25 @@ Expected: FAIL (module not found).
 
 `components/site-audit/AnchorTextSection.tsx`: accept `{ run }`; if `run == null || run.anchorSummaryJson == null` render the not-analyzed state; filter `run.findings` to `ANCHOR_FINDING_TYPE_SET` run-scope findings; if none → clean state; else a small list of `ANCHOR_FINDING_LABELS[type]` + `count` + severity chip. Follow `OnPageSeoSection`'s markup/classes (card, heading, dark: variants). Client-safe imports only.
 
-- [ ] **Step 4: Wire into both page assemblies**
+- [ ] **Step 4: Extend the live-run Prisma selects** (fix #7 — the component needs these fields on the run object)
+
+In `app/(app)/ada-audit/site/[id]/page.tsx` (the live-scan-run query select, ~229-246) and `app/(public)/ada-audit/site/share/[token]/page.tsx` (~56-63), add to the run `select`: `anchorSummaryJson: true`, and to the run's `findings` select add `severity: true` (if not already selected). Without `anchorSummaryJson` the component can't distinguish analyzed-clean from legacy; without `severity` the finding list can't render its severity chip.
+
+- [ ] **Step 5: Wire into both page assemblies**
 
 In `app/(app)/ada-audit/site/[id]/page.tsx`, import `AnchorTextSection` and add after the `<OnPageSeoSection … />` block (~line 297): `<AnchorTextSection run={liveScanRun} />`.
 In `app/(public)/ada-audit/site/share/[token]/page.tsx`, add `<AnchorTextSection run={liveScanRun} />` after the on-page section (~line 104), passing the same live-scan run object the other sections use.
 
-- [ ] **Step 5: Update the seo-unavailable guard tests**
+- [ ] **Step 6: Update the seo-unavailable guard tests** (fix #7 — inspect the marker, not only presence)
 
-In both `page.seo-unavailable.test.tsx` files, add `AnchorTextSection` to the imports and assert `findByType(tree, AnchorTextSection)` is null for a placeholder/seo-unavailable run and non-null for a real live-scan run (mirror the existing `BrokenLinksSection` assertions).
+In both `page.seo-unavailable.test.tsx` files, add `AnchorTextSection` to the imports and assert `findByType(tree, AnchorTextSection)` is null for a placeholder/seo-unavailable run and non-null for a real live-scan run (mirror the existing `BrokenLinksSection` assertions). For the real-run case, also assert the rendered `AnchorTextSection` received the run's `anchorSummaryJson` (inspect the element's `props.run.anchorSummaryJson`) so the analyzed-vs-legacy signal is proven wired, not just present.
 
-- [ ] **Step 6: Run the component + guard tests**
+- [ ] **Step 7: Run the component + guard tests**
 
 Run: `npx vitest run components/site-audit/AnchorTextSection.test.tsx "app/(app)/ada-audit/site/[id]/page.seo-unavailable.test.tsx" "app/(public)/ada-audit/site/share/[token]/page.seo-unavailable.test.tsx"`
 Expected: PASS.
 
-- [ ] **Step 7: Commit**
+- [ ] **Step 8: Commit**
 
 ```bash
 git add components/site-audit/AnchorTextSection.tsx components/site-audit/AnchorTextSection.test.tsx "app/(app)/ada-audit/site/[id]/page.tsx" "app/(public)/ada-audit/site/share/[token]/page.tsx" app/**/page.seo-unavailable.test.tsx
@@ -818,4 +888,15 @@ Deploy + prod-verify (autonomous, gate-green): after merge, `git push` then `ssh
 
 **Placeholder scan:** No TBD/TODO; every code step has concrete code; the two lines that say "mirror onpage-seo-mapper/OnPageSeoSection" reference an exact existing file to copy field-for-field (acceptable — the target is concrete and named).
 
-**Type consistency:** `AnchorAggregate` fields identical across Tasks 6 (def) and 7 (construction). `mapAnchorTextFindings(agg, {runId, ensurePage})` signature matches Tasks 6/7. `harvestAnchorsFromDocument` / `classifyTargets(…, anchorPairs)` / `HarvestedTarget.anchorText` consistent across Task 3 and its consumers (Task 4 reads `t.anchorText`; harvest passes pairs). `anchorSummaryJson` / `anchorText` column names match Tasks 1/4/7/8. `IssueUnit: 'links'` added in both `finding-type-sets.ts` and `lib/sweep/types.ts` (Task 5).
+**Type consistency:** `AnchorAggregate` fields identical across Tasks 6 (def) and 7 (construction). `mapAnchorTextFindings(agg, {runId, ensurePage})` signature matches Tasks 6/7. `harvestAnchorsFromDocument` / `classifyTargets(…, anchorPairs)` / `HarvestedTarget.anchorText` consistent across Task 3 and its consumers (Task 4 reads `t.anchorText`; harvest passes pairs). `anchorSummaryJson` / `anchorText` column names match Tasks 1/4/7/8; `CrawlRunInput.anchorSummaryJson?` added in Task 1 (Task 7 consumes). `IssueUnit: 'links'` added in both `finding-type-sets.ts` and `lib/sweep/types.ts` (Task 5).
+
+## Codex P0 plan fixes applied (2026-07-21)
+
+1. `CrawlRunInput.anchorSummaryJson?: string | null` added in `lib/findings/types.ts` (Task 1 Step 0) so `bundle.run` type-checks.
+2. Worktree setup Task 0 (node_modules symlink + `.env` copy) + `DATABASE_URL` note on `prisma migrate dev` (Task 1 Step 2).
+3. Task 4 test rewritten to real-DB (module imports the real Prisma client; the mock would throw); `persistHarvest` exported.
+4. Task 5 adds explicit `lib/sweep/types.test.ts` `'links'` strict-parse case + a `components/issues/chips.test.tsx` render.
+5. Task 6 mapper tests expanded: non-descriptive, run-vs-page dedupKeys, `affectedSource`, per-source counts, `harvestTruncated` completeness.
+6. Task 7 fixture corrected (non-descriptive is one of the 11; +a two-distinct-anchor target proving `multiple=true`; single-variation=11); RSS-guard test extended to assert no anchor findings + null marker.
+7. Task 8 adds `anchorSummaryJson: true` + finding `severity: true` to both live-run selects; guard tests inspect the passed marker.
+8. Task 8 component test carries `// @vitest-environment jsdom` + `afterEach(cleanup)` (Vitest defaults to Node).
