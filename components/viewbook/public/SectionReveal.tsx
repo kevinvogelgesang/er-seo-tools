@@ -160,12 +160,18 @@ export function SectionReveal({
         className="vb-reveal"
       >
         <div className="vb-reveal-inner">
-          {/* Task 8: prose measure — constrain the reading column (summary
-              panel + introNote + section body) to ~68ch for readability. This
-              is the ONLY width change in this task; the full-width sticky bar
-              above is untouched, and any wider cards nested in `children` are
-              out of scope here. */}
-          <div className="mx-auto w-full max-w-[68ch] space-y-6 px-6 pb-10 pt-2">{children}</div>
+          {/* Review fix (Task 8 follow-up): the Task 8 blanket `max-w-[68ch]`
+              here wrapped the ENTIRE `children` column, over-constraining the
+              multi-column card grids sections render (BrandSection swatches,
+              WelcomeSection team grid, StrategySection/AssessmentSection card
+              grids) from ~1024px down to ~600px. Cards may remain wider than a
+              reading measure — only PROSE should be clamped to ~68ch. This
+              wrapper goes back to the section body's original `max-w-5xl`
+              column; `SectionSummaryPanel` manages its own prose width, and
+              `section.introNote` is rendered by SectionShell.tsx (part of the
+              opaque `children` passed in here), so its ~68ch measure lives
+              there, not in this file. */}
+          <div className="mx-auto w-full max-w-5xl space-y-6 px-6 pb-10 pt-2">{children}</div>
         </div>
       </div>
     </div>
