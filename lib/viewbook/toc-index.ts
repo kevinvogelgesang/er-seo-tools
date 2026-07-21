@@ -9,6 +9,7 @@ import type { PublicSection, ViewbookPublicData } from './public-types'
 import { SECTION_TITLES } from '@/components/viewbook/public/section-titles'
 import { CATEGORY_LABELS } from './category-labels'
 import { sectionAnchor, categoryAnchor, fieldAnchor, milestoneAnchor, materialAnchor, docAnchor } from './anchors'
+import { computeSectionStatuses, carriedStatus, type SectionStatus } from './section-status'
 
 export interface TocEntry {
   sectionKey: SectionKey
@@ -16,6 +17,7 @@ export interface TocEntry {
   anchor: string
   done: boolean
   acked: boolean
+  status: SectionStatus
   children?: { label: string; anchor: string }[]
 }
 
@@ -31,6 +33,8 @@ export interface SearchEntry {
 // buildTocIndex uses ONLY data.primarySections (already lineup-ordered) — the
 // TOC rail navigates the current stage's primary flow, not carried sections.
 export function buildTocIndex(data: ViewbookPublicData): TocEntry[] {
+  const primaryOrder = data.primarySections.map((s) => s.sectionKey)
+  const statuses = computeSectionStatuses(primaryOrder, data.primarySections, { pcCompletedAt: data.pcCompletedAt })
   return data.primarySections.map((section: PublicSection): TocEntry => {
     const entry: TocEntry = {
       sectionKey: section.sectionKey,
@@ -38,6 +42,7 @@ export function buildTocIndex(data: ViewbookPublicData): TocEntry[] {
       anchor: sectionAnchor(section.sectionKey),
       done: section.state === 'done',
       acked: section.acknowledgedAt != null,
+      status: statuses[section.sectionKey] ?? carriedStatus(section),
     }
     // A collapsed section renders ONLY its hero band — the top-level entry above
     // still anchors to that hero, but its nested content (Data Source field

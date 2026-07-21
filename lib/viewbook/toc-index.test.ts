@@ -130,6 +130,17 @@ describe('buildTocIndex', () => {
     const dataSource = toc.find((t) => t.sectionKey === 'data-source')!
     expect(dataSource.children).toEqual([{ label: 'made-up-category', anchor: '#vb-cat-made-up-category' }])
   })
+
+  it('tags each top-level toc entry with a status', () => {
+    const data = buildFixture()
+    data.pcCompletedAt = '2026-07-01T00:00:00Z'
+    ;(data.primarySections as any[]).find((s) => s.sectionKey === 'welcome').state = 'done'
+    const toc = buildTocIndex(data)
+    const welcome = toc.find((e) => e.sectionKey === 'welcome')!
+    const milestones = toc.find((e) => e.sectionKey === 'milestones')!
+    expect(welcome.status).toBe('complete')
+    expect(milestones.status).toBe('current')
+  })
 })
 
 describe('buildSearchIndex', () => {
