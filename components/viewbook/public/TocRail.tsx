@@ -14,8 +14,10 @@
 // the page scrolls + flashes the target.
 //
 // Keyboard: role="navigation", a roving-tabindex list (ArrowUp/Down move
-// focus, Enter/Space activate — native <button>, Escape collapses + returns
-// focus to the trigger).
+// focus, Enter/Space activate — native <button>). On mobile, Escape closes
+// the bottom-sheet and returns focus to the FAB. On desktop, hide/show is
+// owned solely by the hamburger button (Feature B, useTocHidden) — there is
+// no Escape-collapse.
 //
 // Mobile (< 768px, read via matchMedia in an EFFECT with an SSR-safe desktop
 // default — NEVER during render): a bottom-sheet opened by a FAB.
@@ -30,12 +32,7 @@ import type { SearchEntry, TocEntry } from '@/lib/viewbook/toc-index'
 import { searchViewbook } from '@/lib/viewbook/toc-index'
 import type { SectionKey } from '@/lib/viewbook/theme'
 import { navigateToAnchor } from './viewbook-navigate'
-
-// Desktop rail: permanently expanded (Kevin, 2026-07-17). The hamburger
-// collapse toggle + Escape-collapse are gated off so the rail stays open on
-// desktop; flip this back to `true` to restore the collapsible hamburger rail.
-// (Mobile keeps its FAB + bottom-sheet regardless.)
-const DESKTOP_RAIL_COLLAPSIBLE = false
+import { useTocHidden } from './useTocHidden'
 
 // A flattened nav item — top-level section entries plus (verbose) their
 // category sub-entries, in DOM order, so the roving-tabindex list is a single
@@ -117,10 +114,13 @@ export function TocRail({
   // note in the file header). The mobile branch and open state settle in
   // effects / on interaction after mount.
   const [isMobile, setIsMobile] = useState(false)
-  const [open, setOpen] = useState(true) // desktop rail expanded (labels shown) by default; the hamburger is the sole collapse toggle
   const [sheetOpen, setSheetOpen] = useState(false) // mobile bottom-sheet
   const [activeIndex, setActiveIndex] = useState(0)
   const [query, setQuery] = useState('')
+
+  // Feature B: device-global desktop hide/show, owned by useTocHidden
+  // (localStorage-backed). Default expanded (hidden=false).
+  const { hidden, toggle } = useTocHidden()
 
   const triggerRef = useRef<HTMLButtonElement>(null)
   const fabRef = useRef<HTMLButtonElement>(null)
@@ -173,9 +173,9 @@ export function TocRail({
 
   const activate = useCallback((item: { sectionKey: SectionKey; anchor: string }) => {
     navigateToAnchor(item.sectionKey, item.anchor)
-    // Desktop rail defaults open and stays open on navigation — only the
-    // hamburger trigger (or Escape) collapses it. The mobile bottom-sheet
-    // still closes after navigating, since it covers the viewport.
+    // Desktop rail stays exactly as it is on navigation — only the
+    // hamburger trigger hides/shows it. The mobile bottom-sheet still closes
+    // after navigating, since it covers the viewport.
     setSheetOpen(false)
   }, [])
 
@@ -203,14 +203,18 @@ export function TocRail({
     [moveFocus],
   )
 
-  const collapse = useCallback(
-    (returnFocusTo: React.RefObject<HTMLButtonElement | null>) => {
-      setOpen(false)
-      setSheetOpen(false)
-      returnFocusTo.current?.focus()
-    },
-    [],
-  )
+  // Focus the first rail entry ONLY when the rail transitions hidden -> shown
+  // on desktop. mountedRef gates out the initial mount (where prevHidden would
+  // otherwise be true and steal focus on load).
+  const mountedRef = useRef(false)
+  const prevHiddenRef = useRef(hidden)
+  useEffect(() => {
+    if (mountedRef.current && !isMobile && prevHiddenRef.current && !hidden) {
+      itemRefs.current[0]?.focus()
+    }
+    prevHiddenRef.current = hidden
+    mountedRef.current = true
+  }, [hidden, isMobile])
 
   // Shared item list — used by both the desktop rail and the mobile sheet. The
   // roving-tabindex refs (itemRefs) are shared because only ONE of the two
@@ -314,7 +318,8 @@ export function TocRail({
           onKeyDown={(e) => {
             if (e.key === 'Escape') {
               e.preventDefault()
-              collapse(fabRef)
+              setSheetOpen(false)
+              fabRef.current?.focus()
             } else {
               onListKeyDown(e)
             }
@@ -330,72 +335,44 @@ export function TocRail({
     )
   }
 
-  // ---- Desktop: right-edge rail --------------------------------------------
+  // ---- Desktop: hamburger + hideable rail ----------------------------------
+  const railId = 'vb-toc-rail'
   return (
     <>
       <style>{RAIL_STYLE}</style>
-      <nav
-        ref={railRef}
-        data-vb-toc-nav
-        data-vb-open={open ? 'true' : 'false'}
-        aria-label="Section navigation"
-        // Hamburger-persistent (codex-review P2-3, Kevin's decision): open/
-        // close state is owned SOLELY by the hamburger trigger below (and
-        // Escape). No onMouseEnter/onMouseLeave/onBlur here — the rail must
-        // NOT auto-open on hover or auto-collapse on mouse-leave/blur; moving
-        // the mouse in and out of the rail is a no-op for `open`. The inner
-        // onFocus below is kept as a focus-safety net (see there), not a
-        // hover/blur behavior.
-        onKeyDown={(e) => {
-          if (e.key === 'Escape') {
-            // Escape only collapses when the rail is collapsible; on the
-            // permanently-expanded desktop rail there is nothing to collapse.
-            if (DESKTOP_RAIL_COLLAPSIBLE) {
-              e.preventDefault()
-              collapse(triggerRef)
-            }
-          } else {
-            onListKeyDown(e)
-          }
-        }}
-        className="fixed left-3 top-1/2 z-40 -translate-y-1/2"
+      {/* Always-visible hamburger. max-md:hidden guards the pre-effect window
+          where isMobile is still false on a phone (SSR renders desktop). */}
+      <button
+        type="button"
+        ref={triggerRef}
+        data-vb-toc-hamburger
+        aria-label={hidden ? 'Show section navigation' : 'Hide section navigation'}
+        aria-expanded={!hidden}
+        {...(hidden ? {} : { 'aria-controls': railId })}
+        onClick={toggle}
+        className="fixed left-3 top-1/2 z-50 -mt-24 flex h-9 w-9 max-md:hidden items-center justify-center rounded-full border border-black/10 bg-white/95 shadow-md backdrop-blur"
+        style={{ color: 'var(--vb-primary)' }}
       >
-        {DESKTOP_RAIL_COLLAPSIBLE && (
-          <button
-            type="button"
-            ref={triggerRef}
-            data-vb-toc-trigger
-            aria-label="Table of contents"
-            aria-expanded={open}
-            onClick={() => setOpen((v) => !v)}
-            className="mb-1 mr-auto flex h-8 w-8 items-center justify-center rounded-full border border-black/10 bg-white/90 shadow-sm"
-            style={{ color: 'var(--vb-primary)' }}
-          >
-            <span aria-hidden className="text-sm font-bold">
-              ☰
-            </span>
-          </button>
-        )}
-        <div
-          // Focus-safety, not hover behavior: if the rail was hamburger-
-          // collapsed (40px) and a user tabs a focusable control inside it
-          // (e.g. from the trigger into the list), force it open so the
-          // focused control isn't clipped by the collapsed width. This does
-          // NOT re-introduce hover/blur-driven state — mouse in/out and
-          // blur-out no longer touch `open` at all. Inert when the rail is
-          // permanently expanded (always open).
-          onFocus={() => setOpen(true)}
-          className="rounded-xl border border-black/10 bg-white/95 p-2 shadow-lg backdrop-blur"
-          style={{
-            width: DESKTOP_RAIL_COLLAPSIBLE ? (open ? 240 : 40) : 240,
-            transition: 'width 200ms ease',
-            overflow: 'hidden',
-          }}
+        <span aria-hidden className="text-base font-bold">☰</span>
+      </button>
+      {!hidden && (
+        <nav
+          ref={railRef}
+          id={railId}
+          data-vb-toc-nav
+          aria-label="Section navigation"
+          onKeyDown={onListKeyDown}
+          className="fixed left-3 top-1/2 z-40 -translate-y-1/2 max-md:hidden"
         >
-          {searchBox}
-          {itemList}
-        </div>
-      </nav>
+          <div
+            className="rounded-xl border border-black/10 bg-white/95 p-2 shadow-lg backdrop-blur"
+            style={{ width: 240 }}
+          >
+            {searchBox}
+            {itemList}
+          </div>
+        </nav>
+      )}
     </>
   )
 }
