@@ -18,7 +18,7 @@ const { finalizeSiteAudit } = await import('@/lib/ada-audit/site-audit-finalizer
 const { enqueuePsiJob } = await import('@/lib/ada-audit/lighthouse-queue')
 const { getLighthouseProvider } = await import('@/lib/ada-audit/lighthouse-provider')
 const { publishInvalidation } = await import('@/lib/events/bus')
-const { runSiteAuditPageJob, onSiteAuditPageExhausted, persistPageSeo, publishHeroScreenshot } = await import('./site-audit-page')
+const { runSiteAuditPageJob, onSiteAuditPageExhausted, persistPageSeo, persistHarvest, publishHeroScreenshot } = await import('./site-audit-page')
 import type { RawPageSeo } from '@/lib/ada-audit/seo/parse-seo-dom'
 
 const PREFIX = 'sap-handler-test-'
@@ -286,6 +286,25 @@ describe('persistPageSeo — content similarity fields', () => {
     const row = await prisma.harvestedPageSeo.findFirst({ where: { siteAuditId: audit.id } })
     const details = JSON.parse(row!.detailsJson!)
     expect(details.faqSignals).toEqual({ heading: true, container: false, questionHeadings: 4 })
+    await prisma.siteAudit.delete({ where: { id: audit.id } })
+  })
+})
+
+describe('persistHarvest — anchorText mapping', () => {
+  it('maps anchorText: normalized string for internal, null for image/external', async () => {
+    const audit = await prisma.siteAudit.create({ data: { domain: 'anchor.test', status: 'complete' } })
+    await persistHarvest(audit.id, 'https://anchor.test/p', [
+      { targetUrl: 'https://ex.com/a', kind: 'internal-link', anchorText: '  Programs ' },
+      { targetUrl: 'https://ex.com/b', kind: 'internal-link', anchorText: '' },
+      { targetUrl: 'https://cdn.ex.com/i.png', kind: 'image' },
+      { targetUrl: 'https://other.com', kind: 'external-link' },
+    ], false)
+    const rows = await prisma.harvestedLink.findMany({ where: { siteAuditId: audit.id }, orderBy: { targetUrl: 'asc' } })
+    const byTarget = Object.fromEntries(rows.map((r) => [r.targetUrl, r.anchorText]))
+    expect(byTarget['https://ex.com/a']).toBe('Programs')
+    expect(byTarget['https://ex.com/b']).toBe('')
+    expect(byTarget['https://cdn.ex.com/i.png']).toBeNull()
+    expect(byTarget['https://other.com']).toBeNull()
     await prisma.siteAudit.delete({ where: { id: audit.id } })
   })
 })

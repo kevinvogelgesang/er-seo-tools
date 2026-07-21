@@ -782,6 +782,30 @@ exclusions; any pre-deploy figure is a **directional estimate only**.
 
 **Note (Codex fix #3):** `maxAdded` is checked before `hardCap`, so a `maxAdded` stop can mask a latent 1000-page limit — compare `discovered` vs `HARD_CAP`, not just `stoppedBy`. A site that merely flips to `stoppedBy:'timeBudget'` with little extra work is honestly `cleared-watch`/`sf-required`, not a win.
 
+---
+
+## 2026-07-21 — anchor-text capture (Phase-7 blocker #3): spec + plan READY (Codex-approved), execution pending
+
+The OPEN blocking item #3 ("anchor-text capture") now has a Codex-P0-approved spec + implementation plan
+ready for TDD execution. **Not yet implemented** — this session produced design docs only.
+
+- **Spec:** `docs/superpowers/specs/2026-07-21-live-anchor-text-capture-design.md` — Codex P0 **ACCEPT WITH 7 FIXES** (all applied).
+- **Plan:** `docs/superpowers/plans/2026-07-21-live-anchor-text-capture.md` — Codex P0 **ACCEPT WITH 8 FIXES** (all applied); 9 TDD tasks.
+- **Branch:** `feat/anchor-text-capture` (off `origin/main`, docs-only commits pushed to origin).
+- **Design (findings-parity-only, measurement-only):** the live-scan builder emits SF's 3 anchor findings
+  (`empty_anchor_text` / `non_descriptive_anchor_text` / `single_anchor_variation`) from a new nullable
+  `HarvestedLink.anchorText`, aggregated via a bounded O(1)-per-target reducer folded into the EXISTING
+  keyset stream; a durable `CrawlRun.anchorSummaryJson` marker distinguishes analyzed-clean from legacy;
+  `IssueUnit` gains `'links'`. NO `scoreLiveSeo` change. `HarvestedLink` dedup/cap + the frozen
+  `broken-link-verify.characterization.test.ts` are UNCHANGED. A shared `anchor-text-shared.ts` keeps the live
+  rule identical to the SF parser. **Rich aggregate stats rejected** — unrendered even on the SF path.
+- **Documented deviation (accepted):** within-page multiple-distinct-anchors to one destination are not
+  captured (first-anchor-per-(source,target) survives the unchanged dedup), so `single_anchor_variation` can
+  narrowly over-report vs SF; notice-severity, measurement-only. Fuller fidelity = a future increment.
+- **Next:** execute the plan (subagent-driven TDD) → gates → PR → deploy; the Mon 2026-07-27 sweep
+  auto-exercises the harvest for prod verification. Remaining Phase-7 blockers after this: graph-signal
+  ER-authority labeling (#4), broken-link FP-rate evidence (#5), §7 default-to-live (#6).
+
 ## ✅ 2026-07-21 — L2 worst-case rendered-BFS memory drill: **PASS** (Kevin-accepted)
 
 Closes the pending Kevin-gated L2-acceptance item (Codex-F1). Run authed via Kevin's UI cookie against prod (`seo.erstaging.site`). Instrument = a process-tree sampler (node app PID + **all** chrome descendants via recursive `pgrep -P`): summed **RSS**, shared-aware **PSS** (from `/proc/<pid>/smaps_rollup`), `MemAvailable`, PM2 restart delta. **Box = 3916 MB total. Idle baseline: 547 MB tree RSS / 2897 MB free / 0 chrome.**

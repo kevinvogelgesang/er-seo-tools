@@ -1215,10 +1215,13 @@ describe('runBrokenLinkVerify — RSS-guard trip during link stream', () => {
     })
     // /redir resolves as a redirect (would emit redirect_chain via the validation
     // mapper); /dead resolves broken (broken_internal_links via the broken-link mapper).
+    // anchorText '' on both rows so that WITHOUT the RSS-trip clear these would
+    // emit an empty_anchor_text finding + a non-null anchorSummaryJson — the
+    // above-guard test asserts the trip cleared the anchor accumulator too.
     await prisma.harvestedLink.createMany({
       data: [
-        { siteAuditId: sa.id, targetUrl: `https://${RSS_DOMAIN}/redir`, kind: 'internal-link', sourcePageUrl: `https://${RSS_DOMAIN}/hub` },
-        { siteAuditId: sa.id, targetUrl: `https://${RSS_DOMAIN}/dead`, kind: 'internal-link', sourcePageUrl: `https://${RSS_DOMAIN}/hub` },
+        { siteAuditId: sa.id, targetUrl: `https://${RSS_DOMAIN}/redir`, kind: 'internal-link', sourcePageUrl: `https://${RSS_DOMAIN}/hub`, anchorText: '' },
+        { siteAuditId: sa.id, targetUrl: `https://${RSS_DOMAIN}/dead`, kind: 'internal-link', sourcePageUrl: `https://${RSS_DOMAIN}/hub`, anchorText: '' },
       ],
     })
     return sa.id
@@ -1249,6 +1252,10 @@ describe('runBrokenLinkVerify — RSS-guard trip during link stream', () => {
     const types = new Set(run!.findings.map((f) => f.type))
     expect(types.has('redirect_chain')).toBe(false)        // validation mapper skipped entirely
     expect(types.has('broken_internal_links')).toBe(true)  // toCheck (verification proper) NEVER dropped
+    // anchor accumulator shares the RSS budget — cleared on trip, so no anchor
+    // findings and a null marker despite the seeded '' anchors.
+    expect(types.has('empty_anchor_text')).toBe(false)
+    expect(run!.anchorSummaryJson).toBeNull()
   })
 
   it('below guard (control): graph+coverage present, redirect_chain emitted, run complete', async () => {

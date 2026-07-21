@@ -10,6 +10,7 @@ import { writeAdaSiteFindings } from '@/lib/findings/ada-write'
 import SharedSiteAuditPage from './page'
 import SeoUnavailableNotice from '@/components/site-audit/SeoUnavailableNotice'
 import { BrokenLinksSection } from '@/components/site-audit/BrokenLinksSection'
+import { AnchorTextSection } from '@/components/site-audit/AnchorTextSection'
 
 const DOMAIN = 'c21ph-share-seo-unavail.example'
 
@@ -109,17 +110,24 @@ describe('SharedSiteAuditPage — SEO-unavailable page-level branch', () => {
     const tree = await renderPage(token)
     expect(findByType(tree, SeoUnavailableNotice)).not.toBeNull()
     expect(findByType(tree, BrokenLinksSection)).toBeNull()
+    expect(findByType(tree, AnchorTextSection)).toBeNull()
   })
 
   it('renders the full section stack for a real live-scan run (regression guard)', async () => {
     const token = 'c21ph-share-token-real'
     const site = await seedShareableSite(token)
     await prisma.crawlRun.create({
-      data: { siteAuditId: site.id, tool: 'seo-parser', source: 'live-scan', domain: DOMAIN, status: 'complete' },
+      data: {
+        siteAuditId: site.id, tool: 'seo-parser', source: 'live-scan', domain: DOMAIN, status: 'complete',
+        anchorSummaryJson: '{"v":1,"targetsObserved":3}',
+      },
     })
 
     const tree = await renderPage(token)
     expect(findByType(tree, BrokenLinksSection)).not.toBeNull()
     expect(findByType(tree, SeoUnavailableNotice)).toBeNull()
+    const anchorEl = findByType(tree, AnchorTextSection)
+    expect(anchorEl).not.toBeNull()
+    expect(anchorEl.props.run.anchorSummaryJson).toBe('{"v":1,"targetsObserved":3}')
   })
 })

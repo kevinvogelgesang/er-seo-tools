@@ -201,6 +201,16 @@ describe('parseSnapshot', () => {
     expect(parseSnapshot(raw)).toEqual(VALID_SNAPSHOT)
   })
 
+  it('accepts an IssueGroup + semanticKey with unit "links" (anchor-text)', () => {
+    const snap = JSON.parse(JSON.stringify(VALID_SNAPSHOT)) as SweepSnapshot
+    snap.groups[0].unit = 'links'
+    snap.shortlist = snap.groups
+    snap.semanticKeys[0].unit = 'links'
+    const parsed = parseSnapshot(JSON.stringify(snap))
+    expect(parsed).not.toBeNull()
+    expect(parsed!.groups[0].unit).toBe('links')
+  })
+
   it('returns null for null input', () => {
     expect(parseSnapshot(null)).toBeNull()
   })

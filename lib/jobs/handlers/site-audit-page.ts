@@ -38,6 +38,7 @@ import { parsePositiveInt } from '../config'
 import { registerJobHandler } from '../registry'
 import type { JobExhaustedContext } from '../types'
 import { normalizeFindingUrl } from '@/lib/findings/normalize-url'
+import { normalizeAnchorText } from '@/lib/findings/anchor-text-shared'
 import type { HarvestedTarget } from '@/lib/ada-audit/link-harvest'
 import type { RawPageSeo } from '@/lib/ada-audit/seo/parse-seo-dom'
 import { publishInvalidation } from '@/lib/events/bus'
@@ -61,7 +62,8 @@ function chunk<T>(a: T[], n: number): T[][] {
  * the verifier; a lost row just means that link isn't checked. harvestTruncated
  * is denormalized onto every row so the verifier can recover the run-level flag.
  */
-async function persistHarvest(
+// Exported for testing (see site-audit-page.test.ts); production caller is runSiteAuditPageJob.
+export async function persistHarvest(
   siteAuditId: string,
   sourcePageUrl: string,
   targets: HarvestedTarget[],
@@ -75,6 +77,9 @@ async function persistHarvest(
     targetUrl: t.targetUrl,
     kind: t.kind,
     harvestTruncated: truncated,
+    // anchor-text: internal-link rows always carry a string ('' = empty anchor);
+    // image/external rows carry null (not an internal-anchor observation).
+    anchorText: t.kind === 'internal-link' ? normalizeAnchorText(t.anchorText ?? '') : null,
   }))
   try {
     for (const data of chunk(rows, HARVEST_CHUNK)) await prisma.harvestedLink.createMany({ data })

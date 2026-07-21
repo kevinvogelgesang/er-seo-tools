@@ -11,6 +11,7 @@ import SiteAuditDiffPanel from '@/components/ada-audit/SiteAuditDiffPanel'
 import { BrokenLinksSection } from '@/components/site-audit/BrokenLinksSection'
 import { DeadPagesSection } from '@/components/site-audit/DeadPagesSection'
 import { OnPageSeoSection } from '@/components/site-audit/OnPageSeoSection'
+import { AnchorTextSection } from '@/components/site-audit/AnchorTextSection'
 import { DiscoveryCoverageSection } from '@/components/site-audit/DiscoveryCoverageSection'
 import { ReachabilitySection } from '@/components/site-audit/ReachabilitySection'
 import { ContentSimilaritySection } from '@/components/site-audit/ContentSimilaritySection'
@@ -240,7 +241,8 @@ export default async function SiteAuditResultPage({ params }: Props) {
       contentSignalsJson: true,
       topicOverlapJson: true,
       contentAuditJson: true,
-      findings: { select: { scope: true, type: true, count: true, url: true, detail: true } },
+      anchorSummaryJson: true,
+      findings: { select: { scope: true, type: true, count: true, url: true, detail: true, severity: true } },
       // C6 Phase 3: page scalars drive the analyzed marker + the coverage line.
       pages: { select: { statusCode: true, indexable: true } },
     },
@@ -302,6 +304,7 @@ export default async function SiteAuditResultPage({ params }: Props) {
         attempted={audit.pagesTotal}
         breakdown={liveScanRun?.scoreBreakdown ?? null}
       />
+      <AnchorTextSection run={liveScanRun} />
       <TechnicalSeoSection run={liveScanRun} analyzed={onPageAnalyzed} />
       <DiscoveryCoverageSection run={liveScanRun} />
       <ReachabilitySection run={liveScanRun} />

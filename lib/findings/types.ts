@@ -49,6 +49,7 @@ export interface CrawlRunInput {
   contentSignalsJson?: string | null   // C12: stale-date + readability signals; live-scan runs only
   topicOverlapJson?: string | null   // C12 Tier-1: semantic topic-overlap networks; live-scan runs only
   contentAuditJson?: string | null   // C12 D1: content-audit findings and retention metadata
+  anchorSummaryJson?: string | null   // anchor-text: {v,targetsObserved,targetsTruncated,harvestTruncated}; null = analysis did not run (live-scan runs only)
   wcagLevel: string | null
   pagesTotal: number
   startedAt: Date | null

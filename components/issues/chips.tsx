@@ -43,6 +43,7 @@ const UNIT_LABEL: Record<IssueUnit, string> = {
   pages: 'pages',
   targets: 'targets',
   groups: 'groups',
+  links: 'links',
 }
 
 /** ADA (blue) / SEO (orange) tool chip. */
