@@ -22,8 +22,14 @@ import type { CSSProperties, ReactNode } from 'react'
 import type { PublicSection, ViewbookPublicData } from '@/lib/viewbook/public-types'
 import type { ResolvedThemeFonts } from '@/lib/viewbook/resolved-theme-fonts'
 import { buildSearchIndex, buildTocIndex } from '@/lib/viewbook/toc-index'
+import { computeSectionStatuses, carriedStatus, type SectionRenderMeta } from '@/lib/viewbook/section-status'
+import { groupCarriedByOrigin } from '@/lib/viewbook/section-origin'
 import { ProgressNav } from './ProgressNav'
 import { EarlierSteps } from './EarlierSteps'
+import { StageOverview } from './StageOverview'
+import { PreviousStages } from './PreviousStages'
+import { ReadingProgressController } from './ReadingProgressController'
+import { SECTION_TITLES } from './section-titles'
 import { TocRail } from './TocRail'
 import { ThemeStyle, publicAssetUrl, themeCssVars } from './ThemeStyle'
 import { ViewbookSyncClient } from './ViewbookSyncClient'
@@ -32,19 +38,38 @@ import { StickyOffsetProbe } from './StickyOffsetProbe'
 export function ViewbookShell({
   token,
   data,
-  primarySections,
-  carriedSections,
   renderSection,
   resolvedFonts,
 }: {
   token: string
   data: ViewbookPublicData
-  primarySections: PublicSection[]
-  carriedSections: PublicSection[]
-  renderSection: (s: PublicSection) => ReactNode
+  // ONE canonical rendered lineup (spec §4): rendering, status, overview,
+  // previous-stages, and TOC all derive from data.primarySections /
+  // data.carriedSections — no separate props to drift out of sync.
+  renderSection: (s: PublicSection, meta: SectionRenderMeta) => ReactNode
   resolvedFonts?: ResolvedThemeFonts
 }) {
   const logoUrl = data.theme.logo ? publicAssetUrl(token, data.theme.logo) : null
+  const primary = data.primarySections
+  const carried = data.carriedSections
+  const statuses = computeSectionStatuses(
+    primary.map((s) => s.sectionKey),
+    primary,
+    { pcCompletedAt: data.pcCompletedAt },
+  )
+  const statusOf = (key: PublicSection['sectionKey']) => statuses[key] ?? 'current'
+  const primaryMeta = (i: number): SectionRenderMeta => ({
+    heroSize: i === 0 ? 'full' : 'chapter',
+    chapterNumber: i + 1,
+    status: statusOf(primary[i].sectionKey),
+    isLead: i === 0,
+  })
+  const carriedMeta = (s: PublicSection): SectionRenderMeta => ({
+    heroSize: 'none',
+    chapterNumber: null,
+    status: carriedStatus(s),
+    isLead: false,
+  })
   return (
     <div
       data-vb-theme-root
@@ -95,12 +120,33 @@ export function ViewbookShell({
         csmName={data.csmName}
         team={data.global.team}
       />
-      <div style={{ fontFamily: 'var(--vb-body-font)' }}>
-        {primarySections.map((s) => (
-          <div key={s.sectionKey}>{renderSection(s)}</div>
-        ))}
-        <EarlierSteps sections={carriedSections} renderSection={renderSection} />
-      </div>
+      {data.viewerMode === 'continuous' ? (
+        <>
+          <ReadingProgressController />
+          <div style={{ fontFamily: 'var(--vb-body-font)' }}>
+            {primary.length > 0 && <div key={primary[0].sectionKey}>{renderSection(primary[0], primaryMeta(0))}</div>}
+            <StageOverview
+              items={primary.map((s) => ({
+                sectionKey: s.sectionKey,
+                label: SECTION_TITLES[s.sectionKey],
+                status: statusOf(s.sectionKey),
+                anchor: `#${s.sectionKey}`,
+              }))}
+            />
+            {primary.slice(1).map((s, i) => (
+              <div key={s.sectionKey}>{renderSection(s, primaryMeta(i + 1))}</div>
+            ))}
+            <PreviousStages groups={groupCarriedByOrigin(carried)} renderSection={renderSection} />
+          </div>
+        </>
+      ) : (
+        <div style={{ fontFamily: 'var(--vb-body-font)' }}>
+          {primary.map((s, i) => (
+            <div key={s.sectionKey}>{renderSection(s, primaryMeta(i))}</div>
+          ))}
+          <EarlierSteps sections={carried} renderSection={(s) => renderSection(s, carriedMeta(s))} />
+        </div>
+      )}
       <footer className="px-6 py-10 text-center text-sm text-black/40">
         Prepared for {data.clientName} by Enrollment Resources
       </footer>

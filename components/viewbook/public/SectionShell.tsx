@@ -78,12 +78,14 @@
 import type { ReactNode } from 'react'
 import type { PublicSection } from '@/lib/viewbook/public-types'
 import type { ViewbookStage } from '@/lib/viewbook/stages'
-import type { CollapseAffordanceKind } from '@/lib/viewbook/presentation-config'
+import type { CollapseAffordanceKind, ViewerMode } from '@/lib/viewbook/presentation-config'
+import type { SectionRenderMeta } from '@/lib/viewbook/section-status'
 import { sectionDisplayMode, sectionInitiallyOpen } from '@/lib/viewbook/section-display'
 import { sectionSupportsCollapse } from '@/lib/viewbook/theme'
 import { SECTION_COPY } from '@/lib/viewbook/section-copy'
 import { SectionReveal } from './SectionReveal'
-import { SectionSummaryPanel } from './SectionSummaryPanel'
+import { SectionSummaryPanel, StatusPill } from './SectionSummaryPanel'
+import { ChapterCtaButton } from './ChapterCtaButton'
 import { CollapsibleSection } from './CollapsibleSection'
 import { CollapseAffordance } from './CollapseAffordance'
 import { CornerBracket, TickDivider } from './SectionAccents'
@@ -126,6 +128,8 @@ export function SectionShell({
   viewbookId,
   previewMode = false,
   autoRevealMs,
+  meta,
+  viewerMode,
 }: {
   section: PublicSection
   title: string
@@ -139,6 +143,13 @@ export function SectionShell({
   viewbookId: number
   token: string // vestigial — no longer needed by the (now purely local) collapse control; kept so existing callers need no changes
   previewMode?: boolean
+  // Continuous-reading render metadata (spec §5.1): hero size, chapter number,
+  // status, lead flag. Consumed only in the 'continuous' branch; ignored in
+  // 'collapse'.
+  meta: SectionRenderMeta
+  // Which viewer path renders this section. 'continuous' (default) = the active
+  // reading viewer; 'collapse' = the dormant CollapsibleSection/morph path.
+  viewerMode: ViewerMode
   // Task 13: forwarded to CollapsibleSection untouched. Only PcIntroSection
   // (the welcome/pc-intro section) ever passes a defined value — see
   // CollapsibleSection.tsx's prop banner for why every other caller must
@@ -410,6 +421,93 @@ export function SectionShell({
     </div>
   )
 
+  const copy = SECTION_COPY[section.sectionKey]
+
+  // ---- Continuous-reading render path (spec §5.4) --------------------------
+  function buildContinuousHero(): ReactNode {
+    if (meta.heroSize === 'none') return null
+    const sizeClass = meta.heroSize === 'full' ? 'min-h-[60vh]' : 'h-[220px]'
+    return (
+      <div data-vb-hero className={`relative flex ${sizeClass} items-end`} style={{ background: 'var(--vb-primary)' }}>
+        <CornerBracket className="absolute left-4 top-4" />
+        {heroUrl && (
+          <>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src={heroUrl} alt="" className="absolute inset-0 h-full w-full object-cover" style={{ opacity: heroImgOpacity }} />
+            <span
+              aria-hidden
+              className="absolute inset-0"
+              style={{ opacity: overlayOpacity, background: `linear-gradient(to top, var(--vb-primary) ${brandStop}%, transparent ${fadeStop}%)` }}
+            />
+          </>
+        )}
+        <span
+          aria-hidden
+          className="absolute inset-x-0 bottom-0 h-2/5"
+          style={{ background: `linear-gradient(to top, color-mix(in srgb, var(--vb-primary) ${scrimAlpha}%, transparent), transparent)` }}
+        />
+        <div className="relative z-[3] mx-auto flex w-full max-w-5xl items-center gap-3 px-6 pb-6">
+          <h2
+            className={`min-w-0 truncate font-extrabold tracking-tight ${meta.heroSize === 'full' ? 'text-3xl sm:text-5xl' : 'text-2xl sm:text-4xl'}`}
+            style={{ color: 'var(--vb-on-primary)', fontFamily: 'var(--vb-heading-font)' }}
+          >
+            {title}
+          </h2>
+          {done && <DoneBadge size="hero" />}
+        </div>
+      </div>
+    )
+  }
+
+  // Built as functions (NOT eager consts) so the collapse branch never
+  // evaluates continuous JSX that dereferences `meta`.
+  function buildContinuousChapterHeader(): ReactNode {
+    return (
+      <div style={{ background: 'color-mix(in srgb, var(--vb-primary) 10%, #fafafa)' }}>
+        <div className="mx-auto flex w-full max-w-5xl flex-wrap items-center gap-x-4 gap-y-2 px-6 pt-5 pb-1">
+          {meta.chapterNumber != null && (
+            <span aria-hidden className="text-sm font-bold" style={{ color: 'var(--vb-tertiary)' }}>
+              {String(meta.chapterNumber).padStart(2, '0')}
+            </span>
+          )}
+          {copy && <span className="min-w-0 flex-1 text-sm text-black/60">{copy.purpose}</span>}
+          <StatusPill status={meta.status} />
+          {copy?.cta && <ChapterCtaButton {...copy.cta} />}
+          <div className="w-full">
+            <TickDivider />
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  function buildContinuousBody(): ReactNode {
+    return (
+      <SectionReveal
+        sectionKey={section.sectionKey}
+        regionId={detailRegionId}
+        title={title}
+        alwaysOpen={alwaysOpen}
+        initiallyOpen={initiallyOpen}
+        stickyLabel="continuous"
+      >
+        {copy && <SectionSummaryPanel whatThis={copy.whatThis} whatWeNeed={copy.whatWeNeed} status={meta.status} />}
+        {/* The section's own summary FACE (celebratory ✓ + "Completed {date}"
+            for done/ack sections, plus the section's key-visual/headline —
+            welcome note, brand swatches, status label) — carried into the
+            continuous body so no operator content or completion date is lost
+            vs the collapse summary-face. */}
+        {summaryFace && <div className="min-w-0">{summaryFace}</div>}
+        {section.introNote && (
+          <p className="max-w-[68ch] border-l-4 pl-4 text-lg text-black/70" style={{ borderColor: 'var(--vb-tertiary)' }}>
+            {section.introNote}
+          </p>
+        )}
+        {children}
+      </SectionReveal>
+    )
+  }
+
   const detailBody = (
     <SectionReveal
       sectionKey={section.sectionKey}
@@ -445,6 +543,16 @@ export function SectionShell({
       // cumulative sticky chrome (nav + operator bar) published by the Lane-1
       // measurement leaf, plus a small gap.
       style={{ scrollMarginTop: 'calc(var(--vb-sticky-offset, 0px) + 12px)' }}
+      // Continuous-mode DOM contract (spec §5.4) — the section root the
+      // ReadingProgressController observes/writes. Collapse mode keeps its
+      // current attribute-free root.
+      {...(viewerMode === 'continuous'
+        ? {
+            'data-vb-section': section.sectionKey,
+            'data-vb-status': meta.status,
+            'data-vb-hero-visible': meta.heroSize === 'none' ? 'false' : 'true',
+          }
+        : {})}
     >
       {/* Celebratory badge pop, keyed off render (summary face is always visible
           now), with a reduced-motion override. Shared by both hero done-checks
@@ -455,7 +563,13 @@ export function SectionShell({
         @media (prefers-reduced-motion: reduce) { .vb-done-badge { animation: none; } }
       `}</style>
 
-      {collapsible ? (
+      {viewerMode === 'continuous' ? (
+        <>
+          {buildContinuousHero()}
+          {buildContinuousChapterHeader()}
+          {buildContinuousBody()}
+        </>
+      ) : collapsible ? (
         <CollapsibleSection
           viewbookId={viewbookId}
           sectionKey={section.sectionKey}

@@ -14,6 +14,7 @@ import { FieldEditor } from './FieldEditor'
 import { AmendmentForm } from './AmendmentForm'
 import { AckButton } from './AckButton'
 import { SummaryStat } from './SummaryStat'
+import type { SectionRenderMeta } from '@/lib/viewbook/section-status'
 
 function fmtDate(iso: string): string {
   return new Date(iso).toLocaleDateString('en-US', {
@@ -105,11 +106,13 @@ export function DataSourceSection({
   data,
   token,
   isOperator = false,
+  meta,
 }: {
   section: PublicSection
   data: ViewbookPublicData
   token: string
   isOperator?: boolean
+  meta: SectionRenderMeta
 }) {
   const hero = data.theme.sectionHeroes[section.sectionKey]
   const { answered, total } = answeredProgress(data.fieldCategories)
@@ -125,6 +128,8 @@ export function DataSourceSection({
       isOperator={isOperator}
       viewbookId={data.viewbookId}
       token={token}
+      meta={meta}
+      viewerMode={data.viewerMode}
     >
       {data.stage === 'post-contract' && (
         <p className="text-black/60">

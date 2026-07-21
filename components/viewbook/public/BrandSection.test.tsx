@@ -4,6 +4,7 @@ import { describe, it, expect, afterEach } from 'vitest'
 import { DEFAULT_THEME } from '@/lib/viewbook/theme'
 import type { PublicSection, ViewbookPublicData } from '@/lib/viewbook/public-types'
 import { BrandSection } from './BrandSection'
+const meta = (over = {}) => ({ heroSize: 'chapter', chapterNumber: 1, status: 'current', isLead: false, ...over })
 
 afterEach(cleanup)
 
@@ -24,7 +25,7 @@ const data: ViewbookPublicData = {
   dataLockedAt: null,
   theme: DEFAULT_THEME,
   stage: 'website-specifics',
-  stageLabel: 'Website Specifics',
+  stageLabel: 'Website Specifics', viewerMode: 'continuous',
   pcCompletedAt: null,
   clientNotifyJson: [],
   teamMembers: [],
@@ -39,7 +40,7 @@ const data: ViewbookPublicData = {
 
 describe('BrandSection', () => {
   it('mounts the Task-3 contrast tester alongside the palette + typography specimens', () => {
-    render(<BrandSection section={section} data={data} token="tok" />)
+    render(<BrandSection meta={meta()} section={section} data={data} token="tok" />)
     expect(screen.getAllByTestId('contrast-ratio').length).toBeGreaterThan(0)
     expect(screen.getByText('Palette')).toBeDefined()
     expect(screen.getByText('Typography')).toBeDefined()
@@ -47,13 +48,13 @@ describe('BrandSection', () => {
   })
 
   it('passes the public viewbook id to the live contrast store subscriber', () => {
-    render(<BrandSection section={section} data={{ ...data, viewbookId: 42 }} token="tok" />)
+    render(<BrandSection meta={meta()} section={section} data={{ ...data, viewbookId: 42 }} token="tok" />)
     expect(screen.getByTestId('contrast-tester').getAttribute('data-viewbook-id')).toBe('42')
   })
 
   it('shows server-resolved catalog family names', () => {
     render(
-      <BrandSection
+      <BrandSection meta={meta()}
         section={section}
         data={{ ...data, theme: { ...DEFAULT_THEME, headingFont: 'abril-fatface' } }}
         token="tok"

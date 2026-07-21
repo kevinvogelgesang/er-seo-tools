@@ -12,6 +12,7 @@ import { publicAssetUrl } from './ThemeStyle'
 import { AckButton } from './AckButton'
 import { ResendInviteButton, TeamInviteForm } from './TeamInviteForm'
 import { SummaryStat } from './SummaryStat'
+import type { SectionRenderMeta } from '@/lib/viewbook/section-status'
 
 const MEMBER_CAP = 15
 
@@ -20,11 +21,13 @@ export function PcInviteSection({
   data,
   token,
   isOperator = false,
+  meta,
 }: {
   section: PublicSection
   data: ViewbookPublicData
   token: string
   isOperator?: boolean
+  meta: SectionRenderMeta
 }) {
   const hero = data.theme.sectionHeroes['pc-invite']
   const members = data.teamMembers
@@ -47,6 +50,8 @@ export function PcInviteSection({
       isOperator={isOperator}
       viewbookId={data.viewbookId}
       token={token}
+      meta={meta}
+      viewerMode={data.viewerMode}
     >
       <div className="space-y-4">
         <p className="text-sm text-black/60">

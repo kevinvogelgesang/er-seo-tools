@@ -13,6 +13,7 @@ vi.mock('./viewbook-navigate', () => ({
 }))
 
 import { KickoffNextSection } from './KickoffNextSection'
+const meta = (over = {}) => ({ heroSize: 'chapter', chapterNumber: 1, status: 'current', isLead: false, ...over })
 
 afterEach(() => {
   cleanup()
@@ -33,6 +34,7 @@ const data = {
   displayName: 'Acme',
   theme: DEFAULT_THEME,
   stage: 'kickoff',
+  viewerMode: 'continuous',
   pcCompletedAt: null,
   viewbookId: 7,
   csmName: 'Dana',
@@ -44,7 +46,7 @@ const data = {
 describe('KickoffNextSection reader action summary', () => {
   it('renders an action summary (not an empty chapter)', () => {
     const { container } = render(
-      <KickoffNextSection isOperator={false} section={section} data={data} token="tok" />,
+      <KickoffNextSection meta={meta()} isOperator={false} section={section} data={data} token="tok" />,
     )
     const text = container.textContent ?? ''
     expect(text.toLowerCase()).toContain('what happens next')
@@ -53,7 +55,7 @@ describe('KickoffNextSection reader action summary', () => {
 
   it('renders one prominent CTA wired to navigateToAnchor', () => {
     const { container } = render(
-      <KickoffNextSection isOperator={false} section={section} data={data} token="tok" />,
+      <KickoffNextSection meta={meta()} isOperator={false} section={section} data={data} token="tok" />,
     )
     const cta = container.querySelector('[data-vb-chapter-cta]')
     expect(cta).toBeTruthy()
@@ -65,7 +67,7 @@ describe('KickoffNextSection reader action summary', () => {
 
   it('renders nothing outside the kickoff stage', () => {
     const { container } = render(
-      <KickoffNextSection isOperator={false} section={section} data={{ ...data, stage: 'building' }} token="tok" />,
+      <KickoffNextSection meta={meta()} isOperator={false} section={section} data={{ ...data, stage: 'building' }} token="tok" />,
     )
     expect(container.textContent).toBe('')
   })

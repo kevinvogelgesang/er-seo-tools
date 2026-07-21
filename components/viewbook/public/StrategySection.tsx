@@ -8,6 +8,7 @@ import { SectionShell } from './SectionShell'
 import { SECTION_TITLES } from './section-titles'
 import { publicAssetUrl } from './ThemeStyle'
 import { SummaryStat } from './SummaryStat'
+import type { SectionRenderMeta } from '@/lib/viewbook/section-status'
 
 const STRATEGY_KEYS: { key: Exclude<GlobalContentKey, 'team' | 'pc-intro'>; label: string }[] = [
   { key: 'seo-base', label: 'SEO' },
@@ -20,11 +21,13 @@ export function StrategySection({
   data,
   token,
   isOperator = false,
+  meta,
 }: {
   section: PublicSection
   data: ViewbookPublicData
   token: string
   isOperator?: boolean
+  meta: SectionRenderMeta
 }) {
   const hero = data.theme.sectionHeroes[section.sectionKey]
   const docs = [...data.docs.global, ...data.docs.own]
@@ -44,6 +47,8 @@ export function StrategySection({
       isOperator={isOperator}
       viewbookId={data.viewbookId}
       token={token}
+      meta={meta}
+      viewerMode={data.viewerMode}
     >
       {docs.length > 0 && (
         <div className="grid gap-4 sm:grid-cols-2">

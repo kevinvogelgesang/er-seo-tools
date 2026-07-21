@@ -9,6 +9,7 @@ import { SectionShell } from './SectionShell'
 import { SECTION_TITLES } from './section-titles'
 import { publicAssetUrl } from './ThemeStyle'
 import { SummaryStat, sectionStatusLabel } from './SummaryStat'
+import type { SectionRenderMeta } from '@/lib/viewbook/section-status'
 
 const FALLBACK_INTRO =
   "Welcome! Let's get your viewbook set up — a few quick basics, then invite your team so everyone can follow along."
@@ -18,11 +19,13 @@ export function PcIntroSection({
   data,
   token,
   isOperator = false,
+  meta,
 }: {
   section: PublicSection
   data: ViewbookPublicData
   token: string
   isOperator?: boolean
+  meta: SectionRenderMeta
 }) {
   // Defensive belt-and-suspenders gate — 'pc-intro' only ever appears in the
   // post-contract primary lineup, never carried.
@@ -41,6 +44,8 @@ export function PcIntroSection({
       isOperator={isOperator}
       viewbookId={data.viewbookId}
       token={token}
+      meta={meta}
+      viewerMode={data.viewerMode}
       autoRevealMs={data.stage === 'post-contract' ? data.firstLoadDelayMs : undefined}
     >
       <p className="text-lg text-black/70" style={{ fontFamily: 'var(--vb-body-font)' }}>

@@ -57,6 +57,13 @@ const RAIL_STYLE = `
   }
   .vb-toc-label { transition: opacity 160ms ease, transform 160ms ease; }
   .vb-toc-sheet { transition: transform 220ms ease; }
+  /* Scroll-driven active marker (continuous viewer): ReadingProgressController
+     sets data-vb-active="true" on the current section's top-level rail button. */
+  [data-vb-toc-section][data-vb-active="true"] {
+    background-color: color-mix(in srgb, var(--vb-secondary) 14%, transparent);
+    font-weight: 700;
+    box-shadow: inset 3px 0 0 var(--vb-secondary);
+  }
   @media (prefers-reduced-motion: reduce) {
     .vb-flash { animation: none; outline: 3px solid var(--vb-secondary); outline-offset: 2px; }
     .vb-toc-label, .vb-toc-sheet { transition: none; }
@@ -219,6 +226,11 @@ export function TocRail({
             }}
             data-vb-toc-entry
             data-anchor={item.anchor}
+            // Continuous-viewer active-marker hook (spec §5.4): ONLY top-level
+            // section buttons carry data-vb-toc-section — ReadingProgressController
+            // matches on it and sets data-vb-active/aria-current. Child sub-entries
+            // never carry it.
+            data-vb-toc-section={!item.isChild ? item.sectionKey : undefined}
             data-vb-done={item.done ? 'true' : 'false'}
             data-vb-acked={item.acked ? 'true' : 'false'}
             tabIndex={i === activeIndex ? 0 : -1}

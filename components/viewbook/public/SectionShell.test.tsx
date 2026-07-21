@@ -4,6 +4,15 @@ import { afterEach, beforeEach, describe, it, expect, vi } from 'vitest'
 import { SectionShell } from './SectionShell'
 import { collapseKey } from './useCollapseState'
 import type { PublicSection } from '@/lib/viewbook/public-types'
+import type { SectionRenderMeta } from '@/lib/viewbook/section-status'
+
+const meta = (over: Partial<SectionRenderMeta> = {}): SectionRenderMeta => ({
+  heroSize: 'chapter',
+  chapterNumber: 1,
+  status: 'current',
+  isLead: false,
+  ...over,
+})
 
 // 2026-07-19 collapse local-only revision (docs/superpowers/specs/2026-07-19-
 // viewbook-collapse-local-revision.md): collapse is now purely local
@@ -45,6 +54,10 @@ const baseProps = {
   isOperator: false, // vestigial prop, kept for caller compatibility — see SectionShell.tsx
   viewbookId: 1,
   token: 'tok', // vestigial prop, kept for caller compatibility — see SectionShell.tsx
+  // These existing tests assert the DORMANT collapse-first path; pin them to it.
+  // New continuous-mode tests (below) override viewerMode + meta explicitly.
+  viewerMode: 'collapse' as const,
+  meta: meta(),
 }
 
 function expandSection(sectionKey = 'brand', viewbookId = baseProps.viewbookId) {
@@ -605,5 +618,91 @@ describe('SectionShell PR5 polish', () => {
     // scroll-mt-24 was replaced by an inline measured scroll offset — lives on
     // the outer <section>, present regardless of collapse state.
     expect(container.innerHTML).toMatch(/scroll-margin-top:\s*calc\(var\(--vb-sticky-offset, 0px\) \+ 12px\)/)
+  })
+})
+
+describe('SectionShell — continuous mode', () => {
+  it('chapter section emits the DOM contract + chapter hero + guidance panel', () => {
+    const { container } = render(
+      <SectionShell
+        {...baseProps}
+        viewerMode="continuous"
+        meta={meta({ heroSize: 'chapter', status: 'current' })}
+        section={section()}
+        title="Brand Guidelines"
+        heroUrl="/hero.jpg"
+        stage="website-specifics"
+      >
+        <p>body</p>
+      </SectionShell>,
+    )
+    const root = container.querySelector('[data-vb-section]') as HTMLElement
+    expect(root).toBeTruthy()
+    expect(root.getAttribute('data-vb-section')).toBe('brand')
+    expect(root.getAttribute('data-vb-status')).toBe('current')
+    expect(root.getAttribute('data-vb-hero-visible')).toBe('true')
+    expect(container.querySelector('[data-vb-hero]')).toBeTruthy()
+    expect(container.querySelector('[data-vb-summary-panel]')).toBeTruthy()
+    // No CollapsibleSection morph button in continuous mode.
+    expect(container.querySelector('button[aria-expanded]')).toBeNull()
+  })
+
+  it('lead section renders a full hero (min-h-[60vh])', () => {
+    const { container } = render(
+      <SectionShell
+        {...baseProps}
+        viewerMode="continuous"
+        meta={meta({ heroSize: 'full', isLead: true, chapterNumber: 1 })}
+        section={section()}
+        title="Brand Guidelines"
+        heroUrl="/hero.jpg"
+        stage="website-specifics"
+      >
+        <p>body</p>
+      </SectionShell>,
+    )
+    const hero = container.querySelector('[data-vb-hero]') as HTMLElement
+    expect(hero).toBeTruthy()
+    expect(hero.className).toContain('min-h-[60vh]')
+  })
+
+  it('no-hero section seeds hero-visible false and emits no hero', () => {
+    const { container } = render(
+      <SectionShell
+        {...baseProps}
+        viewerMode="continuous"
+        meta={meta({ heroSize: 'none' })}
+        section={section()}
+        title="Brand Guidelines"
+        heroUrl={null}
+        stage="website-specifics"
+      >
+        <p>body</p>
+      </SectionShell>,
+    )
+    const root = container.querySelector('[data-vb-section]') as HTMLElement
+    expect(root.getAttribute('data-vb-hero-visible')).toBe('false')
+    expect(container.querySelector('[data-vb-hero]')).toBeNull()
+  })
+
+  it('renders the inert sticky label (continuous) and the body children', () => {
+    const { container } = render(
+      <SectionShell
+        {...baseProps}
+        viewerMode="continuous"
+        meta={meta()}
+        section={section({ introNote: 'Intro note.' })}
+        title="Brand Guidelines"
+        heroUrl="/hero.jpg"
+        stage="website-specifics"
+      >
+        <p data-testid="child">body child</p>
+      </SectionShell>,
+    )
+    const label = container.querySelector('[data-vb-sticky-label]')
+    expect(label).toBeTruthy()
+    expect(label!.getAttribute('aria-hidden')).toBe('true')
+    expect(container.querySelector('[data-testid="child"]')).toBeTruthy()
+    expect(container.textContent).toContain('Intro note.')
   })
 })
