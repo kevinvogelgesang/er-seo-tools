@@ -23,11 +23,12 @@
 // Search (verbose only): an input[type=search] filters the search index via
 // searchViewbook; a hit navigates like any entry.
 //
-// LIGHT-ONLY: no `dark:` classes — the public viewbook never participates in
+// LIGHT-ONLY: no dark-mode variants — the public viewbook never participates in
 // app dark mode. Color comes from --vb-* CSS vars only.
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { SearchEntry, TocEntry } from '@/lib/viewbook/toc-index'
 import { searchViewbook } from '@/lib/viewbook/toc-index'
+import type { SectionStatus } from '@/lib/viewbook/section-status'
 import type { SectionKey } from '@/lib/viewbook/theme'
 import { navigateToAnchor } from './viewbook-navigate'
 
@@ -46,6 +47,7 @@ interface NavItem {
   anchor: string
   done: boolean
   acked: boolean
+  status: SectionStatus
   isChild: boolean
 }
 
@@ -57,40 +59,50 @@ const RAIL_STYLE = `
   }
   .vb-toc-label { transition: opacity 160ms ease, transform 160ms ease; }
   .vb-toc-sheet { transition: transform 220ms ease; }
+  [data-vb-toc-section][data-vb-active="true"] {
+    box-shadow: inset 3px 0 0 var(--vb-secondary);
+    background-color: color-mix(in srgb, var(--vb-secondary) 12%, transparent);
+  }
+  [data-vb-active="true"] [data-vb-glyph] {
+    border-color: var(--vb-secondary) !important;
+    background: var(--vb-secondary) !important;
+    color: var(--vb-on-secondary) !important;
+  }
   @media (prefers-reduced-motion: reduce) {
     .vb-flash { animation: none; outline: 3px solid var(--vb-secondary); outline-offset: 2px; }
     .vb-toc-label, .vb-toc-sheet { transition: none; }
   }
 `
 
-function Glyph({ done, acked }: { done: boolean; acked: boolean }) {
-  // Done = filled tertiary; acked (but not done) = hollow secondary; neither =
-  // a small neutral dot. aria-hidden — the state is conveyed by the label +
-  // data attributes for assistive tech.
-  if (done) {
+function Glyph({ status }: { status: SectionStatus }) {
+  // Complete = check; current/needs-input = ring; upcoming = neutral dot.
+  // aria-hidden — visible status text elsewhere carries the semantics.
+  if (status === 'complete') {
     return (
       <span
         aria-hidden
-        data-vb-glyph="done"
-        className="inline-block h-2.5 w-2.5 shrink-0 rounded-full"
-        style={{ background: 'var(--vb-tertiary)' }}
-      />
+        data-vb-glyph="complete"
+        className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full text-[10px] font-bold"
+        style={{ background: 'var(--vb-tertiary)', color: 'var(--vb-on-tertiary)' }}
+      >
+        ✓
+      </span>
     )
   }
-  if (acked) {
+  if (status === 'current' || status === 'needs-input') {
     return (
       <span
         aria-hidden
-        data-vb-glyph="acked"
-        className="inline-block h-2.5 w-2.5 shrink-0 rounded-full border-2 bg-transparent"
-        style={{ borderColor: 'var(--vb-secondary)' }}
+        data-vb-glyph={status}
+        className="inline-block h-3.5 w-3.5 shrink-0 rounded-full border-2 bg-transparent"
+        style={{ borderColor: status === 'current' ? 'var(--vb-secondary)' : 'var(--vb-primary)' }}
       />
     )
   }
   return (
     <span
       aria-hidden
-      data-vb-glyph="none"
+      data-vb-glyph="upcoming"
       className="inline-block h-2.5 w-2.5 shrink-0 rounded-full"
       style={{ background: 'rgba(0,0,0,0.2)' }}
     />
@@ -129,6 +141,7 @@ export function TocRail({
         anchor: entry.anchor,
         done: entry.done,
         acked: entry.acked,
+        status: entry.status,
         isChild: false,
       })
       if (verbose && entry.children) {
@@ -139,6 +152,7 @@ export function TocRail({
             anchor: child.anchor,
             done: false,
             acked: false,
+            status: entry.status,
             isChild: true,
           })
         }
@@ -218,6 +232,7 @@ export function TocRail({
               itemRefs.current[i] = el
             }}
             data-vb-toc-entry
+            data-vb-toc-section={item.isChild ? undefined : item.sectionKey}
             data-anchor={item.anchor}
             data-vb-done={item.done ? 'true' : 'false'}
             data-vb-acked={item.acked ? 'true' : 'false'}
@@ -228,7 +243,7 @@ export function TocRail({
               item.isChild ? 'pl-6 text-black/60' : 'font-medium text-black/80'
             }`}
           >
-            {!item.isChild && <Glyph done={item.done} acked={item.acked} />}
+            {!item.isChild && <Glyph status={item.status} />}
             <span className="vb-toc-label min-w-0 truncate">{item.label}</span>
           </button>
         </li>
@@ -281,12 +296,13 @@ export function TocRail({
           aria-label="Table of contents"
           aria-expanded={sheetOpen}
           onClick={() => setSheetOpen((v) => !v)}
-          className="fixed bottom-5 right-5 z-50 flex h-12 w-12 items-center justify-center rounded-full shadow-lg"
+          className="fixed bottom-5 right-5 z-50 flex h-12 items-center justify-center gap-2 rounded-full px-4 shadow-lg"
           style={{ background: 'var(--vb-primary)', color: 'var(--vb-on-primary)' }}
         >
           <span aria-hidden className="text-lg font-bold">
             ☰
           </span>
+          <span className="text-sm font-semibold">Sections</span>
         </button>
         {sheetOpen && (
           <div

@@ -8,15 +8,29 @@ import type { SearchEntry, TocEntry } from '@/lib/viewbook/toc-index'
 // Two primary entries: welcome (done, not acked) + data-source (not done,
 // acked) with a single building-stage category child.
 const toc: TocEntry[] = [
-  { sectionKey: 'welcome', label: 'Welcome & Team', anchor: '#welcome', done: true, acked: false },
+  {
+    sectionKey: 'welcome',
+    label: 'Welcome & Team',
+    anchor: '#welcome',
+    done: true,
+    acked: false,
+    status: 'complete',
+  },
   {
     sectionKey: 'data-source',
     label: 'Data Source',
     anchor: '#data-source',
     done: false,
     acked: true,
+    status: 'needs-input',
     children: [{ label: 'Programs', anchor: '#vb-cat-programs' }],
   },
+]
+const statusToc: TocEntry[] = [
+  { sectionKey: 'welcome', label: 'Complete', anchor: '#complete', done: true, acked: false, status: 'complete' },
+  { sectionKey: 'milestones', label: 'Current', anchor: '#current', done: false, acked: false, status: 'current' },
+  { sectionKey: 'data-source', label: 'Needs input', anchor: '#needs-input', done: false, acked: false, status: 'needs-input' },
+  { sectionKey: 'strategy', label: 'Upcoming', anchor: '#upcoming', done: false, acked: false, status: 'upcoming' },
 ]
 const searchIndex: SearchEntry[] = [
   { id: 'doc:a', kind: 'doc', label: 'Playbook', sectionKey: 'strategy', anchor: '#vb-doc-a.webp', haystack: 'playbook' },
@@ -59,6 +73,39 @@ describe('TocRail', () => {
     expect(dataSource.getAttribute('data-vb-done')).toBe('false')
     expect(dataSource.getAttribute('data-vb-acked')).toBe('true')
     expect(rows.length).toBeGreaterThanOrEqual(2)
+  })
+
+  it('publishes section identity on top-level buttons only', () => {
+    const { container } = render(<TocRail toc={toc} searchIndex={searchIndex} verbose />)
+    expect(container.querySelector('[data-anchor="#welcome"]')?.getAttribute('data-vb-toc-section')).toBe('welcome')
+    expect(container.querySelector('[data-anchor="#data-source"]')?.getAttribute('data-vb-toc-section')).toBe('data-source')
+    expect(container.querySelector('[data-anchor="#vb-cat-programs"]')?.getAttribute('data-vb-toc-section')).toBeNull()
+    expect(container.querySelector('[data-vb-active]')).toBeNull()
+  })
+
+  it('maps complete to a check, current and needs-input to rings, and upcoming to a dot', () => {
+    const { container } = render(<TocRail toc={statusToc} searchIndex={[]} verbose={false} />)
+    const complete = container.querySelector('[data-anchor="#complete"]')
+    const current = container.querySelector('[data-anchor="#current"]')
+    const needsInput = container.querySelector('[data-anchor="#needs-input"]')
+    const upcoming = container.querySelector('[data-anchor="#upcoming"]')
+
+    expect(complete?.querySelector('[data-vb-glyph="complete"]')?.textContent).toContain('✓')
+    expect(current?.querySelector('[data-vb-glyph="current"]')).toBeTruthy()
+    expect(needsInput?.querySelector('[data-vb-glyph="needs-input"]')).toBeTruthy()
+    expect(upcoming?.querySelector('[data-vb-glyph="upcoming"]')).toBeTruthy()
+  })
+
+  it('styles a controller-owned active entry with a secondary accent and filled marker', () => {
+    const { container } = render(<TocRail toc={toc} searchIndex={searchIndex} verbose={false} />)
+    const welcome = container.querySelector('[data-anchor="#welcome"]')
+    welcome?.setAttribute('data-vb-active', 'true')
+    const css = container.querySelector('style')?.textContent ?? ''
+
+    expect(welcome?.getAttribute('data-vb-active')).toBe('true')
+    expect(css).toContain('[data-vb-active="true"]')
+    expect(css).toContain('inset 3px 0 0 var(--vb-secondary)')
+    expect(css).toContain('[data-vb-active="true"] [data-vb-glyph]')
   })
 
   it('activating an entry dispatches vb:navigate with its {sectionKey, anchor}', () => {
@@ -177,12 +224,15 @@ describe('TocRail', () => {
     expect(nav.getAttribute('data-vb-open')).toBe('true')
   })
 
-  it('mobile (< 768px) renders a FAB button', () => {
+  it('mobile (< 768px) renders a labeled Sections pill', () => {
     mockMatchMedia(true)
     const { container } = render(<TocRail toc={toc} searchIndex={searchIndex} verbose={false} />)
     // the matchMedia effect runs post-mount; force a re-render tick
     const fab = container.querySelector('[data-vb-toc-fab]')
     expect(fab).not.toBeNull()
+    expect(fab?.textContent).toContain('Sections')
+    expect(fab?.textContent?.trim()).not.toBe('☰')
+    expect(fab?.getAttribute('aria-label')).toBe('Table of contents')
   })
 
   it('SSR render (no effects) does not throw', () => {
@@ -220,12 +270,12 @@ describe('TocRail', () => {
     expect(nav.getAttribute('data-vb-open')).toBe('true')
   })
 
-  it('a done entry renders the filled glyph and an acked-not-done entry renders the hollow glyph', () => {
+  it('renders glyphs from status rather than legacy done/acked flags', () => {
     const { container } = render(<TocRail toc={toc} searchIndex={searchIndex} verbose={false} />)
     const welcome = container.querySelector('[data-anchor="#welcome"]') as HTMLElement
     const dataSource = container.querySelector('[data-anchor="#data-source"]') as HTMLElement
-    expect(welcome.querySelector('[data-vb-glyph="done"]')).not.toBeNull()
-    expect(dataSource.querySelector('[data-vb-glyph="acked"]')).not.toBeNull()
+    expect(welcome.querySelector('[data-vb-glyph="complete"]')).not.toBeNull()
+    expect(dataSource.querySelector('[data-vb-glyph="needs-input"]')).not.toBeNull()
   })
 
   it('activating a TOC item does not collapse the desktop rail', () => {
