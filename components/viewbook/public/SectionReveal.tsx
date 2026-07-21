@@ -40,6 +40,7 @@ export function SectionReveal({
   alwaysOpen,
   initiallyOpen,
   children,
+  stickyLabel = 'collapse',
 }: {
   sectionKey?: SectionKey
   regionId: string
@@ -48,6 +49,12 @@ export function SectionReveal({
   alwaysOpen: boolean
   initiallyOpen: boolean
   children: ReactNode
+  // 'collapse' (default) = the current visible sticky title (used inside the
+  // dormant CollapsibleSection path). 'continuous' = a hero-exit sticky label:
+  // an inert, aria-hidden duplicate title that CSS fades in only after the
+  // section's hero scrolls past the activation line (data-vb-hero-visible flips
+  // to "false" on the ancestor section root). Fixed-height bar → zero CLS.
+  stickyLabel?: 'continuous' | 'collapse'
 }) {
   // always-open sections are permanently expanded; otherwise seed from the
   // pure stage-driven policy. No scroll/observer ever mutates this. While the
@@ -82,6 +89,13 @@ export function SectionReveal({
         .vb-reveal[data-vb-expanded="false"] { grid-template-rows: 0fr; }
         .vb-reveal > .vb-reveal-inner { overflow: hidden; min-height: 0; }
         @media (prefers-reduced-motion: reduce) { .vb-reveal { transition: none; } }
+        /* Continuous-mode hero-exit sticky label: hidden while the section's
+           hero is in view (seeded data-vb-hero-visible="true"), fades in once
+           ReadingProgressController flips it to "false" on hero exit. Opacity
+           only → the fixed-height bar never changes size (zero CLS). */
+        [data-vb-sticky-label] { opacity: 0; transition: opacity 200ms ease; }
+        [data-vb-hero-visible="false"] [data-vb-sticky-label] { opacity: 1; }
+        @media (prefers-reduced-motion: reduce) { [data-vb-sticky-label] { transition: none; } }
       `}</style>
 
       {/* Compact STICKY header bar (§4.3): pins under the top nav at
@@ -109,13 +123,24 @@ export function SectionReveal({
             keeps the summary right-pinned; flex-wrap drops it to its own
             line on narrow screens. */}
         <div className="mx-auto flex w-full max-w-5xl flex-wrap items-center gap-x-6 gap-y-1 px-6 py-3">
-          <div
-            className="min-w-0 text-xl font-bold tracking-tight text-black/80 sm:text-2xl"
-            style={{ fontFamily: 'var(--vb-heading-font)' }}
-          >
-            {title}
-          </div>
-          {summary && <div className="ml-auto min-w-0">{summary}</div>}
+          {stickyLabel === 'continuous' ? (
+            <div
+              data-vb-sticky-label
+              aria-hidden="true"
+              className="min-w-0 text-xl font-bold tracking-tight text-black/80 sm:text-2xl"
+              style={{ fontFamily: 'var(--vb-heading-font)' }}
+            >
+              {title}
+            </div>
+          ) : (
+            <div
+              className="min-w-0 text-xl font-bold tracking-tight text-black/80 sm:text-2xl"
+              style={{ fontFamily: 'var(--vb-heading-font)' }}
+            >
+              {title}
+            </div>
+          )}
+          {stickyLabel !== 'continuous' && summary && <div className="ml-auto min-w-0">{summary}</div>}
           {SECTION_TOGGLE_ENABLED && !alwaysOpen && (
             <button
               type="button"

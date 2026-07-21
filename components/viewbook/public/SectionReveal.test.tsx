@@ -117,4 +117,26 @@ describe('SectionReveal (state-only)', () => {
     )
     expect(getByText('Data Source')).toBeDefined()
   })
+
+  it('continuous mode renders an inert data-vb-sticky-label with no links/buttons', () => {
+    const { container } = render(
+      <SectionReveal sectionKey="brand" regionId="r" title="Brand Guidelines" alwaysOpen={false} initiallyOpen stickyLabel="continuous">
+        <p>body</p>
+      </SectionReveal>,
+    )
+    const label = container.querySelector('[data-vb-sticky-label]')
+    expect(label).toBeTruthy()
+    expect(label!.getAttribute('aria-hidden')).toBe('true')
+    expect(label!.querySelector('a,button')).toBeNull()
+    expect(label!.textContent).toContain('Brand Guidelines')
+  })
+
+  it('collapse mode (default) renders the plain visible title, no sticky-label node', () => {
+    const { container } = render(
+      <SectionReveal sectionKey="brand" regionId="r" title="Brand Guidelines" alwaysOpen={false} initiallyOpen>
+        <p>body</p>
+      </SectionReveal>,
+    )
+    expect(container.querySelector('[data-vb-sticky-label]')).toBeNull()
+  })
 })
