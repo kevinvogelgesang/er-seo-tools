@@ -29,9 +29,34 @@ late. So the coordination surface must be **branch-independent**:
 
 Do not invent a committed registry file. Read git; it never drifts.
 
+## The primary checkout is main-only — everyone works in a lane
+
+The root checkout (`/Users/kevin/enrollment-resources/Claude/er-seo-tools`) is
+**not a workspace** — it stays on `main`, kept fast-forwarded to `origin/main`,
+and is never used to author a feature. ALL real work (features, bugfixes,
+docs/skill edits, schema changes) happens in a `.claude/worktrees/<slug>` lane
+cut off fresh `origin/main`. This is now the default for both agents.
+
+Why this matters: a stale primary `main` is a silent trap. When the root sits
+tens or hundreds of commits behind `origin/main`, every worktree cut with a bare
+`-b <branch>` (no explicit start point) inherits that stale base, handoff docs
+and files that exist on `origin/main` appear "missing" locally, and merges fight
+phantom conflicts. Keeping the root fast-forwarded and always passing
+`origin/main` as the explicit start point (see "Take your lane") removes the
+trap at the source. The 148-commit-behind viewer saga is the cautionary tale
+(`[[feedback_verify_branch_freshness]]`).
+
 ## Pre-flight — run before ANY feature-class work
 
 ```bash
+# 0. Fast-forward the primary checkout to origin/main FIRST (the root is main-only).
+#    ff-only is safe when the tracked tree is clean; untracked files are preserved.
+git -C <repo-root> fetch origin --quiet
+git -C <repo-root> status --porcelain | grep -v '^??' \
+  && echo "root has uncommitted tracked changes — resolve before ff" \
+  || git -C <repo-root> merge --ff-only origin/main
+git -C <repo-root> rev-list --count HEAD..origin/main   # MUST print 0 after the ff
+
 git worktree list                       # every active lane, branch + HEAD
 git branch -a --sort=-committerdate | head -20   # recent branches (merged or not)
 git -C <repo-root> log --oneline -5     # what main last moved on
@@ -60,9 +85,14 @@ Both agents use the **same** isolation dir the repo already uses,
 `.claude/worktrees/`, so lanes are visible to each other via `git worktree list`:
 
 ```bash
-git worktree add .claude/worktrees/<feature-slug> -b feat/<feature-slug>
+git worktree add .claude/worktrees/<feature-slug> -b feat/<feature-slug> origin/main
 ```
 
+- **Always pass `origin/main` as the explicit start point** (the trailing arg).
+  A bare `-b <branch>` bases the lane on the root checkout's current HEAD — which
+  is only correct if you just fast-forwarded it in pre-flight. Naming
+  `origin/main` explicitly makes the lane base freshness-independent and removes
+  the stale-base trap even if step 0 was skipped.
 - **Name the worktree = the feature slug** so intent reads straight out of
   `git worktree list`. This IS your claim — no separate file needed.
 - One agent, one worktree, one feature at a time. Do not work two features in
