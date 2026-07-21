@@ -20,6 +20,8 @@ import { normalizeFindingUrl } from '@/lib/findings/normalize-url'
 import { mapBrokenLinkFindings, type BrokenTarget } from '@/lib/findings/broken-link-mapper'
 import { mapDeadPageFindings } from '@/lib/findings/dead-page-mapper'
 import { mapOnPageSeoFindings, type OnPageSeoRow } from '@/lib/findings/onpage-seo-mapper'
+import { isNonDescriptiveAnchor } from '@/lib/findings/anchor-text-shared'
+import { mapAnchorTextFindings, type AnchorAggregate } from '@/lib/findings/anchor-text-mapper'
 import type { CrawlPageInput, FindingInput, FindingsBundle } from '@/lib/findings/types'
 import { randomUUID } from 'crypto'
 import { HostThrottle } from '@/lib/ada-audit/broken-link-check'
@@ -142,17 +144,17 @@ const TOPIC_OVERLAP_ENABLED = () => process.env.VERIFIER_TOPIC_OVERLAP_ENABLED =
 export async function streamHarvestedLinks(
   siteAuditId: string,
   kinds: string[],
-  onRow: (r: { targetUrl: string; kind: string; sourcePageUrl: string; harvestTruncated: boolean }) => void,
+  onRow: (r: { targetUrl: string; kind: string; sourcePageUrl: string; harvestTruncated: boolean; anchorText: string | null }) => void,
   opts?: { onChunkEnd?: () => void; chunkSize?: number },
 ): Promise<void> {
   const size = opts?.chunkSize ?? LINK_STREAM_CHUNK
   let cursor: string | null = null
   for (;;) {
-    const chunk: { id: string; targetUrl: string; kind: string; sourcePageUrl: string; harvestTruncated: boolean }[] =
+    const chunk: { id: string; targetUrl: string; kind: string; sourcePageUrl: string; harvestTruncated: boolean; anchorText: string | null }[] =
       await prisma.harvestedLink.findMany({
         where: { siteAuditId, kind: { in: kinds } },
         orderBy: [{ targetUrl: 'asc' }, { kind: 'asc' }, { sourcePageUrl: 'asc' }, { id: 'asc' }],
-        select: { id: true, targetUrl: true, kind: true, sourcePageUrl: true, harvestTruncated: true },
+        select: { id: true, targetUrl: true, kind: true, sourcePageUrl: true, harvestTruncated: true, anchorText: true },
         take: size,
         ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
       })
@@ -280,6 +282,23 @@ export async function runBrokenLinkVerify(
   let harvestTruncated = false
   let linkStreamRssTripped = false
 
+  // anchor-text: bounded O(1)-per-row reducer folded into THIS stream (no extra
+  // pass, no full-row retention). empty/non-descriptive per SOURCE page (Map cap
+  // URLS_PER_FINDING); single-variation per DESTINATION (multiple flag). null
+  // anchorText = legacy/non-internal → skipped; '' = captured empty anchor.
+  const ANCHOR_TARGET_CAP = 5000
+  let emptyCount = 0, nonDescCount = 0
+  const emptySources = new Map<string, number>()
+  const nonDescSources = new Map<string, number>()
+  const anchorByTarget = new Map<string, { first: string; multiple: boolean }>()
+  let anchorTargetsTruncated = false
+  let anyAnchorData = false
+  const bump = (m: Map<string, number>, url: string) => {
+    const k = normalizeFindingUrl(url)
+    if (m.has(k)) m.set(k, m.get(k)! + 1)
+    else if (m.size < URLS_PER_FINDING) m.set(k, 1)
+  }
+
   await streamHarvestedLinks(job.siteAuditId, ['internal-link', 'image'], (r) => {
     if (r.harvestTruncated) harvestTruncated = true
     const key = `${r.kind} ${r.targetUrl}`
@@ -295,11 +314,28 @@ export async function runBrokenLinkVerify(
       const idx = pairKeyToIdx.get(pk)
       if (idx !== undefined) internalPairs[idx].occurrences++
       else { pairKeyToIdx.set(pk, internalPairs.length); internalPairs.push({ sourcePageUrl: asIntern(r.sourcePageUrl), targetUrl: asIntern(r.targetUrl), kind: 'internal-link', occurrences: 1 }) }
+      // anchor-text accumulation (internal links only; null = legacy → skip).
+      if (r.anchorText !== null) {
+        anyAnchorData = true
+        const a = r.anchorText
+        if (a === '') { emptyCount++; bump(emptySources, r.sourcePageUrl) }
+        else if (isNonDescriptiveAnchor(a)) { nonDescCount++; bump(nonDescSources, r.sourcePageUrl) }
+        if (a !== '') {
+          const e = anchorByTarget.get(r.targetUrl)
+          if (e) { if (e.first !== a) e.multiple = true }
+          else if (anchorByTarget.size < ANCHOR_TARGET_CAP) anchorByTarget.set(r.targetUrl, { first: a, multiple: false })
+          else anchorTargetsTruncated = true
+        }
+      }
     }
   }, { onChunkEnd: () => {
     if (!linkStreamRssTripped && deps.rssBytes && deps.rssBytes() > VERIFIER_RSS_GUARD_MB() * 1048576) {
       linkStreamRssTripped = true
       internalPairs.length = 0; pairKeyToIdx.clear()
+      // anchor state shares the RSS budget — clear it too so a tripped stream
+      // emits NO anchor findings + a null marker (no fabricated-clean claim).
+      emptyCount = 0; nonDescCount = 0; emptySources.clear(); nonDescSources.clear()
+      anchorByTarget.clear(); anyAnchorData = false; anchorTargetsTruncated = false
       console.warn('[live-seo] rss guard tripped during link stream — graph/coverage/validation degrade')
     }
   } })
@@ -650,12 +686,29 @@ export async function runBrokenLinkVerify(
     ensurePage,
     affectedComplete: true,
   })
+  // anchor-text: build the aggregate from the reducer state (all in hand before
+  // any transient deletion) → 3 findings. single-variation targets/count come
+  // from the destination map; per-source lists cap at URLS_PER_FINDING.
+  const singleVariationTargets: string[] = []
+  for (const [t, v] of anchorByTarget) if (!v.multiple && singleVariationTargets.length < URLS_PER_FINDING) singleVariationTargets.push(t)
+  const singleVariationCount = [...anchorByTarget.values()].filter((v) => !v.multiple).length
+  const anchorAgg: AnchorAggregate = {
+    emptyCount, emptySources: [...emptySources].map(([url, count]) => ({ url, count })),
+    nonDescriptiveCount: nonDescCount, nonDescriptiveSources: [...nonDescSources].map(([url, count]) => ({ url, count })),
+    singleVariationCount, singleVariationTargets, harvestTruncated, targetsTruncated: anchorTargetsTruncated,
+  }
+  const anchorFindings = anyAnchorData ? mapAnchorTextFindings(anchorAgg, { runId, ensurePage }) : []
+  const anchorSummaryJson = anyAnchorData
+    ? JSON.stringify({ v: 1, targetsObserved: anchorByTarget.size, targetsTruncated: anchorTargetsTruncated, harvestTruncated })
+    : null
+
   const findings: FindingInput[] = [
     ...onPageFindings,
     ...brokenFindings,
     ...externalFindings,
     ...validationFindings,
     ...deadPageFindings,
+    ...anchorFindings,
   ]
 
   // C6 Phase 3: live SEO score from the on-page signals (pure scorer).
@@ -902,6 +955,7 @@ export async function runBrokenLinkVerify(
       topicOverlapJson,
       schemaTypesJson,
       programEntitiesJson,
+      anchorSummaryJson,
     },
     pages, findings, violations: [],
   }
