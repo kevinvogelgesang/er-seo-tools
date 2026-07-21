@@ -18,7 +18,10 @@ Spec: `docs/superpowers/specs/2026-07-20-viewbook-reading-experience-design.md` 
 - **No schema/editor/API changes.** `PublicSection` gains no fields. `pcCompletedAt` is already on `ViewbookPublicData`.
 - **Gate before every merge:** `npx tsc --noEmit` && `npx vitest run` green. In-build type-check/lint stay disabled (CLAUDE.md) — local gates are the only gate.
 - **Section catalog (13):** `welcome, milestones, data-source, brand, assessment, strategy, materials, pc-intro, pc-setup, pc-invite, pc-thanks, kickoff-next, ws-intro`. Bookends: `pc-intro`, `pc-thanks`.
-- **`SectionRenderMeta` (§4.0)** is the render-threading contract: `{ heroSize: 'full'|'chapter'|'none'; chapterNumber: number|null; status: SectionStatus; isLead: boolean }`.
+- **`SectionRenderMeta` (§4.0)** is the render-threading contract: `{ heroSize: 'full'|'chapter'|'none'; chapterNumber: number|null; status: SectionStatus; isLead: boolean }`. It is **exported from `lib/viewbook/section-status.ts`** (alongside `SectionStatus`) — NOT `public-types.ts` — to keep `public-types.ts` free of a type cycle. All consumers import it from `section-status`.
+- **NO jest-dom in this repo** — there is no `vitest.setup` and no `toBeInTheDocument` matcher. Every test uses **DOM-native assertions**: `container.querySelector(...)` with `.toBeTruthy()`/`.toBeNull()`, `el.textContent`, `el.getAttribute(...)`. `screen.getByText(...)` is fine as an existence check (it throws when absent) but never chain `.toBeInTheDocument()`.
+- **`renderSection` render path:** `wrappedRenderSection(section, meta)` calls `baseRenderSection(section, meta)` then wraps the RESULT node (operator overlay). The `OperatorLayer` wrapper composes at the rendered-node level and does NOT consume `meta` — only `page.tsx`'s two callbacks change (Codex fix #10).
+- **One CTA client island:** `ChapterCtaButton.tsx` (client leaf, props `{ label: string; sectionKey: SectionKey; anchor: string }`, calls `navigateToAnchor`) is created in Wave 1 and reused by both `SectionShell` (chapter header) and Lane E (`KickoffNextSection`). Server components render it as a child (allowed) — they never attach `onClick` themselves.
 - **DOM contract (§4.1):** section root `data-vb-section`/`data-vb-status`/`data-vb-hero-visible`; hero `data-vb-hero`; sticky duplicate label `data-vb-sticky-label` (`aria-hidden`, text-only); rail top-level buttons `data-vb-toc-section="{sectionKey}"`.
 - **Commit style:** end messages with the two trailers used across this repo (`Co-Authored-By: Claude Opus 4.8 (1M context)` + `Claude-Session:`).
 
@@ -26,16 +29,17 @@ Spec: `docs/superpowers/specs/2026-07-20-viewbook-reading-experience-design.md` 
 
 **New pure modules (`lib/viewbook/`):**
 - `section-copy.ts` — `SECTION_COPY` (per-key purpose/whatThis/whatWeNeed/cta) + `INPUT_EXPECTING_KEYS`.
-- `section-status.ts` — `SectionStatus` type + `computeSectionStatuses(...)`.
+- `section-status.ts` — `SectionStatus` + **`SectionRenderMeta`** types + `computeSectionStatuses(...)` + `carriedStatus(...)`. (`SectionRenderMeta` lives HERE, not `public-types.ts` — cycle-free, Codex fix #2.)
 - `section-origin.ts` — `originStageOf(sectionKey)` + `groupCarriedByOrigin(...)`.
 
 **New components (`components/viewbook/public/`):**
-- `SectionSummaryPanel.tsx` — "What this is / What we need / status" panel (server).
-- `StageOverview.tsx` — "In this stage" strip (server; stub in Wave 1, real in Lane D).
-- `PreviousStages.tsx` — replaces `EarlierSteps` (server; stub in Wave 1, real in Lane D).
+- `ChapterCtaButton.tsx` — the ONE CTA client island, reused by SectionShell + Lane E (real in Wave 1).
+- `SectionSummaryPanel.tsx` — "What this is / What we need / status" panel + exported `StatusPill` (server).
+- `StageOverview.tsx` — "In this stage" strip (**client** — calls `navigateToAnchor`; stub in Wave 1, real in Lane D).
+- `PreviousStages.tsx` — replaces `EarlierSteps` (**server** — takes a function prop; stub in Wave 1, real in Lane D).
 - `ReadingProgressController.tsx` — the scroll controller (client; stub in Wave 1, real in Lane A).
 
-**Modified (spine, Wave 1):** `lib/viewbook/toc-index.ts`; `SectionShell.tsx`; `SectionReveal.tsx`; `ViewbookShell.tsx`; `app/(public)/viewbook/[token]/page.tsx`; all 13 section components; `OperatorLayer/*` wrapper.
+**Modified (spine, Wave 1):** `lib/viewbook/toc-index.ts`; `SectionShell.tsx`; `SectionReveal.tsx`; `StickyOffsetProbe.tsx` (emits `vb:sticky-offset-change`); `ViewbookShell.tsx`; `app/(public)/viewbook/[token]/page.tsx` (both render callbacks); all 13 section components. **NOT** `OperatorLayer/*` (Codex fix #10 — it composes the rendered node, never consumes `meta`).
 
 **Modified (lanes, Wave 2):** `TocRail.tsx` (B); `WelcomeSection.tsx` (C); `KickoffNextSection.tsx` (E). **Deleted (D):** `EarlierSteps.tsx` + `EarlierSteps.test.tsx`.
 
@@ -130,7 +134,7 @@ export const SECTION_COPY: Record<SectionKey, SectionCopy> = {
 
 **Interfaces:**
 - Consumes: `INPUT_EXPECTING_KEYS` (Task 1), `PublicSection`, `SectionKey`.
-- Produces: `type SectionStatus = 'complete'|'current'|'upcoming'|'needs-input'`; `computeSectionStatuses(renderedPrimaryOrder: SectionKey[], sections: Pick<PublicSection,'sectionKey'|'state'|'acknowledgedAt'>[], ctx: { pcCompletedAt: string | null }): Partial<Record<SectionKey, SectionStatus>>`; `carriedStatus(section: Pick<PublicSection,'state'>): SectionStatus`.
+- Produces: `type SectionStatus = 'complete'|'current'|'upcoming'|'needs-input'`; **`interface SectionRenderMeta` (Codex fix #2 — lives HERE, not in public-types, to avoid a type cycle)**; `computeSectionStatuses(renderedPrimaryOrder: SectionKey[], sections: Pick<PublicSection,'sectionKey'|'state'|'acknowledgedAt'>[], ctx: { pcCompletedAt: string | null }): Partial<Record<SectionKey, SectionStatus>>`; `carriedStatus(section: Pick<PublicSection,'state'>): SectionStatus`.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -170,6 +174,20 @@ describe('computeSectionStatuses', () => {
     const r = computeSectionStatuses(order, [sec('welcome', 'done'), sec('milestones', 'done')], { pcCompletedAt: null })
     expect(Object.values(r)).toEqual(['complete', 'complete'])
   })
+  it('assigns exactly one current even with a collapsed informational section (Codex fix #8)', () => {
+    const order = ['welcome', 'milestones', 'strategy'] as any
+    const secs = [sec('welcome', 'collapsed'), sec('milestones', 'active'), sec('strategy', 'active')]
+    const r = computeSectionStatuses(order, secs, { pcCompletedAt: null })
+    expect(Object.values(r).filter((v) => v === 'current')).toHaveLength(1)
+    expect(r.welcome).toBe('current')       // first non-terminal → current
+    expect(r.milestones).toBe('upcoming')   // later non-terminal → upcoming
+  })
+  it('pc-intro as lead consumes the single current slot; a later informational is upcoming', () => {
+    const order = ['pc-intro', 'strategy'] as any
+    const r = computeSectionStatuses(order, [sec('pc-intro', 'active'), sec('strategy', 'active')], { pcCompletedAt: null })
+    expect(r['pc-intro']).toBe('current')
+    expect(r['strategy']).toBe('upcoming')
+  })
   it('returns a partial map — missing keys are absent, not defaulted', () => {
     const r = computeSectionStatuses(['welcome'] as any, [sec('welcome', 'active')], { pcCompletedAt: null })
     expect('milestones' in r).toBe(false)
@@ -192,11 +210,19 @@ describe('carriedStatus', () => {
 ```ts
 // lib/viewbook/section-status.ts
 // Pure, client-safe status derivation (spec §4.3). No scroll state.
+// SectionRenderMeta lives here (Codex fix #2) so public-types stays cycle-free.
 import type { SectionKey } from './theme'
 import type { PublicSection } from './public-types'
 import { INPUT_EXPECTING_KEYS } from './section-copy'
 
 export type SectionStatus = 'complete' | 'current' | 'upcoming' | 'needs-input'
+
+export interface SectionRenderMeta {
+  heroSize: 'full' | 'chapter' | 'none'
+  chapterNumber: number | null
+  status: SectionStatus
+  isLead: boolean
+}
 
 type StatusInput = Pick<PublicSection, 'sectionKey' | 'state' | 'acknowledgedAt'>
 
@@ -208,22 +234,29 @@ export function computeSectionStatuses(
   const byKey = new Map(sections.map((s) => [s.sectionKey, s]))
   const out: Partial<Record<SectionKey, SectionStatus>> = {}
   let currentAssigned = false
+  // Helper: place a non-terminal (not complete, not needs-input) section in the
+  // single-current progression — first gets 'current', the rest 'upcoming'.
+  const progress = (key: SectionKey) => {
+    out[key] = currentAssigned ? 'upcoming' : 'current'
+    currentAssigned = true
+  }
   for (const key of renderedPrimaryOrder) {
     const s = byKey.get(key)
     if (!s) continue
-    // Bookends resolve off pcCompletedAt, never the progression.
-    if (key === 'pc-intro') { out[key] = ctx.pcCompletedAt != null ? 'complete' : 'current'; continue }
-    if (key === 'pc-thanks') { out[key] = 'current'; continue } // only rendered when pcCompletedAt != null
+    // Bookends resolve off pcCompletedAt. pc-intro, when not complete, consumes
+    // the single 'current' slot via the SAME progression (Codex fix #8).
+    if (key === 'pc-intro') {
+      if (ctx.pcCompletedAt != null) out[key] = 'complete'
+      else progress(key)
+      continue
+    }
+    if (key === 'pc-thanks') { progress(key); continue } // only rendered when pcCompletedAt != null
     if (s.state === 'done') { out[key] = 'complete'; continue }
     if (s.state === 'active' && s.acknowledgedAt != null) { out[key] = 'complete'; continue }
     if (s.state === 'active' && INPUT_EXPECTING_KEYS.has(key)) { out[key] = 'needs-input'; continue }
-    // Remaining active informational sections: first → current, rest → upcoming.
-    if (s.state === 'active') {
-      out[key] = currentAssigned ? 'upcoming' : 'current'
-      currentAssigned = true
-      continue
-    }
-    out[key] = 'current' // collapsed-but-active fallback (rare on primary)
+    // Every remaining non-terminal section (active OR collapsed informational)
+    // runs through the ONE progression — never a second stray 'current'.
+    progress(key)
   }
   return out
 }
@@ -367,23 +400,25 @@ it('tags each top-level toc entry with a status', () => {
 
 ```tsx
 // components/viewbook/public/SectionSummaryPanel.test.tsx
-import { render, screen } from '@testing-library/react'
+// DOM-native assertions only — this repo has NO jest-dom (Global Constraints).
+import { render } from '@testing-library/react'
 import { describe, it, expect } from 'vitest'
 import { SectionSummaryPanel } from './SectionSummaryPanel'
 
 describe('SectionSummaryPanel', () => {
   it('shows What this is and the status label', () => {
-    render(<SectionSummaryPanel whatThis="A living space." whatWeNeed={null} status="current" />)
-    expect(screen.getByText('What this is')).toBeInTheDocument()
-    expect(screen.getByText('A living space.')).toBeInTheDocument()
-    expect(screen.getByText(/current/i)).toBeInTheDocument()
+    const { container } = render(<SectionSummaryPanel whatThis="A living space." whatWeNeed={null} status="current" />)
+    const text = container.textContent ?? ''
+    expect(text).toContain('What this is')
+    expect(text).toContain('A living space.')
+    expect(text.toLowerCase()).toContain('current')
   })
   it('shows What we need from you only when provided', () => {
-    const { rerender } = render(<SectionSummaryPanel whatThis="x" whatWeNeed="Do the thing." status="needs-input" />)
-    expect(screen.getByText('What we need from you')).toBeInTheDocument()
-    expect(screen.getByText('Do the thing.')).toBeInTheDocument()
-    rerender(<SectionSummaryPanel whatThis="x" whatWeNeed={null} status="complete" />)
-    expect(screen.queryByText('What we need from you')).not.toBeInTheDocument()
+    const withNeed = render(<SectionSummaryPanel whatThis="x" whatWeNeed="Do the thing." status="needs-input" />)
+    expect(withNeed.container.textContent).toContain('What we need from you')
+    expect(withNeed.container.textContent).toContain('Do the thing.')
+    const without = render(<SectionSummaryPanel whatThis="x" whatWeNeed={null} status="complete" />)
+    expect(without.container.textContent).not.toContain('What we need from you')
   })
 })
 ```
@@ -397,17 +432,41 @@ describe('SectionSummaryPanel', () => {
 
 ---
 
-### Task 6: Wave-1 stubs — controller, StageOverview, PreviousStages
+### Task 6: Wave-1 islands + stubs — ChapterCtaButton, controller, StageOverview, PreviousStages
 
 **Files:**
-- Create: `components/viewbook/public/ReadingProgressController.tsx`
-- Create: `components/viewbook/public/StageOverview.tsx`
-- Create: `components/viewbook/public/PreviousStages.tsx`
+- Create: `components/viewbook/public/ChapterCtaButton.tsx` (real, not a stub — frozen client island)
+- Create: `components/viewbook/public/ReadingProgressController.tsx` (stub → Lane A)
+- Create: `components/viewbook/public/StageOverview.tsx` (stub → Lane D)
+- Create: `components/viewbook/public/PreviousStages.tsx` (stub → Lane D)
 
 **Interfaces (frozen — Lanes A/D replace internals only):**
-- Produces: `ReadingProgressController()` (client, no props); `StageOverview({ items }: { items: { sectionKey: SectionKey; label: string; status: SectionStatus; anchor: string }[] })` (server); `PreviousStages({ groups, renderSection }: { groups: { stageLabel: string; sections: PublicSection[] }[]; renderSection: (s: PublicSection, meta: SectionRenderMeta) => ReactNode })` (server).
+- Produces: `ChapterCtaButton({ label, sectionKey, anchor }: { label: string; sectionKey: SectionKey; anchor: string })` (**client leaf**, calls `navigateToAnchor(sectionKey, anchor)` on click); `ReadingProgressController()` (**client**, no props); `StageOverview({ items }: { items: { sectionKey: SectionKey; label: string; status: SectionStatus; anchor: string }[] })` (**client** — Codex fix #3: its real form calls `navigateToAnchor` from `onClick`; props are serializable); `PreviousStages({ groups, renderSection }: { groups: { stageLabel: string; sections: PublicSection[] }[]; renderSection: (s: PublicSection, meta: SectionRenderMeta) => ReactNode })` (**server** — takes a function prop).
 
-- [ ] **Step 1: Implement the controller stub**
+- [ ] **Step 1: Implement `ChapterCtaButton` (real, Codex fix #4)** — the ONE CTA island reused by SectionShell + Lane E:
+
+```tsx
+// components/viewbook/public/ChapterCtaButton.tsx
+'use client'
+import type { SectionKey } from '@/lib/viewbook/theme'
+import { navigateToAnchor } from './viewbook-navigate'
+
+export function ChapterCtaButton({ label, sectionKey, anchor }: { label: string; sectionKey: SectionKey; anchor: string }) {
+  return (
+    <button
+      type="button"
+      data-vb-chapter-cta
+      onClick={() => navigateToAnchor(sectionKey, anchor)}
+      className="inline-flex items-center rounded-full px-4 py-1.5 text-sm font-semibold shadow-sm"
+      style={{ background: 'var(--vb-secondary)', color: 'var(--vb-on-secondary)' }}
+    >
+      {label}
+    </button>
+  )
+}
+```
+
+- [ ] **Step 2: Controller stub**
 
 ```tsx
 // components/viewbook/public/ReadingProgressController.tsx
@@ -419,28 +478,31 @@ export function ReadingProgressController() {
 }
 ```
 
-- [ ] **Step 2: Implement the StageOverview stub** — server component; renders a `<nav aria-label="In this stage">` with a simple list of `items` (button per item calling nothing yet — stub may render plain text/links). Keep the exact prop shape above.
+- [ ] **Step 3: StageOverview stub** — `'use client'` component (Codex fix #3); renders a `<nav aria-label="In this stage">` with one `<button>` per item (label text; `onClick` may be a no-op in the stub). Keep the exact prop shape above.
 
-- [ ] **Step 3: Implement the PreviousStages stub** — server component (NO `'use client'`); if `groups` is empty return `null`; else render each group's `stageLabel` and, for each section, `renderSection(s, { heroSize: 'none', chapterNumber: null, status: 'complete', isLead: false })`. This is a functional stub Lane D restyles.
+- [ ] **Step 4: PreviousStages stub** — server component (NO `'use client'`); if `groups` is empty return `null`; else render each group's `stageLabel` and, for each section, `renderSection(s, { heroSize: 'none', chapterNumber: null, status: 'complete', isLead: false })`. Functional stub Lane D restyles.
 
-- [ ] **Step 4: Typecheck** — `npx tsc --noEmit` (expect PASS; imports resolve).
-- [ ] **Step 5: Commit** — `feat(viewbook): stub controller/overview/previous-stages contracts`.
+- [ ] **Step 5: Typecheck** — `npx tsc --noEmit` (expect PASS; imports resolve).
+- [ ] **Step 6: Commit** — `feat(viewbook): ChapterCtaButton island + stub controller/overview/previous-stages`.
 
 ---
 
-### Task 7: `SectionShell` — heroSize, chapter header, DOM contract, summary-panel slot
+### Task 7: `SectionShell` (`meta` prop + header + panel + DOM contract) AND thread it through all callers — ONE atomic task
+
+**Why one task (Codex fix #1):** adding a REQUIRED `meta` prop to `SectionShell` breaks every caller's compile until they pass it. So the shell change and the threading through `page.tsx` + all 13 section components land in the SAME task — every commit typechecks.
 
 **Files:**
 - Modify: `components/viewbook/public/SectionShell.tsx`
+- Modify: `app/(public)/viewbook/[token]/page.tsx` (`baseRenderSection`, `wrappedRenderSection`)
+- Modify: all 13 section components (each gains a `meta: SectionRenderMeta` prop forwarded to its `SectionShell`): `WelcomeSection`, `MilestonesSection`, `DataSourceSection`, `BrandSection`, `AssessmentSection`, `StrategySection`, `MaterialsSection`, `PcIntroSection`, `PcSetupSection`, `PcInviteSection`, `PcThanksSection`, `KickoffNextSection`, `WsIntroSection`
 - Test: `components/viewbook/public/SectionShell.test.tsx`
+- **NOT** the `OperatorLayer` wrapper (Codex fix #10 — it composes the rendered node and never consumes `meta`).
 
 **Interfaces:**
-- Consumes: `SectionRenderMeta` (define/export it here or in `public-types.ts` — put it in `lib/viewbook/public-types.ts` so leaves + operator layer import it without a cycle), `SECTION_COPY`, `StatusPill`, `SectionSummaryPanel`.
-- Produces: `SectionShell` gains a `meta: SectionRenderMeta` prop; emits `data-vb-section`, `data-vb-status`, `data-vb-hero-visible` on `<section>`, `data-vb-hero` on the hero div, renders the chapter header + summary panel.
+- Consumes: `SectionRenderMeta` + `SectionStatus` from `@/lib/viewbook/section-status` (Codex fix #2 — NOT `public-types.ts`), `SECTION_COPY`, `StatusPill` (from `SectionSummaryPanel.tsx`), `SectionSummaryPanel`, `ChapterCtaButton`.
+- Produces: `SectionShell` gains `meta: SectionRenderMeta`; emits `data-vb-section`/`data-vb-status`/`data-vb-hero-visible` on `<section>`, `data-vb-hero` on the hero div; `renderSection` is `(section, meta) => ReactNode` end-to-end.
 
-- [ ] **Step 1: Add `SectionRenderMeta` to `lib/viewbook/public-types.ts`** (so it is import-cycle-safe) exactly per Global Constraints, importing `SectionStatus` from `./section-status`.
-
-- [ ] **Step 2: Write the failing test**
+- [ ] **Step 1: Write the failing test**
 
 ```tsx
 // components/viewbook/public/SectionShell.test.tsx  (add cases)
@@ -464,12 +526,17 @@ it('no-hero sections seed hero-visible false and emit no hero sentinel', () => {
 ```
 (Reuse the file's existing section fixture helper; add `activeSection(key)` if not present.)
 
-- [ ] **Step 3: Run — expect FAIL.**
+- [ ] **Step 2: Run — expect FAIL.**
 
-- [ ] **Step 4: Implement.** On the `<section>`: add `data-vb-section={section.sectionKey}`, `data-vb-status={meta.status}`, `data-vb-hero-visible={meta.heroSize === 'none' ? 'false' : 'true'}`. Hero band: render only when `meta.heroSize !== 'none'`; size by `meta.heroSize` — `full` → `min-h-[60vh]`, `chapter` → `h-[220px]` (keep the existing image + brand-fade + on-primary `<h2>`); add `data-vb-hero` to the hero `<div>`. Chapter header (replaces the bare `TickDivider` strip, still suppressed when `heroOnly`): a row with the chapter number (`meta.chapterNumber`, `aria-hidden` decorative when non-null), the `SECTION_COPY[key].purpose` sentence, a `<StatusPill status={meta.status} />`, and (when `SECTION_COPY[key].cta`) a CTA button wired via `navigateToAnchor(cta.sectionKey, cta.anchor)` — but CTA is a client action, so render it through a tiny existing/`'use client'` button island (reuse `KickoffNextButton` pattern or add a minimal `ChapterCtaButton`; keep SectionShell a server component). Body: render `<SectionSummaryPanel whatThis={copy.whatThis} whatWeNeed={copy.whatWeNeed} status={meta.status} />` before `children`, inside the existing `SectionReveal` region.
+- [ ] **Step 3: Implement `SectionShell`.** Add `meta: SectionRenderMeta` to props (required). On the `<section>`: `data-vb-section={section.sectionKey}`, `data-vb-status={meta.status}`, `data-vb-hero-visible={meta.heroSize === 'none' ? 'false' : 'true'}`. Hero band: render only when `meta.heroSize !== 'none'`; size by `meta.heroSize` — `full` → `min-h-[60vh]`, `chapter` → `h-[220px]` (keep the existing image + brand-fade + on-primary `<h2>`); add `data-vb-hero` to the hero `<div>`. Chapter header (replaces the bare `TickDivider` strip, still suppressed when `heroOnly`): a row with the chapter number (`meta.chapterNumber`, wrapped `aria-hidden` when non-null), `SECTION_COPY[section.sectionKey].purpose`, `<StatusPill status={meta.status} />`, and — when `SECTION_COPY[section.sectionKey].cta` — `<ChapterCtaButton {...cta} />` (the frozen client island from Task 6; `SectionShell` stays a server component and never attaches `onClick` itself). Body: render `<SectionSummaryPanel whatThis={copy.whatThis} whatWeNeed={copy.whatWeNeed} status={meta.status} />` before `children`, inside the existing `SectionReveal` region.
 
-- [ ] **Step 5: Run — expect PASS** (+ existing SectionShell suite green).
-- [ ] **Step 6: Commit** — `feat(viewbook): SectionShell hero sizing + chapter header + summary panel`.
+- [ ] **Step 4: Run the SectionShell test — expect PASS.**
+
+- [ ] **Step 5: Thread `meta` through the callers (same commit — Codex fix #1).** Read `app/(public)/viewbook/[token]/page.tsx`. Widen `baseRenderSection(section: PublicSection, meta: SectionRenderMeta)` to pass `meta` to whichever of the 13 components it renders, and `wrappedRenderSection(section, meta)` to forward `(section, meta)` to `baseRenderSection` (the operator overlay wraps the returned node — do NOT touch `OperatorLayer`). Give each of the 13 section components a `meta: SectionRenderMeta` prop forwarded to its internal `SectionShell`. Add a shared test helper `defaultMeta(over?)` for the component suites.
+
+- [ ] **Step 6: Typecheck + viewbook suites** — `npx tsc --noEmit` (fix every flagged call-site) && `npx vitest run components/viewbook lib/viewbook` (update fixtures that render a section component or construct `renderSection` to pass a `meta`). Both green.
+
+- [ ] **Step 7: Commit** — `feat(viewbook): SectionShell meta (hero sizing + chapter header + panel) threaded through all sections`.
 
 ---
 
@@ -497,35 +564,25 @@ it('renders an aria-hidden duplicate sticky label with no interactive children',
 
 - [ ] **Step 2: Run — expect FAIL.**
 
-- [ ] **Step 3: Implement.** Keep the existing sticky bar and its always-visible interactive header. ADD a `data-vb-sticky-label` inner `<span>` (duplicate of the title text only, `aria-hidden`) that is faded by an inline `<style>`: `[data-vb-hero-visible="true"] [data-vb-sticky-label] { opacity: 0; } @media (prefers-reduced-motion: reduce){ [data-vb-sticky-label]{ transition:none } }` and a default `transition: opacity 200ms`. Ensure the bar's height does not depend on the duplicate label's opacity (it always occupies its box). Constrain body prose: wrap the `children` container (the `.mx-auto ... max-w-5xl` inner) content measure by adding `max-w-[68ch]` to the prose wrapper (NOT the full-width bar) — apply to the summary panel + intro + children column so text lines cap ~68ch while cards can stay wider.
+- [ ] **Step 3: Implement (Codex fix #5 — the reveal must actually reveal).** The sticky bar's ONLY visible title content is the `data-vb-sticky-label` element (`aria-hidden="true"`, text = the section title, NO links/buttons) — there is no separate always-visible title, so the bar genuinely reads empty over the hero and the label appears once the hero is gone. Keep the bar a **fixed height** (its box never depends on the label's opacity). Any interactive content stays OUTSIDE the faded subtree (the per-section toggle is disabled today; CTAs live in the chapter header, never here). Fade via inline `<style>`: default `[data-vb-sticky-label]{ transition: opacity 200ms }`, `[data-vb-hero-visible="true"] [data-vb-sticky-label]{ opacity: 0 }`, `@media (prefers-reduced-motion: reduce){ [data-vb-sticky-label]{ transition: none } }`. Constrain body prose: add `max-w-[68ch]` to the prose wrapper (summary panel + intro + children column) — NOT the full-width bar; cards may stay wider.
 
 - [ ] **Step 4: Run — expect PASS** (+ existing SectionReveal suite).
-- [ ] **Step 5: Commit** — `feat(viewbook): fixed-box sticky bar with inert reveal label + measure`.
+- [ ] **Step 5: Commit** — `feat(viewbook): fixed-box sticky bar, reveal-on-hero-exit label + measure`.
 
 ---
 
-### Task 9: Render-meta threading — `renderSection` + all 13 components + operator wrapper
+### Task 9: `StickyOffsetProbe` — publish a sticky-offset-change event (spine seam for Lane A)
 
-**Files:**
-- Modify: `app/(public)/viewbook/[token]/page.tsx` (`baseRenderSection`, `wrappedRenderSection`)
-- Modify: all 13 section components (each forwards `meta` → `SectionShell`)
-- Modify: `components/viewbook/public/OperatorLayer/*` (the wrapper that composes `renderSection`)
+**Why (Codex fix #6):** `StickyOffsetProbe` currently writes the CSS var but emits no event; Lane A's controller must rebuild its observer when the offset changes and cannot read a CSS var into `rootMargin` live. Freeze the seam in the spine so Lane A never edits this file.
 
-**Interfaces:**
-- Consumes: `SectionRenderMeta`.
-- Produces: `renderSection` signature is `(section, meta) => ReactNode` end-to-end.
+**Files:** Modify `components/viewbook/public/StickyOffsetProbe.tsx`; Test `StickyOffsetProbe.test.tsx`.
 
-- [ ] **Step 1: Read** `page.tsx` and `OperatorLayer/OperatorViewbookLayer.tsx` (+ wrapper) to see how `baseRenderSection`/`wrappedRenderSection` dispatch to the 13 components today.
-
-- [ ] **Step 2: Widen the dispatchers** — `baseRenderSection(section: PublicSection, meta: SectionRenderMeta)` passes `meta` to whichever component it renders. `wrappedRenderSection` forwards `(section, meta)` unchanged (the operator wrapper adds its overlay but must not swallow `meta`).
-
-- [ ] **Step 3: Thread `meta` into each of the 13 components** — each component's props gain `meta: SectionRenderMeta`, forwarded to its internal `SectionShell`. Sections that build their own `SummaryStat` summary keep it; `SectionShell` now also renders the summary panel + chapter header from `meta`.
-
-- [ ] **Step 4: Typecheck** — `npx tsc --noEmit`. Fix every call-site the compiler flags until green (this is the mechanical bulk of the task).
-
-- [ ] **Step 5: Run the viewbook component + page test suites** — `npx vitest run components/viewbook lib/viewbook` — fix fallout (tests that construct `renderSection` or render a section component now pass a `meta`; add a shared test helper `defaultMeta()` if useful).
-
-- [ ] **Step 6: Commit** — `refactor(viewbook): thread SectionRenderMeta through renderSection + all sections`.
+- [ ] **Step 1: Read `StickyOffsetProbe.tsx`** to find where it computes + writes the offset.
+- [ ] **Step 2: Write the failing test** — after the probe measures, a `vb:sticky-offset-change` `CustomEvent` is dispatched on `window` with `detail: { offset: number }`. (Mock the measurement; assert `window.addEventListener('vb:sticky-offset-change', ...)` fires.)
+- [ ] **Step 3: Run — expect FAIL.**
+- [ ] **Step 4: Implement** — after each write of the offset var, `window.dispatchEvent(new CustomEvent('vb:sticky-offset-change', { detail: { offset } }))` (guarded for SSR/CustomEvent availability, same defensive style as `viewbook-navigate.ts`). Fire once on mount too.
+- [ ] **Step 5: Run — expect PASS.**
+- [ ] **Step 6: Commit** — `feat(viewbook): StickyOffsetProbe emits vb:sticky-offset-change (Lane-A seam)`.
 
 ---
 
@@ -584,15 +641,17 @@ it('renders the In this stage overview and mounts the reading controller', () =>
 
 **Files:** Modify `components/viewbook/public/ReadingProgressController.tsx`; Test `ReadingProgressController.test.tsx`.
 
-**Interfaces:** Consumes the DOM contract (`[data-vb-section]`, `[data-vb-hero]`, `[data-vb-hero-visible]`, `[data-vb-toc-section]`) + `--vb-sticky-offset`. Produces no exports beyond the component.
+**Interfaces:** Consumes the DOM contract (`[data-vb-section]`, `[data-vb-hero]`, `[data-vb-hero-visible]`, `[data-vb-toc-section]`), the `--vb-sticky-offset` CSS var, and the **`vb:sticky-offset-change` window event** (published by `StickyOffsetProbe`, frozen in Task 9). Produces no exports beyond the component.
 
-- [ ] **Step 1: Write failing tests** (jsdom, mocked `IntersectionObserver`):
-  - When `IntersectionObserver` is undefined, on mount every `[data-vb-section]` gets `data-vb-hero-visible="false"` (fallback).
-  - Given a fake observer, simulating hero N's bottom crossing the activation line sets that section's `data-vb-hero-visible="false"` and marks the correct rail node `[data-vb-toc-section="<key>"]` with `data-vb-active` + `aria-current="location"`, clearing it from the previously-active node.
-  - The controller re-queries the rail node each commit (place two nodes, swap which one is in the DOM, assert it targets the live one).
+- [ ] **Step 1: Write failing tests (Codex fix #7 — jsdom has no layout; stub everything explicitly).** In `beforeEach`/`afterEach`, stub and RESTORE: `window.IntersectionObserver` (a fake capturing the callback + observed els, with a manual `trigger(entries)`), `Element.prototype.getBoundingClientRect` (return scripted `{ top, bottom }`), `window.requestAnimationFrame` (invoke synchronously), and the theme-root `--vb-sticky-offset` (set via `document.documentElement.style.setProperty`). Cases:
+  - `IntersectionObserver` undefined on mount → every `[data-vb-section]` gets `data-vb-hero-visible="false"` (fallback), no active tracking.
+  - Manually invoking the observer callback so hero N's bottom is above the activation line sets section N `data-vb-hero-visible="false"` and marks the live `[data-vb-toc-section="<keyN>"]` with `data-vb-active="true"` + `aria-current="location"`, clearing the previously-active node.
+  - Active = LAST hero crossed (scripted rects: heroes 1–2 above line, 3 below → active is 2).
+  - Re-query proof: mount, swap the rail node element in the DOM (remove the cached one, insert a fresh one with the same `data-vb-toc-section`), fire a commit, assert the NEW node is marked.
+  - Dispatching `vb:sticky-offset-change` rebuilds the observer (assert the fake observer was `disconnect()`ed and re-created).
 
 - [ ] **Step 2: Run — expect FAIL.**
-- [ ] **Step 3: Implement** per spec §7: build the observer with `rootMargin` top derived from the current `--vb-sticky-offset`; maintain a crossed/not-crossed flag per hero from `boundingClientRect.top` vs the activation line; active = last crossed (first-before / last-after fallback); flip `data-vb-hero-visible` off hero-bottom crossing; rebuild observer when `StickyOffsetProbe` republishes a changed offset (listen to the same signal `StickyOffsetProbe` uses, or a `MutationObserver`/rAF poll of the CSS var — read `StickyOffsetProbe.tsx` to match its publish mechanism); rAF-batch writes; NEVER touch collapse/`grid-template-rows`; SSR/no-IO fallback sets all hero-visible false.
+- [ ] **Step 3: Implement** per spec §7: build the observer with `rootMargin` top derived from the CURRENT `--vb-sticky-offset` (read at build time); maintain a crossed/not-crossed flag per hero from `boundingClientRect.top` vs the activation line; active = last crossed (first-before / last-after fallback); flip `data-vb-hero-visible` when a hero's bottom crosses the line; **rebuild the observer on `window` `vb:sticky-offset-change`** (Task 9 seam); re-query `document.querySelector('[data-vb-toc-section="…"]')` on every commit (never cache); rAF-batch writes; NEVER touch collapse/`grid-template-rows`; SSR/no-IO fallback sets all hero-visible false; clean up (disconnect + removeEventListener) on unmount.
 - [ ] **Step 4: Run — expect PASS.** — [ ] **Step 5: Commit** — `feat(viewbook): reading-progress scroll controller (Lane A)`.
 
 ### Lane B — Task B: `TocRail` active state + glyphs + `data-vb-toc-section` + mobile pill
@@ -618,7 +677,7 @@ it('renders the In this stage overview and mounts the reading controller', () =>
 **Files:** Modify `StageOverview.tsx`, `PreviousStages.tsx`; Delete `EarlierSteps.tsx` + `EarlierSteps.test.tsx`; Tests `StageOverview.test.tsx`, `PreviousStages.test.tsx`.
 
 - [ ] **Step 1: Write failing tests:** `StageOverview` renders one clickable entry per item (number · label · status glyph) that calls `navigateToAnchor`; `PreviousStages` renders "Previous stages" heading, groups labeled by origin stage, `state==='collapsed'` carried sections render as NON-expandable rows (no toggle/region), others expand to `renderSection(s, {heroSize:'none',...})`.
-- [ ] **Step 2: Run — expect FAIL.** — [ ] **Step 3: Implement** both real components (spec §2/§5 item 7); reuse `StatusPill`/`Glyph` styling; ensure `PreviousStages` stays a server component. Delete `EarlierSteps.tsx` + its test.
+- [ ] **Step 2: Run — expect FAIL.** — [ ] **Step 3: Implement** both real components (spec §2/§5 item 7); reuse `StatusPill`/`Glyph` styling; keep `StageOverview` a **client** component (it calls `navigateToAnchor`) and `PreviousStages` a **server** component (function prop). Delete `EarlierSteps.tsx` + its test.
 - [ ] **Step 4: Run — expect PASS**; grep to confirm no remaining `EarlierSteps` import (`git grep EarlierSteps` → none). — [ ] **Step 5: Commit** — `feat(viewbook): In-stage overview + Previous stages rows; retire EarlierSteps (Lane D)`.
 
 ### Lane E — Task E: `KickoffNextSection` action summary + CTA
@@ -626,7 +685,7 @@ it('renders the In this stage overview and mounts the reading controller', () =>
 **Files:** Modify `KickoffNextSection.tsx`; Test `KickoffNextSection.test.tsx` (create if absent).
 
 - [ ] **Step 1: Write failing test:** renders an action summary with a single clear CTA (label from `SECTION_COPY['kickoff-next'].cta` or a local const) wired via `navigateToAnchor`; not an empty chapter.
-- [ ] **Step 2: Run — expect FAIL.** — [ ] **Step 3: Implement:** replace the near-empty body with a concise action summary + one prominent CTA button (client island for the click, per the SectionShell CTA pattern). Keep `meta`/shell usage intact.
+- [ ] **Step 2: Run — expect FAIL.** — [ ] **Step 3: Implement:** replace the near-empty body with a concise action summary + one prominent CTA using the shared **`ChapterCtaButton`** island (from Task 6 — do NOT define a new button; do NOT edit a spine file). Keep `meta`/shell usage intact.
 - [ ] **Step 4: Run — expect PASS.** — [ ] **Step 5: Commit** — `feat(viewbook): Next Steps action summary + CTA (Lane E)`.
 
 **⇒ Wave 2 integration gate:** merge lanes onto the spine branch; run `npx tsc --noEmit` && `npx vitest run`; integration pass fixes only merge/wiring conflicts (never repairs a shared contract inside a lane file — that returns to a spine follow-up). Then browser eyeball (animation feel / CLS / active-state / mobile sheet) — no local `/verify` for viewbook. Then PR → `main` → deploy.
@@ -635,8 +694,10 @@ it('renders the In this stage overview and mounts the reading controller', () =>
 
 ## Self-Review
 
-**Spec coverage:** §4.0 render-meta → Task 9; §4.1 DOM/sticky → Tasks 7,8; §4.2 copy → Task 1; §4.3 status → Task 2; §4.4 toc/rail-id → Tasks 4,B; §4.5 stubs → Task 6; §5 features → Tasks 7–10,C,D,E; §6 delivery = the Wave/lane structure; §7 controller → Task A; §8 a11y → Tasks 7,8,A,B; §9 tests = per-task; §10 risks addressed (fixed-box §8, deterministic active §A). All covered.
+**Spec coverage:** §4.0 render-meta → Task 7 (merged with SectionShell, atomic); §4.1 DOM/sticky → Tasks 7,8; §4.2 copy → Task 1; §4.3 status → Task 2; §4.4 toc/rail-id → Tasks 4,B; §4.5 stubs+islands → Task 6; §5 features → Tasks 7,8,10,C,D,E; §6 delivery = the Wave/lane structure; §7 controller → Task A (+ Task 9 sticky-offset seam); §8 a11y → Tasks 7,8,A,B; §9 tests = per-task; §10 risks addressed (fixed-box §8, deterministic active §A). All covered.
 
-**Placeholder scan:** pure modules (Tasks 1–6, A) carry full code; JSX-heavy tasks carry full test code + exact structural directives + spec refs (no "add error handling"/"similar to"/"TBD"). Acceptable for a light-only presentational redesign where transcribing every Tailwind line adds no correctness value.
+**Placeholder scan:** pure modules (Tasks 1–3,6, A) carry full code; JSX-heavy tasks carry full test code + exact structural directives + spec refs (no "add error handling"/"similar to"/"TBD"). Acceptable for a light-only presentational redesign where transcribing every Tailwind line adds no correctness value.
 
-**Type consistency:** `SectionRenderMeta` (public-types) used identically in Tasks 6–10 + D; `computeSectionStatuses` signature identical in Tasks 2,4,10; `SectionStatus` from `section-status.ts` everywhere; `data-vb-toc-section` producer (B) matches consumer (A); `carriedStatus` used in Tasks 4,10,D.
+**Type consistency:** `SectionRenderMeta` (exported from `section-status.ts`) used identically in Tasks 6,7,10 + D; `computeSectionStatuses` signature identical in Tasks 2,4,10; `SectionStatus` from `section-status.ts` everywhere; `data-vb-toc-section` producer (B) matches consumer (A); `vb:sticky-offset-change` producer (Task 9) matches consumer (A); `ChapterCtaButton` produced Task 6, consumed Tasks 7 + E; `carriedStatus` used in Tasks 4,10,D.
+
+**Codex plan-review fixes applied:** all 10 (Wave-1 atomicity #1, cycle-free type #2, StageOverview client #3, one CTA island #4, sticky-label reveal correctness #5, sticky-offset event seam #6, jsdom stubs #7, collapsed status ordering #8, no-jest-dom + fixture updates #9, no OperatorLayer edit #10).
