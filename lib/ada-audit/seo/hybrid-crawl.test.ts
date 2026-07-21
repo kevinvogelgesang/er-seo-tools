@@ -199,3 +199,38 @@ describe('mergeCrawlResults', () => {
     expect(m.sources['https://x.com/c']).toBeUndefined() // pruned — not in the sliced set
   })
 })
+
+// L3 (2026-07-20): regression guards proving bounds are honored at the raised
+// magnitudes (maxAdded 600 / maxFetches 800). Green characterization guards —
+// bounds are parameters, so behavior is already correct; Task 1's default change
+// is the actual red→green. These catch any hidden fixed-size assumption.
+describe('hybridCrawl L3 magnitude guards', () => {
+  it('stops at maxAdded at the L3 magnitude (600), wide frontier', async () => {
+    const children = Array.from({ length: 800 }, (_, i) => `https://x.com/p${i}`)
+    const g: Record<string, string[]> = { 'https://x.com/': children }
+    for (const c of children) g[c] = []
+    const r = await hybridCrawl(
+      [{ url: 'https://x.com/', source: 'sitemap' }], HOST,
+      B({ maxAdded: 600, maxFetches: 5000, hardCap: 5000 }), graph(g), { disallow: [], allow: [] },
+    )
+    expect(r.addedByCrawl).toBe(600)
+    expect(r.stoppedBy).toBe('maxAdded')
+  })
+
+  it('stops at maxFetches at the L3 magnitude (800), wide frontier', async () => {
+    // WIDE star (not a chain — a chain would be a no-concurrency 800-wave case):
+    // seed links to 1000 leaves so bounded concurrency processes real waves.
+    const children = Array.from({ length: 1000 }, (_, i) => `https://x.com/p${i}`)
+    const g: Record<string, string[]> = { 'https://x.com/': children }
+    for (const c of children) g[c] = []
+    const r = await hybridCrawl(
+      [{ url: 'https://x.com/', source: 'sitemap' }], HOST,
+      B({ maxFetches: 800, maxAdded: 5000, hardCap: 5000, concurrency: 6 }), graph(g), { disallow: [], allow: [] },
+    )
+    // Boundary guard: strictly past the OLD 400 cap (proves the raise took
+    // effect) and never over the new 800 cap.
+    expect(r.fetches).toBeGreaterThan(400)
+    expect(r.fetches).toBeLessThanOrEqual(800)
+    expect(r.stoppedBy).toBe('maxFetches')
+  })
+})

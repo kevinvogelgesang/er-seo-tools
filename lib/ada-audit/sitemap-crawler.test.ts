@@ -933,3 +933,42 @@ describe('resolveRawCrawlBounds', () => {
     expect(b.maxAdded).toBe(900)
   })
 })
+
+// L3 (2026-07-20): a count-cap stop must be reported via coverage.stoppedBy, NOT
+// the coarse `capped` flag (which is only seedCapped || hardCap || hardCapPrefull).
+// This also proves resolveRawCrawlBounds is wired into discovery (the env cap
+// actually bounds the crawl).
+describe('discoverPagesWithDeps honest cap reporting (L3)', () => {
+  const saved = { ...process.env }
+  afterEach(() => { process.env = { ...saved } })
+
+  it('a maxAdded stop is reported via coverage.stoppedBy, not the coarse capped flag', async () => {
+    process.env.HYBRID_CRAWL_MAX_ADDED = '2' // force the count cap through resolveRawCrawlBounds
+    const g: Record<string, string[]> = {
+      'https://x.com/': ['https://x.com/a', 'https://x.com/b', 'https://x.com/c', 'https://x.com/d'],
+      'https://x.com/a': [], 'https://x.com/b': [], 'https://x.com/c': [], 'https://x.com/d': [],
+    }
+    const r = await discoverPagesWithDeps('x.com', { hybrid: true }, {
+      resolveSeeds: async () => ({ urls: ['https://x.com/'], mode: 'sitemap', capped: false }),
+      fetchPageLinks: async (u) => (u in g ? { links: g[u], finalUrl: u } : null),
+      now: () => 0, robots: { disallow: [], allow: [] },
+    })
+    expect(r.coverage!.stoppedBy).toBe('maxAdded')
+    expect(r.capped).toBe(false) // a count-cap stop is NOT a coarse-capped run
+  })
+
+  it('a maxFetches stop is reported via coverage.stoppedBy, not the coarse capped flag', async () => {
+    process.env.HYBRID_CRAWL_MAX_FETCHES = '2'
+    const g: Record<string, string[]> = {
+      'https://x.com/': ['https://x.com/a', 'https://x.com/b', 'https://x.com/c'],
+      'https://x.com/a': [], 'https://x.com/b': [], 'https://x.com/c': [],
+    }
+    const r = await discoverPagesWithDeps('x.com', { hybrid: true }, {
+      resolveSeeds: async () => ({ urls: ['https://x.com/'], mode: 'sitemap', capped: false }),
+      fetchPageLinks: async (u) => (u in g ? { links: g[u], finalUrl: u } : null),
+      now: () => 0, robots: { disallow: [], allow: [] },
+    })
+    expect(r.coverage!.stoppedBy).toBe('maxFetches')
+    expect(r.capped).toBe(false)
+  })
+})
