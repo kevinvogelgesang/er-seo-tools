@@ -80,6 +80,7 @@ export function PcSetupSection({
       token={token}
       meta={meta}
       viewerMode={data.viewerMode}
+      sectionCopy={data.sectionCopy[section.sectionKey]}
     >
       <div className="space-y-4">
         {fields.map((field) => (

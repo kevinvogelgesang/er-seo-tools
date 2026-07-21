@@ -8,6 +8,7 @@ import type { SectionKey, ViewbookTheme } from './theme'
 import type { ContentBlocks, GlobalContentKey, TeamMember } from './global-content-keys'
 import type { ViewbookStage } from './stages'
 import type { CollapseAffordanceKind, CollapseMorphKind, ViewerMode } from './presentation-config'
+import type { ResolvedSectionCopy } from './section-copy-content'
 
 export interface PublicSection {
   sectionKey: SectionKey
@@ -151,6 +152,7 @@ export interface ViewbookPublicData {
   docs: { global: PublicDocRow[]; own: PublicDocRow[] }
   global: PublicGlobalContent
   overrides: Partial<Record<GlobalContentKey, string>>
+  sectionCopy: Record<SectionKey, ResolvedSectionCopy>
   collapseAffordance: CollapseAffordanceKind // PR4 presentation config; PR3 threads into SectionShell
   collapseMorph: CollapseMorphKind // collapse↔hero morph treatment; stamped as data-vb-morph on ViewbookShell's theme root
   heroOverlayStrength: number // 0..100

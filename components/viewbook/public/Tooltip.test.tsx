@@ -23,4 +23,23 @@ describe('Tooltip', () => {
     expect(wrapper).not.toBeNull()
     expect(wrapper.getAttribute('tabindex')).toBe('0')
   })
+
+  it('renders a ReactNode label and wires aria-describedby to the tooltip id', () => {
+    const { container } = render(
+      <Tooltip id="tip-1" label={<div><p>What this is</p><p>Detail</p></div>} />
+    )
+    const trigger = container.querySelector('[aria-describedby="tip-1"]')
+    expect(trigger).not.toBeNull()
+    expect(trigger!.getAttribute('tabindex')).toBe('0')
+    const tip = container.querySelector('#tip-1[role="tooltip"]')
+    expect(tip).not.toBeNull()
+    expect(tip!.textContent).toContain('What this is')
+    expect(tip!.textContent).toContain('Detail')
+  })
+
+  it('on-primary tone renders the default glyph in white', () => {
+    const { container } = render(<Tooltip id="tip-2" label="x" tone="on-primary" />)
+    const trigger = container.querySelector('[aria-describedby="tip-2"]')!
+    expect(trigger.className).toContain('text-white')
+  })
 })

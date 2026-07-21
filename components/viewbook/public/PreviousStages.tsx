@@ -8,7 +8,7 @@ import type { ReactNode } from 'react'
 import type { PublicSection } from '@/lib/viewbook/public-types'
 import { carriedStatus, type SectionRenderMeta } from '@/lib/viewbook/section-status'
 import { SECTION_TITLES } from './section-titles'
-import { StatusPill } from './SectionSummaryPanel'
+import { StatusPill } from './StatusPill'
 import { DotStack } from './SectionAccents'
 
 function ExpandableRow({

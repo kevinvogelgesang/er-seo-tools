@@ -58,6 +58,7 @@ const baseProps = {
   // New continuous-mode tests (below) override viewerMode + meta explicitly.
   viewerMode: 'collapse' as const,
   meta: meta(),
+  sectionCopy: { purpose: 'Purpose.', whatThis: 'What this is.', whatWeNeed: null },
 }
 
 function expandSection(sectionKey = 'brand', viewbookId = baseProps.viewbookId) {
@@ -622,7 +623,7 @@ describe('SectionShell PR5 polish', () => {
 })
 
 describe('SectionShell — continuous mode', () => {
-  it('chapter section emits the DOM contract + chapter hero + guidance panel', () => {
+  it('chapter section emits the DOM contract + chapter hero + info tooltip', () => {
     const { container } = render(
       <SectionShell
         {...baseProps}
@@ -642,7 +643,10 @@ describe('SectionShell — continuous mode', () => {
     expect(root.getAttribute('data-vb-status')).toBe('current')
     expect(root.getAttribute('data-vb-hero-visible')).toBe('true')
     expect(container.querySelector('[data-vb-hero]')).toBeTruthy()
-    expect(container.querySelector('[data-vb-summary-panel]')).toBeTruthy()
+    // Feature A: the What-this-is/What-we-need guidance now lives in the ⓘ
+    // tooltip (a sibling of the hero <h2>), not the retired SectionSummaryPanel.
+    expect(container.querySelector('[data-vb-summary-panel]')).toBeNull()
+    expect(container.querySelector('[role="tooltip"]')).toBeTruthy()
     // No CollapsibleSection morph button in continuous mode.
     expect(container.querySelector('button[aria-expanded]')).toBeNull()
   })

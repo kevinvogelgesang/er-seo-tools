@@ -6,6 +6,7 @@ import type { PublicMilestone, PublicSection, ViewbookPublicData } from '@/lib/v
 import { MilestonesSection } from './MilestonesSection'
 import { DataSourceSection } from './DataSourceSection'
 import { stubAllSectionsExpanded } from './test-support/stub-expanded-storage'
+import { SECTION_COPY_FIXTURE } from './test-support/section-copy-fixture'
 const meta = (over = {}) => ({ heroSize: 'chapter', chapterNumber: 1, status: 'current', isLead: false, ...over })
 
 // These sections are collapse-eligible (2026-07-19 revision, default
@@ -26,7 +27,8 @@ const base = (over: Partial<ViewbookPublicData> = {}): ViewbookPublicData => ({
   theme: DEFAULT_THEME, stage: 'building', stageLabel: 'Now Building', viewerMode: 'continuous',
   pcCompletedAt: null, clientNotifyJson: [], teamMembers: [],
   primarySections: [], carriedSections: [], fieldCategories: [], milestones: [],
-  materials: [], global: { team: null, pcIntro: null, blocks: {} }, overrides: {}, ...over,
+  materials: [], global: { team: null, pcIntro: null, blocks: {} }, overrides: {},
+  sectionCopy: SECTION_COPY_FIXTURE, ...over,
 } as unknown as ViewbookPublicData)
 
 const milestone = (over: Partial<PublicMilestone> = {}): PublicMilestone => ({

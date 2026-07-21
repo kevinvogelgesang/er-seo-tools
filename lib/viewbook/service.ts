@@ -38,6 +38,12 @@ import {
 import { canonicalMailbox } from './global-content-keys'
 import { getGlobalContent } from './global-content'
 import { resolveAllowedNotifyRecipients } from './notify-recipients'
+import {
+  getSectionCopyGlobalMap,
+  getSectionCopyOverrideMap,
+  resolveSectionCopy,
+  type ResolvedSectionCopy,
+} from './section-copy-content'
 
 export type ViewbookKind = 'new-build' | 'upgrade'
 
@@ -143,7 +149,18 @@ export async function getViewbookAdmin(id: number) {
     },
   })
   if (!vb) throw new HttpError(404, 'not_found')
-  return { ...vb, theme: parseStoredTheme(vb.themeJson) }
+  // Resolve the ⓘ section-copy map (code default ← company-wide ← per-viewbook
+  // override) so the client ContentTab can prefill the per-viewbook override
+  // editor without a second fetch (Codex plan-fix 6: ContentTab is fed only by
+  // getViewbookAdmin → ViewbookDetail → ViewbookEditor, no server component).
+  const [scGlobal, scOverride] = await Promise.all([
+    getSectionCopyGlobalMap(),
+    getSectionCopyOverrideMap(id),
+  ])
+  const sectionCopy = Object.fromEntries(
+    SECTION_KEYS.map((k) => [k, resolveSectionCopy(k, scGlobal[k] ?? null, scOverride[k] ?? null)]),
+  ) as Record<SectionKey, ResolvedSectionCopy>
+  return { ...vb, theme: parseStoredTheme(vb.themeJson), sectionCopy }
 }
 
 // Theme PATCH saves colors/fonts ONLY. Asset references (logo, sectionHeroes)

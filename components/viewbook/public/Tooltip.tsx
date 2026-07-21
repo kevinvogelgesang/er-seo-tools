@@ -1,10 +1,22 @@
 // PR5 (spec §8 "tooltips — marketing-exec depth"): pure-CSS tooltip, server
 // component. Reveal on hover OR keyboard focus; no JS, no client bundle.
 // The trigger is ALWAYS focusable and aria-describedby-wired here so callers
-// can't ship a mouse-only tooltip.
+// can't ship a mouse-only tooltip. `label` accepts a ReactNode (Feature A
+// needs a multi-line What-this-is/What-we-need body).
 import type { ReactNode } from 'react'
 
-export function Tooltip({ label, id, children }: { label: string; id: string; children?: ReactNode }) {
+export function Tooltip({
+  label,
+  id,
+  children,
+  tone = 'default',
+}: {
+  label: ReactNode
+  id: string
+  children?: ReactNode
+  tone?: 'default' | 'on-primary'
+}) {
+  const glyphTone = tone === 'on-primary' ? 'text-white/90' : 'text-black/40'
   return (
     <span className="group relative inline-flex items-center">
       <span
@@ -13,7 +25,7 @@ export function Tooltip({ label, id, children }: { label: string; id: string; ch
         className={
           children
             ? 'cursor-help outline-offset-2'
-            : 'cursor-help select-none text-sm text-black/40 outline-offset-2'
+            : `cursor-help select-none text-sm ${glyphTone} outline-offset-2`
         }
       >
         {children ?? 'ⓘ'}

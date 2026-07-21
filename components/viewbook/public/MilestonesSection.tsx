@@ -116,6 +116,7 @@ export function MilestonesSection({
       token={token}
       meta={meta}
       viewerMode={data.viewerMode}
+      sectionCopy={data.sectionCopy[section.sectionKey]}
     >
       {hasInfo && (
         <div id="vb-process-milestones-info" className="space-y-4">

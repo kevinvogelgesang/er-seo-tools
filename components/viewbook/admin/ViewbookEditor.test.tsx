@@ -11,6 +11,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { ViewbookEditor, SettingsTab, type SettingsTabViewbook } from './ViewbookEditor'
 import { publicViewbookUrl } from './viewbook-admin-shared'
+import { SECTION_COPY_FIXTURE } from '@/components/viewbook/public/test-support/section-copy-fixture'
 import { __resetSyncRegistry } from '@/components/viewbook/public/useViewbookSync'
 
 afterEach(() => {
@@ -168,6 +169,7 @@ describe('ViewbookEditor shell', () => {
       sections: [],
       milestones: [],
       contentOverrides: [],
+      sectionCopy: SECTION_COPY_FIXTURE,
       fields: [],
       ...overrides,
     }

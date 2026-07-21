@@ -49,6 +49,7 @@ export function StrategySection({
       token={token}
       meta={meta}
       viewerMode={data.viewerMode}
+      sectionCopy={data.sectionCopy[section.sectionKey]}
     >
       {docs.length > 0 && (
         <div className="grid gap-4 sm:grid-cols-2">

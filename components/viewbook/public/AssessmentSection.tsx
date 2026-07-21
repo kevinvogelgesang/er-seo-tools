@@ -310,6 +310,7 @@ export async function AssessmentSection({
       token={token}
       meta={meta}
       viewerMode={data.viewerMode}
+      sectionCopy={data.sectionCopy[section.sectionKey]}
     >
       {assessment ? (
         <AssessmentBody assessment={assessment} narrative={section.narrative} notesSlot={notesSlot} />

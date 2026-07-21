@@ -62,6 +62,7 @@ export function MaterialsSection({
       token={token}
       meta={meta}
       viewerMode={data.viewerMode}
+      sectionCopy={data.sectionCopy[section.sectionKey]}
     >
       {data.materials.length === 0 ? (
         <p className="text-black/50">No materials yet — links you share with us will appear here.</p>

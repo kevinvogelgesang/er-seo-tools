@@ -183,6 +183,7 @@ export function ViewbookEditor({ viewbookId }: { viewbookId: number }) {
             welcomeNote={vb.welcomeNote}
             sections={vb.sections}
             overrides={vb.contentOverrides}
+            sectionCopy={vb.sectionCopy}
             onChanged={() => void load()}
           />
         )}
