@@ -276,20 +276,38 @@ Add the import:
 import { useTocHidden } from './useTocHidden'
 ```
 
-After showing the rail, move focus to the first entry. Add this effect (guard on `!hidden` and desktop):
+**Remove the orphaned desktop state (Codex plan-fix 1).** Delete `const [open, setOpen] = useState(true)`. The `collapse` useCallback (which set `open`) is now only referenced by the MOBILE Escape handler — replace that reference. In the mobile `<nav>`'s `onKeyDown`, change the `Escape` branch from `collapse(fabRef)` to an inline mobile close:
 
 ```tsx
-  // Focus the first rail entry when the rail is (re)shown on desktop.
-  const prevHiddenRef = useRef(true)
+            if (e.key === 'Escape') {
+              e.preventDefault()
+              setSheetOpen(false)
+              fabRef.current?.focus()
+            } else {
+              onListKeyDown(e)
+            }
+```
+
+Then delete the now-unused `collapse` useCallback entirely. `triggerRef` is reused by the hamburger `<button>` (`ref={triggerRef}`) and `railRef` by the desktop `<nav>` (`ref={railRef}`) in the Step-3 markup above — both stay used; if after the edits either is genuinely unreferenced, delete it (tsc/lint will flag).
+
+**Focus-on-reshow WITHOUT initial-mount focus theft (Codex plan-fix 1).** The effect must fire focus ONLY on a real `hidden: true → false` transition — never on first desktop mount:
+
+```tsx
+  // Focus the first rail entry ONLY when the rail transitions hidden -> shown
+  // on desktop. mountedRef gates out the initial mount (where prevHidden would
+  // otherwise be true and steal focus on load).
+  const mountedRef = useRef(false)
+  const prevHiddenRef = useRef(hidden)
   useEffect(() => {
-    if (!isMobile && prevHiddenRef.current && !hidden) {
+    if (mountedRef.current && !isMobile && prevHiddenRef.current && !hidden) {
       itemRefs.current[0]?.focus()
     }
     prevHiddenRef.current = hidden
+    mountedRef.current = true
   }, [hidden, isMobile])
 ```
 
-> Keep the existing `triggerRef`/`railRef` refs. `-mt-24` places the hamburger above the vertically-centered rail card ("above the ToC"). Preserve the current LEFT side (`left-3`).
+> `-mt-24` places the hamburger above the vertically-centered rail card ("above the ToC"). Preserve the current LEFT side (`left-3`).
 
 - [ ] **Step 4: Run tests to verify they pass**
 
@@ -564,10 +582,85 @@ export async function deleteSectionCopyOverride(viewbookId: number, sectionKey: 
 Run: `npx vitest run lib/viewbook/section-copy-content.test.ts`
 Expected: PASS. Run `npx tsc --noEmit` (clean).
 
+- [ ] **Step 4b: Add DB-backed store tests (Codex plan-fix 2)**
+
+The pure tests above don't exercise the store. Add a `lib/viewbook/section-copy-content.store.test.ts` (default node env, real `prisma` against the test DB — mirror the seed/cleanup convention of an existing prisma-touching test such as the global-content / overrides suites: create the `Viewbook` (+ its required parent `Client`) in `beforeEach`/`beforeAll`, clean up in `afterEach`). Cover:
+
+```ts
+import { describe, it, expect, beforeEach, afterEach } from 'vitest'
+import { prisma } from '@/lib/db'
+import {
+  putSectionCopyGlobal, deleteSectionCopyGlobal, getSectionCopyGlobalMap,
+  putSectionCopyOverride, deleteSectionCopyOverride, getSectionCopyOverrideMap,
+  sectionCopyKey,
+} from './section-copy-content'
+import { HttpError } from '@/lib/api/errors'
+
+// … seed a Client + two Viewbooks (vbA, vbB) per the repo's DB-test convention …
+
+describe('section-copy store', () => {
+  it('global put/get round-trips and is readable via the exact-key map', async () => {
+    await putSectionCopyGlobal('brand', { purpose: 'p', whatThis: 't', whatWeNeed: 'n' }, 'op')
+    const map = await getSectionCopyGlobalMap()
+    expect(map.brand).toEqual({ purpose: 'p', whatThis: 't', whatWeNeed: 'n' })
+  })
+
+  it('global write bumps syncVersion on ALL viewbooks', async () => {
+    const before = await prisma.viewbook.findMany({ select: { id: true, syncVersion: true } })
+    await putSectionCopyGlobal('brand', { purpose: 'p', whatThis: 't', whatWeNeed: null }, 'op')
+    for (const row of before) {
+      const after = await prisma.viewbook.findUnique({ where: { id: row.id }, select: { syncVersion: true } })
+      expect(after!.syncVersion).toBeGreaterThan(row.syncVersion)
+    }
+  })
+
+  it('override write bumps ONLY its own viewbook', async () => {
+    const [a0, b0] = await Promise.all([
+      prisma.viewbook.findUnique({ where: { id: vbA }, select: { syncVersion: true } }),
+      prisma.viewbook.findUnique({ where: { id: vbB }, select: { syncVersion: true } }),
+    ])
+    await putSectionCopyOverride(vbA, 'brand', { purpose: 'p', whatThis: 't', whatWeNeed: null }, 'op')
+    const [a1, b1] = await Promise.all([
+      prisma.viewbook.findUnique({ where: { id: vbA }, select: { syncVersion: true } }),
+      prisma.viewbook.findUnique({ where: { id: vbB }, select: { syncVersion: true } }),
+    ])
+    expect(a1!.syncVersion).toBeGreaterThan(a0!.syncVersion)
+    expect(b1!.syncVersion).toBe(b0!.syncVersion)
+  })
+
+  it('override map is per-viewbook and exact-key', async () => {
+    await putSectionCopyOverride(vbA, 'brand', { purpose: 'o', whatThis: 'ot', whatWeNeed: null }, 'op')
+    expect((await getSectionCopyOverrideMap(vbA)).brand).toEqual({ purpose: 'o', whatThis: 'ot', whatWeNeed: null })
+    expect((await getSectionCopyOverrideMap(vbB)).brand).toBeUndefined()
+  })
+
+  it('a corrupt stored row reads as ABSENT (not thrown)', async () => {
+    await prisma.viewbookGlobalContent.create({ data: { key: sectionCopyKey('welcome'), bodyJson: '{bad json', updatedBy: 'op' } })
+    const map = await getSectionCopyGlobalMap()
+    expect(map.welcome).toBeUndefined()
+  })
+
+  it('deleting a missing row returns 404 and does NOT bump', async () => {
+    const before = await prisma.viewbook.findUnique({ where: { id: vbA }, select: { syncVersion: true } })
+    await expect(deleteSectionCopyOverride(vbA, 'materials')).rejects.toBeInstanceOf(HttpError)
+    const after = await prisma.viewbook.findUnique({ where: { id: vbA }, select: { syncVersion: true } })
+    expect(after!.syncVersion).toBe(before!.syncVersion)
+  })
+
+  it('deleteSectionCopyGlobal reverts to default (removes the row)', async () => {
+    await putSectionCopyGlobal('strategy', { purpose: 'p', whatThis: 't', whatWeNeed: null }, 'op')
+    await deleteSectionCopyGlobal('strategy')
+    expect((await getSectionCopyGlobalMap()).strategy).toBeUndefined()
+  })
+})
+```
+
+Run: `npx vitest run lib/viewbook/section-copy-content.store.test.ts` → PASS.
+
 - [ ] **Step 5: Commit**
 
 ```bash
-git add lib/viewbook/section-copy-content.ts lib/viewbook/section-copy-content.test.ts
+git add lib/viewbook/section-copy-content.ts lib/viewbook/section-copy-content.test.ts lib/viewbook/section-copy-content.store.test.ts
 git commit -m "feat(viewbook): section-copy content store + 3-layer resolver (Feature A)"
 ```
 
@@ -743,7 +836,14 @@ describe('StatusPill', () => {
 })
 ```
 
-- [ ] **Step 3: Update the three importers** — change `import { StatusPill } from './SectionSummaryPanel'` to `import { StatusPill } from './StatusPill'` in `StageOverview.tsx` and `PreviousStages.tsx`; in `SectionShell.tsx` change `import { SectionSummaryPanel, StatusPill } from './SectionSummaryPanel'` to `import { StatusPill } from './StatusPill'` (the `SectionSummaryPanel` import is removed entirely in Task 7).
+- [ ] **Step 3: Update the three importers (sequencing-safe — Codex plan-fix 3)** — change `import { StatusPill } from './SectionSummaryPanel'` to `import { StatusPill } from './StatusPill'` in `StageOverview.tsx` and `PreviousStages.tsx`. In `SectionShell.tsx`, `SectionSummaryPanel` is STILL rendered until Task 7 — so **split the import, do NOT drop the panel**:
+
+```tsx
+import { SectionSummaryPanel } from './SectionSummaryPanel'
+import { StatusPill } from './StatusPill'
+```
+
+(Task 7 removes the `SectionSummaryPanel` import + its JSX before deleting the file. Removing it here would break `SectionShell`'s `tsc` gate mid-plan.)
 
 - [ ] **Step 4: Run gate**
 
@@ -898,7 +998,7 @@ function renderShell(viewerMode: 'continuous' | 'collapse') {
 
 describe('SectionShell section-copy tooltip', () => {
   it('continuous: renders an info-tooltip carrying whatThis + whatWeNeed, and NO summary panel', () => {
-    const { container } = render(<>{renderShell('continuous')}</>)
+    const { container } = renderShell('continuous') // renderShell already calls render()
     expect(container.querySelector('[data-vb-summary-panel]')).toBeNull()
     const tip = container.querySelector('[role="tooltip"]')
     expect(tip).not.toBeNull()
@@ -999,6 +1099,14 @@ sectionCopy={resolveSectionCopy(section.sectionKey, null, null)}
 ```
 
 Run `npx tsc --noEmit` and fix every reported missing-prop site until clean (tsc enumerates them because the prop is required).
+
+- [ ] **Step 4b: Update the EXISTING `SectionShell.test.tsx` (Codex plan-fix 4)** — `SectionShell.test.tsx` has many direct `render(<SectionShell … />)` calls that will now dereference `sectionCopy` as `undefined` at runtime (a required prop tsc flags, but the pre-existing tests must also actually pass a value). Add a default to its shared `baseProps`:
+
+```tsx
+sectionCopy: { purpose: 'Purpose.', whatThis: 'What this is.', whatWeNeed: null },
+```
+
+and add it to any direct render not using `baseProps`. Re-run `npx vitest run components/viewbook/public/SectionShell.test.tsx` → PASS.
 
 - [ ] **Step 5: Delete the panel + its test**
 
@@ -1222,8 +1330,8 @@ git commit -m "feat(viewbook): per-viewbook section-copy override routes (Featur
 - Test: `components/viewbook/admin/SectionCopyEditor.test.tsx`
 
 **Interfaces:**
-- Consumes: an initial `Record<SectionKey, ResolvedSectionCopy>` (resolved from code default ← company-wide) passed from the server page (which calls `getSectionCopyGlobalMap` + `resolveSectionCopy` per key). PUT/DELETE `/api/viewbooks/section-copy/:sectionKey` (Task 8).
-- Produces: a per-section editor (13 sections; purpose/whatThis/whatWeNeed textareas; Save + "Reset to default"). Mirror the block-editor styling in `GlobalContentEditor.tsx` (`jsonFetch` from `./viewbook-admin-shared`, `ViewbookEditorPanel`/editor class helpers from `@/components/viewbook/editor`, `StatusPill` from `@/components/ui/StatusPill`). This is admin UI → dark-mode classes ARE allowed here (NOT the public viewer).
+- Consumes: `initial` (resolved from code default ← company-wide, per key) for prefill AND `defaults` (the pure code default per key, for the post-Reset value — Codex plan-fix 5: `initial` is the RESOLVED value and cannot serve as the code default after DELETE). Both derived from `SECTION_COPY` (client-safe — imports only `theme.ts`) so the component can compute `defaults` itself from `SECTION_COPY` rather than taking a prop. PUT/DELETE `/api/viewbooks/section-copy/:sectionKey` (Task 8).
+- Produces: a per-section editor (13 sections; purpose/whatThis/whatWeNeed textareas; Save + "Reset to default"). "Reset" DELETEs the company-wide row and resets the local fields to the code default. Mirror the block-editor styling in `GlobalContentEditor.tsx` (`jsonFetch` from `./viewbook-admin-shared`, editor class helpers from `@/components/viewbook/editor`). This is admin UI → dark-mode classes ARE allowed here (NOT the public viewer).
 
 - [ ] **Step 1: Write the failing test**
 
@@ -1255,6 +1363,21 @@ describe('SectionCopyEditor', () => {
     const [url, opts] = fetchMock.mock.calls[0]
     expect(String(url)).toContain('/api/viewbooks/section-copy/brand')
     expect((opts as any).method).toBe('PUT')
+  })
+
+  it('Reset DELETEs the company-wide row and restores the code default field values', async () => {
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({ ok: true }), { status: 200 }))
+    vi.stubGlobal('fetch', fetchMock)
+    // initial here is a RESOLVED (company-wide) value that differs from the code default
+    render(<SectionCopyEditor sectionKeys={['brand'] as any} initial={initial} />)
+    fireEvent.click(screen.getByRole('button', { name: /reset brand to default/i }))
+    await Promise.resolve(); await Promise.resolve()
+    const [url, opts] = fetchMock.mock.calls[0]
+    expect(String(url)).toContain('/api/viewbooks/section-copy/brand')
+    expect((opts as any).method).toBe('DELETE')
+    // field now shows the code default (SECTION_COPY.brand.whatThis), not the resolved 'T'
+    const whatThis = screen.getByLabelText('What this is — brand') as HTMLTextAreaElement
+    expect(whatThis.value).not.toBe('T')
   })
 })
 ```
@@ -1288,7 +1411,11 @@ export function SectionCopyEditor({ sectionKeys, initial }: {
   )
 }
 
-function SectionRow({ sectionKey, initial }: { sectionKey: SectionKey; initial: ResolvedSectionCopy }) {
+function SectionRow({ sectionKey, initial, defaultCopy }: {
+  sectionKey: SectionKey
+  initial: ResolvedSectionCopy
+  defaultCopy: ResolvedSectionCopy // code default — the post-Reset value
+}) {
   const [purpose, setPurpose] = useState(initial.purpose)
   const [whatThis, setWhatThis] = useState(initial.whatThis)
   const [whatWeNeed, setWhatWeNeed] = useState(initial.whatWeNeed ?? '')
@@ -1305,6 +1432,23 @@ function SectionRow({ sectionKey, initial }: { sectionKey: SectionKey; initial: 
     } catch (e) { setErr(String(e)) } finally { setBusy(false) }
   }
 
+  // Reset to default: DELETE the company-wide row, then reflect the CODE
+  // default locally (Codex plan-fix 5 — `initial` is the resolved value, not
+  // the code default). Tolerate a 404 (no row existed = already at default).
+  const reset = async () => {
+    setBusy(true); setErr(null)
+    try {
+      await jsonFetch(`/api/viewbooks/section-copy/${sectionKey}`, { method: 'DELETE' })
+    } catch (e) {
+      // a 404 means "nothing to delete" — still fall through to reset the fields
+      if (!/404/.test(String(e))) { setErr(String(e)); setBusy(false); return }
+    }
+    setPurpose(defaultCopy.purpose)
+    setWhatThis(defaultCopy.whatThis)
+    setWhatWeNeed(defaultCopy.whatWeNeed ?? '')
+    setBusy(false)
+  }
+
   return (
     <div className="rounded-xl border border-gray-200 dark:border-navy-border p-4">
       <h3 className="font-semibold text-navy dark:text-white">{SECTION_TITLES[sectionKey]}</h3>
@@ -1317,13 +1461,23 @@ function SectionRow({ sectionKey, initial }: { sectionKey: SectionKey; initial: 
       {err && <p className="text-sm text-red-600">{err}</p>}
       <div className="mt-2 flex gap-2">
         <button type="button" aria-label={`Save ${sectionKey}`} disabled={busy} className={editorPrimaryBtnClass} onClick={save}>Save</button>
+        <button type="button" aria-label={`Reset ${sectionKey} to default`} disabled={busy} className={editorDestructiveBtnClass} onClick={reset}>Reset to default</button>
       </div>
     </div>
   )
 }
 ```
 
-> If `editorLabelClass`/`editorTextareaClass`/`editorPrimaryBtnClass`/`editorDestructiveBtnClass` names differ, use the exact exports of `@/components/viewbook/editor` (confirm via that file). A "Reset to default" button (DELETE then reset local state to the code default) can be added mirroring `ContentTab`'s override delete-with-confirm; not required for the passing test but include it for parity with the spec.
+`SectionCopyEditor` computes `defaults` from the client-safe `SECTION_COPY` and passes `defaultCopy={defaults[key]}` to each row:
+
+```tsx
+import { SECTION_COPY } from '@/lib/viewbook/section-copy'
+// ...inside SectionCopyEditor's map:
+<SectionRow key={key} sectionKey={key} initial={initial[key]}
+  defaultCopy={{ purpose: SECTION_COPY[key].purpose, whatThis: SECTION_COPY[key].whatThis, whatWeNeed: SECTION_COPY[key].whatWeNeed }} />
+```
+
+> Confirm the exact exports of `@/components/viewbook/editor` (`editorLabelClass`/`editorTextareaClass`/`editorPrimaryBtnClass`/`editorDestructiveBtnClass`) before use — Codex confirmed these + `jsonFetch` + `SECTION_TITLES` are real.
 
 - [ ] **Step 4: Wire into the settings page** — `app/(app)/viewbooks/settings/page.tsx` is a server component. Load the map and pass it:
 
@@ -1362,13 +1516,47 @@ git commit -m "feat(viewbook): company-wide Section copy editor on /viewbooks/se
 
 ### Task 11: Per-viewbook section-copy overrides in `ContentTab`
 
+**Admin data-flow (Codex plan-fix 6 — corrected):** `ContentTab` is fed by the CLIENT component `ViewbookEditor`, which fetches `GET /api/viewbooks/:id` → `{ viewbook: ViewbookDetail }`. That response is built by `getViewbookAdmin(id)` in `lib/viewbook/service.ts` and typed as `ViewbookDetail` in `components/viewbook/admin/viewbook-admin-shared.ts` (which already carries `contentOverrides`). So the per-viewbook resolved section-copy map must be added to `getViewbookAdmin` → `ViewbookDetail` → threaded `ViewbookEditor` → `ContentTab`. There is NO server component to load it directly.
+
 **Files:**
-- Modify: `components/viewbook/admin/ContentTab.tsx` (add a "Section copy overrides" block) + its parent `ViewbookEditor` data plumbing if the resolved per-viewbook map isn't already loaded.
+- Modify: `lib/viewbook/service.ts` — `getViewbookAdmin` returns a resolved `sectionCopy` map.
+- Modify: `components/viewbook/admin/viewbook-admin-shared.ts` — add `sectionCopy` to `ViewbookDetail`.
+- Modify: `components/viewbook/admin/ViewbookEditor.tsx` — pass `sectionCopy={vb.sectionCopy}` to `ContentTab`.
+- Modify: `components/viewbook/admin/ContentTab.tsx` — accept the new prop; render an exported `SectionCopyOverrides` block.
+- Modify fixtures/tests: `components/viewbook/admin/ViewbookEditor.test.tsx` + `components/viewbook/admin/ContentTab.test.tsx` — add `sectionCopy` to their `ViewbookDetail` fixtures (the new prop is required).
 - Test: `components/viewbook/admin/ContentTab.sectioncopy.test.tsx` (create)
 
 **Interfaces:**
-- Consumes: the per-viewbook resolved map (code default ← company-wide ← override) — loaded server-side where `ContentTab`'s other data comes from (mirror how `overrides` reach `ContentTab`). PUT/DELETE `/api/viewbooks/:id/section-copy/:sectionKey` (Task 9).
-- Produces: a per-section override editor in the viewbook admin, one row per section (same three fields), Save (PUT) + "Clear override" (DELETE → falls back to company-wide/default on next load).
+- Consumes: `ViewbookDetail.sectionCopy: Record<SectionKey, ResolvedSectionCopy>` (resolved code default ← company-wide ← per-viewbook override, computed in `getViewbookAdmin`). PUT/DELETE `/api/viewbooks/:id/section-copy/:sectionKey` (Task 9).
+- Produces: a per-section override editor, one row per section (three fields), Save (PUT) + "Clear override" (DELETE → falls back to company-wide/default on next load).
+
+- [ ] **Step 0: Extend `getViewbookAdmin` + `ViewbookDetail`**
+
+In `lib/viewbook/service.ts`, after the existing fetch, resolve the per-viewbook map and add it to the returned object:
+
+```ts
+import { SECTION_KEYS } from './theme'
+import { getSectionCopyGlobalMap, getSectionCopyOverrideMap, resolveSectionCopy } from './section-copy-content'
+// ...inside getViewbookAdmin, after loading the base row:
+  const [scGlobal, scOverride] = await Promise.all([
+    getSectionCopyGlobalMap(),
+    getSectionCopyOverrideMap(id),
+  ])
+  const sectionCopy = Object.fromEntries(
+    SECTION_KEYS.map((k) => [k, resolveSectionCopy(k, scGlobal[k] ?? null, scOverride[k] ?? null)]),
+  )
+  // ...return { ...existing, sectionCopy }
+```
+
+In `components/viewbook/admin/viewbook-admin-shared.ts`, add to `interface ViewbookDetail`:
+
+```ts
+import type { ResolvedSectionCopy } from '@/lib/viewbook/section-copy-content'
+import type { SectionKey } from '@/lib/viewbook/theme'
+  sectionCopy: Record<SectionKey, ResolvedSectionCopy>
+```
+
+In `ViewbookEditor.tsx`, pass it to `ContentTab` (alongside `overrides={vb.contentOverrides}`): `sectionCopy={vb.sectionCopy}`. Add `sectionCopy` to the `ViewbookDetail` fixtures in `ViewbookEditor.test.tsx` and `ContentTab.test.tsx` so their renders keep compiling/passing.
 
 - [ ] **Step 1: Write the failing test** (mirror Task 10's fetch-assertion shape, targeting the per-viewbook endpoint):
 
@@ -1401,9 +1589,13 @@ it('PUTs a per-viewbook section-copy override', async () => {
 Run: `npx vitest run components/viewbook/admin/ContentTab.sectioncopy.test.tsx`
 Expected: FAIL — `SectionCopyOverrides` not exported.
 
-- [ ] **Step 3: Add `SectionCopyOverrides` to `ContentTab.tsx`** — an exported sub-component (so it's independently testable), rendered inside `ContentTab` under a "Section copy overrides" heading. Same three-field row as Task 10 but posting to the per-viewbook endpoint and with a "Clear override" DELETE. Wire the resolved per-viewbook map from the server (add it to `ContentTab`'s props; the parent loads it via `getSectionCopyGlobalMap` + `getSectionCopyOverrideMap` + `buildSectionCopyMap`-style resolution). Reuse the same field/label conventions (`What this is — {sectionKey}`, button `Save {sectionKey} override`). Follow the existing `ContentTab` override block's `jsonFetch` + confirm-delete pattern (lines ~300–330).
+- [ ] **Step 3: Add `SectionCopyOverrides` to `ContentTab.tsx`** — an EXPORTED sub-component (so it's independently testable), rendered inside `ContentTab` under a "Section copy overrides" heading. Props: `{ viewbookId: number; sectionKeys: readonly SectionKey[]; resolved: Record<SectionKey, ResolvedSectionCopy> }` (fed from `vb.sectionCopy` via Step 0). Same three-field row as Task 10's `SectionRow`, but:
+  - Save PUTs `/api/viewbooks/${viewbookId}/section-copy/${sectionKey}` with `{ purpose, whatThis, whatWeNeed }` (empty → null); accessible name `Save {sectionKey} override`.
+  - "Clear override" DELETEs the same endpoint (tolerate 404); on next full profile reload the field falls back to company-wide/default. Accessible name `Clear {sectionKey} override`.
+  - Prefill fields from `resolved[sectionKey]`. Reuse the label convention (`What this is — {sectionKey}`, etc.). Follow the existing `ContentTab` override block's `jsonFetch` + confirm-delete pattern (lines ~300–330).
+  `ContentTab` itself gains a `sectionCopy: Record<SectionKey, ResolvedSectionCopy>` prop (from Step 0) and renders `<SectionCopyOverrides viewbookId={viewbookId} sectionKeys={SECTION_KEYS} resolved={sectionCopy} />`.
 
-- [ ] **Step 4: Wire the resolved map to `ContentTab`** — in the server component that renders `ViewbookEditor`/`ContentTab`, load `getSectionCopyGlobalMap()` + `getSectionCopyOverrideMap(viewbookId)`, resolve per key, and pass as a prop down to `ContentTab` (mirror how `overrides` is already threaded). Run `npx tsc --noEmit` and fix the prop plumbing until clean.
+- [ ] **Step 4: Verify plumbing compiles** — run `npx tsc --noEmit`; fix the `ViewbookDetail` fixture/prop sites flagged (Step 0 added a required field). Confirm `ViewbookEditor.test.tsx` + `ContentTab.test.tsx` fixtures carry `sectionCopy`.
 
 - [ ] **Step 5: Run test + gate**
 
@@ -1413,8 +1605,10 @@ Expected: PASS + clean.
 - [ ] **Step 6: Commit**
 
 ```bash
-git add components/viewbook/admin/ContentTab.tsx components/viewbook/admin/ContentTab.sectioncopy.test.tsx
-# plus the parent server component that plumbs the resolved map
+git add lib/viewbook/service.ts components/viewbook/admin/viewbook-admin-shared.ts \
+  components/viewbook/admin/ViewbookEditor.tsx components/viewbook/admin/ViewbookEditor.test.tsx \
+  components/viewbook/admin/ContentTab.tsx components/viewbook/admin/ContentTab.test.tsx \
+  components/viewbook/admin/ContentTab.sectioncopy.test.tsx
 git commit -m "feat(viewbook): per-viewbook section-copy overrides in ContentTab (Feature A)"
 ```
 
@@ -1442,7 +1636,9 @@ git commit -m "feat(viewbook): per-viewbook section-copy overrides in ContentTab
 
 **Type consistency:** `SectionCopyContent`/`ResolvedSectionCopy` names consistent Tasks 3/6/7/10/11; `sectionCopy` prop name consistent Tasks 6/7; endpoint paths consistent Tasks 8/9 ↔ 10/11; `useTocHidden` shape consistent Tasks 1/2.
 
+**Codex plan-review fixes applied (all 6, accept-with-named-fixes):** Task 2 initial-focus guard + orphaned `open`/`collapse` removal; Task 3 DB-backed store tests (Step 4b); Task 5 sequencing (keep the panel import until Task 7); Task 7 existing-`SectionShell.test.tsx` baseProps + double-render fix; Task 10 `defaults`/Reset behavior + test; Task 11 corrected admin data-flow (`getViewbookAdmin`→`ViewbookDetail`→`ViewbookEditor`→`ContentTab`, since `ViewbookEditor` is a client component). Task 4 / Tasks 8–9 confirmed sound.
+
 **Open confirmation for the implementer (not blockers):**
-- Exact export names in `@/components/viewbook/editor` (Task 10/11) — confirm before use.
-- Whether `SummaryStat.tsx` actually renders `SectionShell` (Task 7 caller list) — grep confirmed it imports it; verify it passes the new prop.
-- The exact server component that renders `ContentTab` (Task 11 Step 4) — trace from `ViewbookEditor`.
+- Exact export names in `@/components/viewbook/editor` (Task 10/11) — Codex confirmed real; confirm exact spelling before use.
+- Whether `SummaryStat.tsx` actually renders `SectionShell` (Task 7 caller list) — grep confirmed the import; verify it passes the new prop (tsc will flag if it renders one).
+- The repo's DB-backed test seed/cleanup convention (Task 3 Step 4b) — mirror an existing prisma-touching viewbook test.
