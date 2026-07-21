@@ -10,6 +10,7 @@ import type { AssessmentData } from '@/lib/viewbook/assessment'
 import { getOperatorEmailForPublicPage } from '@/lib/viewbook/public-session'
 import { RichTextRenderer } from '@/components/richtext/RichTextRenderer'
 import { isBlankRichText } from '@/lib/richtext/sanitize'
+import type { SectionRenderMeta } from '@/lib/viewbook/section-status'
 import { SectionShell } from './SectionShell'
 import { SECTION_TITLES } from './section-titles'
 import { publicAssetUrl } from './ThemeStyle'
@@ -255,10 +256,12 @@ export async function AssessmentSection({
   section,
   data,
   token,
+  meta,
 }: {
   section: PublicSection
   data: ViewbookPublicData
   token: string
+  meta: SectionRenderMeta
 }) {
   const [load, operatorEmail] = await Promise.all([
     loadAssessmentData(token),
@@ -288,6 +291,7 @@ export async function AssessmentSection({
     <SectionShell
       section={section}
       stage={data.stage}
+      meta={meta}
       title={SECTION_TITLES[section.sectionKey]}
       heroUrl={hero ? publicAssetUrl(token, hero) : null}
       summary={<SummaryStat eyebrow={SECTION_TITLES[section.sectionKey]} headline={summaryHeadline} />}

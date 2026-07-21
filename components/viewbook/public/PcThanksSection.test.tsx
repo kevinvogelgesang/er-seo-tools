@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import { render, screen, cleanup } from '@testing-library/react'
+import { defaultMeta } from './section-test-meta'
 import { describe, it, expect, afterEach } from 'vitest'
 import { DEFAULT_THEME } from '@/lib/viewbook/theme'
 import type { PublicSection, ViewbookPublicData } from '@/lib/viewbook/public-types'
@@ -42,13 +43,13 @@ function data(over: Partial<ViewbookPublicData> = {}): ViewbookPublicData {
 
 describe('PcThanksSection', () => {
   it('returns null when pcCompletedAt is null', () => {
-    const { container } = render(<PcThanksSection section={section} data={data()} token="t" />)
+    const { container } = render(<PcThanksSection meta={defaultMeta()} section={section} data={data()} token="t" />)
     expect(container.firstChild).toBeNull()
   })
 
   it('renders the fixed thank-you copy when pcCompletedAt is set', () => {
     render(
-      <PcThanksSection section={section} data={data({ pcCompletedAt: '2026-07-16T00:00:00.000Z' })} token="t" />,
+      <PcThanksSection meta={defaultMeta()} section={section} data={data({ pcCompletedAt: '2026-07-16T00:00:00.000Z' })} token="t" />,
     )
     expect(screen.getByText(/we've received your information/i)).toBeDefined()
     // Title now appears twice — once in the header band, once as the

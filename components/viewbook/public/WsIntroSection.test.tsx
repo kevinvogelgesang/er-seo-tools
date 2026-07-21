@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import { render, cleanup } from '@testing-library/react'
+import { defaultMeta } from './section-test-meta'
 import { describe, it, expect, afterEach } from 'vitest'
 import { DEFAULT_THEME } from '@/lib/viewbook/theme'
 import type { PublicSection, ViewbookPublicData } from '@/lib/viewbook/public-types'
@@ -42,21 +43,21 @@ function data(stage: string): ViewbookPublicData {
 describe('WsIntroSection', () => {
   it('renders the website-specifics hero title in that stage', () => {
     const { container } = render(
-      <WsIntroSection section={{ ...baseSection }} data={data('website-specifics')} token="t" />,
+      <WsIntroSection meta={defaultMeta()} section={{ ...baseSection }} data={data('website-specifics')} token="t" />,
     )
     expect(container.textContent).toContain('Website Specifics')
   })
 
   it('renders the code-owned lead paragraph', () => {
     const { container } = render(
-      <WsIntroSection section={{ ...baseSection }} data={data('website-specifics')} token="t" />,
+      <WsIntroSection meta={defaultMeta()} section={{ ...baseSection }} data={data('website-specifics')} token="t" />,
     )
     expect(container.textContent).toMatch(/look and feel/i)
   })
 
   it('returns null outside website-specifics (defensive gate)', () => {
     const { container } = render(
-      <WsIntroSection section={{ ...baseSection }} data={data('building')} token="t" />,
+      <WsIntroSection meta={defaultMeta()} section={{ ...baseSection }} data={data('building')} token="t" />,
     )
     expect(container.firstChild).toBeNull()
   })

@@ -5,6 +5,7 @@
 // Never collapses, no ack — this is purely informational, mirroring
 // WsIntroSection's shape (thin section via SectionShell + defensive gate).
 import type { PublicSection, ViewbookPublicData } from '@/lib/viewbook/public-types'
+import type { SectionRenderMeta } from '@/lib/viewbook/section-status'
 import { SectionShell } from './SectionShell'
 import { SECTION_TITLES } from './section-titles'
 import { publicAssetUrl } from './ThemeStyle'
@@ -17,10 +18,12 @@ export function PcIntroSection({
   section,
   data,
   token,
+  meta,
 }: {
   section: PublicSection
   data: ViewbookPublicData
   token: string
+  meta: SectionRenderMeta
 }) {
   // Defensive belt-and-suspenders gate — 'pc-intro' only ever appears in the
   // post-contract primary lineup, never carried.
@@ -31,6 +34,7 @@ export function PcIntroSection({
     <SectionShell
       section={section}
       stage={data.stage}
+      meta={meta}
       title={SECTION_TITLES['pc-intro']}
       heroUrl={hero ? publicAssetUrl(token, hero) : null}
       summary={<SummaryStat eyebrow={SECTION_TITLES['pc-intro']} headline={sectionStatusLabel(section)} />}

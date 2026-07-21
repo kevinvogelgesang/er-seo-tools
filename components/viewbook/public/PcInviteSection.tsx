@@ -6,6 +6,7 @@
 // (STAGE_LINEUPS) — must NOT hard-gate to post-contract.
 import type { PublicSection, ViewbookPublicData } from '@/lib/viewbook/public-types'
 import { inviteProgress } from '@/lib/viewbook/summary-metrics'
+import type { SectionRenderMeta } from '@/lib/viewbook/section-status'
 import { SectionShell } from './SectionShell'
 import { SECTION_TITLES } from './section-titles'
 import { publicAssetUrl } from './ThemeStyle'
@@ -19,10 +20,12 @@ export function PcInviteSection({
   section,
   data,
   token,
+  meta,
 }: {
   section: PublicSection
   data: ViewbookPublicData
   token: string
+  meta: SectionRenderMeta
 }) {
   const hero = data.theme.sectionHeroes['pc-invite']
   const members = data.teamMembers
@@ -32,6 +35,7 @@ export function PcInviteSection({
     <SectionShell
       section={section}
       stage={data.stage}
+      meta={meta}
       title={SECTION_TITLES['pc-invite']}
       heroUrl={hero ? publicAssetUrl(token, hero) : null}
       summary={

@@ -2,7 +2,9 @@
 import { render, screen, cleanup } from '@testing-library/react'
 import { describe, it, expect, afterEach } from 'vitest'
 import { SectionShell } from './SectionShell'
+import { defaultMeta } from './section-test-meta'
 import type { PublicSection } from '@/lib/viewbook/public-types'
+import type { SectionKey } from '@/lib/viewbook/theme'
 
 afterEach(cleanup)
 
@@ -15,6 +17,9 @@ const section = (over: Partial<PublicSection> = {}): PublicSection => ({
   narrative: null,
   ...over,
 })
+
+// A plain active section under a given key (Task 7 DOM-contract cases).
+const activeSection = (sectionKey: SectionKey): PublicSection => section({ sectionKey })
 
 // Body visibility is now STATE-ONLY (sticky-header model, no observer). Initial
 // open/closed comes from the pure `sectionInitiallyOpen(section, stage)` policy;
@@ -29,6 +34,7 @@ describe('SectionShell', () => {
         title="Brand Guidelines"
         heroUrl={null}
         stage="kickoff"
+        meta={defaultMeta()}
         summary={<span>3 colors locked in</span>}
       >
         <p>Body</p>
@@ -54,6 +60,7 @@ describe('SectionShell', () => {
         title="Brand Guidelines"
         heroUrl={null}
         stage="building"
+        meta={defaultMeta({ status: 'complete' })}
       >
         <p>Body</p>
       </SectionShell>,
@@ -75,6 +82,7 @@ describe('SectionShell', () => {
         title="Set Up Your Viewbook"
         heroUrl={null}
         stage="post-contract"
+        meta={defaultMeta({ status: 'complete' })}
       >
         <p>Body</p>
       </SectionShell>,
@@ -94,6 +102,7 @@ describe('SectionShell', () => {
         title="Brand Guidelines"
         heroUrl={null}
         stage="building"
+        meta={defaultMeta()}
         summary={<span>3 colors locked in</span>}
       >
         <p>Body</p>
@@ -117,6 +126,7 @@ describe('SectionShell', () => {
         title="Welcome"
         heroUrl={null}
         stage="post-contract"
+        meta={defaultMeta({ heroSize: 'full', isLead: true, chapterNumber: 1 })}
       >
         <p>Body</p>
       </SectionShell>,
@@ -124,6 +134,43 @@ describe('SectionShell', () => {
     const region = container.querySelector('[role="region"]')
     expect(region?.getAttribute('data-vb-expanded')).toBe('true')
     expect(container.querySelector('button[aria-expanded]')).toBeNull()
+  })
+})
+
+describe('SectionShell DOM contract (Task 7)', () => {
+  it('emits the DOM contract attributes and a hero sentinel for chapter heroes', () => {
+    const { container } = render(
+      <SectionShell
+        section={activeSection('brand')}
+        stage="website-specifics"
+        title="Brand"
+        heroUrl={null}
+        meta={defaultMeta({ heroSize: 'chapter', chapterNumber: 2, status: 'current' })}
+      >
+        body
+      </SectionShell>,
+    )
+    const el = container.querySelector('section')!
+    expect(el.getAttribute('data-vb-section')).toBe('brand')
+    expect(el.getAttribute('data-vb-status')).toBe('current')
+    expect(el.getAttribute('data-vb-hero-visible')).toBe('true')
+    expect(container.querySelector('[data-vb-hero]')).toBeTruthy()
+  })
+
+  it('no-hero sections seed hero-visible false and emit no hero sentinel', () => {
+    const { container } = render(
+      <SectionShell
+        section={activeSection('brand')}
+        stage="website-specifics"
+        title="Brand"
+        heroUrl={null}
+        meta={defaultMeta({ heroSize: 'none' })}
+      >
+        body
+      </SectionShell>,
+    )
+    expect(container.querySelector('section')!.getAttribute('data-vb-hero-visible')).toBe('false')
+    expect(container.querySelector('[data-vb-hero]')).toBeNull()
   })
 })
 
@@ -135,6 +182,7 @@ describe('SectionShell PR5 polish', () => {
         title="Brand Guidelines"
         heroUrl={null}
         stage="building"
+        meta={defaultMeta({ status: 'complete' })}
       >
         <p>Body</p>
       </SectionShell>,
@@ -151,6 +199,7 @@ describe('SectionShell PR5 polish', () => {
         title="Brand Guidelines"
         heroUrl="/api/viewbook/tok/assets/hero.png"
         stage="building"
+        meta={defaultMeta()}
       >
         <p>Body</p>
       </SectionShell>,

@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import { render, screen, cleanup } from '@testing-library/react'
+import { defaultMeta } from './section-test-meta'
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { DEFAULT_THEME } from '@/lib/viewbook/theme'
 import type { PublicSection, ViewbookPublicData, PublicAssessmentNotes } from '@/lib/viewbook/public-types'
@@ -88,7 +89,7 @@ function load(over: Partial<AssessmentLoad> = {}): AssessmentLoad {
 
 // Async server component: call it as a function, render the resolved JSX.
 async function renderSection() {
-  render(await AssessmentSection({ section, data, token: 'tok' }))
+  render(await AssessmentSection({ section, data, token: 'tok', meta: defaultMeta() }))
 }
 
 describe('AssessmentSection', () => {

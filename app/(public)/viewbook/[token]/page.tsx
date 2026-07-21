@@ -2,6 +2,7 @@ import type { ReactNode } from 'react'
 import { notFound } from 'next/navigation'
 import type { Metadata } from 'next'
 import type { PublicSection } from '@/lib/viewbook/public-types'
+import type { SectionRenderMeta } from '@/lib/viewbook/section-status'
 import { loadViewbookPublicData } from '@/lib/viewbook/public-data'
 import { ViewbookShell } from '@/components/viewbook/public/ViewbookShell'
 import { WelcomeSection } from '@/components/viewbook/public/WelcomeSection'
@@ -39,8 +40,8 @@ export default async function ViewbookPage({ params }: { params: Promise<{ token
   ])
   if (!data) notFound()
 
-  const baseRenderSection = (section: PublicSection): ReactNode => {
-    const props = { section, data, token }
+  const baseRenderSection = (section: PublicSection, meta: SectionRenderMeta): ReactNode => {
+    const props = { section, data, token, meta }
     switch (section.sectionKey) {
       case 'welcome':
         return <WelcomeSection {...props} />
@@ -100,9 +101,9 @@ export default async function ViewbookPage({ params }: { params: Promise<{ token
   // canonical Next pattern (server renders a client component). The resulting
   // ViewbookShell tree is a ReactNode passed as `children` to the client
   // layer, so NO closures ever cross the RSC boundary.
-  const wrappedRenderSection = (section: PublicSection): ReactNode => {
+  const wrappedRenderSection = (section: PublicSection, meta: SectionRenderMeta): ReactNode => {
     const operatorSection = operatorData.sections.find((item) => item.sectionKey === section.sectionKey)
-    const rendered = baseRenderSection(section)
+    const rendered = baseRenderSection(section, meta)
     if (!operatorSection) return rendered
     return (
       <OperatorSectionWrapper sectionKey={operatorSection.sectionKey}>

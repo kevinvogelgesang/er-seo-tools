@@ -2,6 +2,7 @@
 // team roster with photos, process explainer. Read-only; degrades to
 // friendly placeholders when global content is absent.
 import type { PublicSection, ViewbookPublicData } from '@/lib/viewbook/public-types'
+import type { SectionRenderMeta } from '@/lib/viewbook/section-status'
 import { SectionShell } from './SectionShell'
 import { SECTION_TITLES } from './section-titles'
 import { publicAssetUrl } from './ThemeStyle'
@@ -32,10 +33,12 @@ export function WelcomeSection({
   section,
   data,
   token,
+  meta,
 }: {
   section: PublicSection
   data: ViewbookPublicData
   token: string
+  meta: SectionRenderMeta
 }) {
   const hero = data.theme.sectionHeroes[section.sectionKey]
   const { team, blocks } = data.global
@@ -45,6 +48,7 @@ export function WelcomeSection({
     <SectionShell
       section={section}
       stage={data.stage}
+      meta={meta}
       title={SECTION_TITLES[section.sectionKey]}
       heroUrl={hero ? publicAssetUrl(token, hero) : null}
       summary={

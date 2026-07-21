@@ -4,6 +4,7 @@
 // `primarySections` when `pcCompletedAt` is null (so the ProgressNav never
 // shows a dead dot) — this null gate is belt-and-suspenders.
 import type { PublicSection, ViewbookPublicData } from '@/lib/viewbook/public-types'
+import type { SectionRenderMeta } from '@/lib/viewbook/section-status'
 import { SectionShell } from './SectionShell'
 import { SECTION_TITLES } from './section-titles'
 import { publicAssetUrl } from './ThemeStyle'
@@ -16,10 +17,12 @@ export function PcThanksSection({
   section,
   data,
   token,
+  meta,
 }: {
   section: PublicSection
   data: ViewbookPublicData
   token: string
+  meta: SectionRenderMeta
 }) {
   if (!data.pcCompletedAt) return null
   const hero = data.theme.sectionHeroes['pc-thanks']
@@ -28,6 +31,7 @@ export function PcThanksSection({
     <SectionShell
       section={section}
       stage={data.stage}
+      meta={meta}
       title={SECTION_TITLES['pc-thanks']}
       heroUrl={hero ? publicAssetUrl(token, hero) : null}
       summary={<SummaryStat eyebrow={SECTION_TITLES['pc-thanks']} headline={sectionStatusLabel(section)} />}

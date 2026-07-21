@@ -20,6 +20,7 @@
 // searchable focus; buildSearchIndex is only ever called when building.
 import type { CSSProperties, ReactNode } from 'react'
 import type { PublicSection, ViewbookPublicData } from '@/lib/viewbook/public-types'
+import type { SectionRenderMeta } from '@/lib/viewbook/section-status'
 import { buildSearchIndex, buildTocIndex } from '@/lib/viewbook/toc-index'
 import { ProgressNav } from './ProgressNav'
 import { EarlierSteps } from './EarlierSteps'
@@ -39,7 +40,7 @@ export function ViewbookShell({
   data: ViewbookPublicData
   primarySections: PublicSection[]
   carriedSections: PublicSection[]
-  renderSection: (s: PublicSection) => ReactNode
+  renderSection: (s: PublicSection, meta: SectionRenderMeta) => ReactNode
 }) {
   const logoUrl = data.theme.logo ? publicAssetUrl(token, data.theme.logo) : null
   return (
@@ -88,8 +89,20 @@ export function ViewbookShell({
         team={data.global.team}
       />
       <div style={{ fontFamily: 'var(--vb-body-font)' }}>
-        {primarySections.map((s) => (
-          <div key={s.sectionKey}>{renderSection(s)}</div>
+        {/* Interim per-section meta (Task 7 threading): index-based lead
+            promotion + chapter numbering so the page renders correctly the
+            moment SectionShell requires `meta`. Task 10 replaces this with the
+            real status-aware computation (computeSectionStatuses) + StageOverview
+            + PreviousStages — same `(s, meta)` render contract, richer meta. */}
+        {primarySections.map((s, i) => (
+          <div key={s.sectionKey}>
+            {renderSection(s, {
+              heroSize: i === 0 ? 'full' : 'chapter',
+              chapterNumber: i + 1,
+              status: 'current',
+              isLead: i === 0,
+            })}
+          </div>
         ))}
         <EarlierSteps sections={carriedSections} renderSection={renderSection} />
       </div>

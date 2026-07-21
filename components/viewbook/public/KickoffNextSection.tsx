@@ -1,6 +1,7 @@
 import type { PublicSection, ViewbookPublicData } from '@/lib/viewbook/public-types'
 import { KickoffNextCta } from './KickoffNextButton'
 import { KickoffQuestionsOutro } from './KickoffQuestionsOutro'
+import type { SectionRenderMeta } from '@/lib/viewbook/section-status'
 import { SectionShell } from './SectionShell'
 import { SECTION_TITLES } from './section-titles'
 import { publicAssetUrl } from './ThemeStyle'
@@ -11,11 +12,13 @@ export function KickoffNextSection({
   section,
   data,
   token,
+  meta,
 }: {
   isOperator: boolean
   section: PublicSection
   data: ViewbookPublicData
   token: string
+  meta: SectionRenderMeta
 }) {
   // STAGE_LINEUPS only lists 'kickoff-next' in the 'kickoff' stage's primary
   // section list (never carried), so renderSection never reaches this
@@ -28,6 +31,7 @@ export function KickoffNextSection({
     <SectionShell
       section={section}
       stage={data.stage}
+      meta={meta}
       title={SECTION_TITLES[section.sectionKey]}
       heroUrl={hero ? publicAssetUrl(token, hero) : null}
       summary={

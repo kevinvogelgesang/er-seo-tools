@@ -6,6 +6,8 @@
 // Server component: no client JS, plain <details>/<summary>. PR7 restyles.
 import type { ReactNode } from 'react'
 import type { PublicSection } from '@/lib/viewbook/public-types'
+import type { SectionRenderMeta } from '@/lib/viewbook/section-status'
+import { carriedStatus } from '@/lib/viewbook/section-status'
 import { SECTION_TITLES } from './section-titles'
 import { DotStack } from './SectionAccents'
 
@@ -14,7 +16,7 @@ export function EarlierSteps({
   renderSection,
 }: {
   sections: PublicSection[]
-  renderSection: (s: PublicSection) => ReactNode
+  renderSection: (s: PublicSection, meta: SectionRenderMeta) => ReactNode
 }) {
   if (sections.length === 0) return null
 
@@ -89,7 +91,9 @@ export function EarlierSteps({
                   view
                 </span>
               </summary>
-              <div className="border-t border-black/5">{renderSection(s)}</div>
+              <div className="border-t border-black/5">
+                {renderSection(s, { heroSize: 'none', chapterNumber: null, status: carriedStatus(s), isLead: false })}
+              </div>
             </details>
           ))}
         </div>

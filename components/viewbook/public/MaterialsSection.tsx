@@ -3,6 +3,7 @@
 // MaterialLinkForm here (client add-a-link).
 import type { PublicSection, ViewbookPublicData } from '@/lib/viewbook/public-types'
 import { materialAnchor } from '@/lib/viewbook/anchors'
+import type { SectionRenderMeta } from '@/lib/viewbook/section-status'
 import { SectionShell } from './SectionShell'
 import { SECTION_TITLES } from './section-titles'
 import { publicAssetUrl } from './ThemeStyle'
@@ -30,10 +31,12 @@ export function MaterialsSection({
   section,
   data,
   token,
+  meta,
 }: {
   section: PublicSection
   data: ViewbookPublicData
   token: string
+  meta: SectionRenderMeta
 }) {
   const hero = data.theme.sectionHeroes[section.sectionKey]
   const n = data.materials.length
@@ -42,6 +45,7 @@ export function MaterialsSection({
     <SectionShell
       section={section}
       stage={data.stage}
+      meta={meta}
       title={SECTION_TITLES[section.sectionKey]}
       heroUrl={hero ? publicAssetUrl(token, hero) : null}
       summary={

@@ -8,6 +8,7 @@
 // "slim hero" presentation lands with SectionShell v2 in PR7; this component
 // does not attempt a bespoke slim layout.
 import type { PublicSection, ViewbookPublicData } from '@/lib/viewbook/public-types'
+import type { SectionRenderMeta } from '@/lib/viewbook/section-status'
 import { SectionShell } from './SectionShell'
 import { SECTION_TITLES } from './section-titles'
 import { publicAssetUrl } from './ThemeStyle'
@@ -20,10 +21,12 @@ export function WsIntroSection({
   section,
   data,
   token,
+  meta,
 }: {
   section: PublicSection
   data: ViewbookPublicData
   token: string
+  meta: SectionRenderMeta
 }) {
   // The lineup already gates rendering to the 'website-specifics' stage —
   // this is a defensive belt-and-suspenders check, mirroring KickoffNextSection.
@@ -34,6 +37,7 @@ export function WsIntroSection({
     <SectionShell
       section={section}
       stage={data.stage}
+      meta={meta}
       title={SECTION_TITLES['ws-intro']}
       heroUrl={hero ? publicAssetUrl(token, hero) : null}
       summary={<SummaryStat eyebrow={SECTION_TITLES['ws-intro']} headline={sectionStatusLabel(section)} />}

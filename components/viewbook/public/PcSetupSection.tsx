@@ -8,6 +8,7 @@
 import type { PublicField, PublicSection, ViewbookPublicData } from '@/lib/viewbook/public-types'
 import { PC_SETUP_DEF_KEYS } from '@/lib/viewbook/stages'
 import { canonicalMailbox, PRIMARY_CONTACT_EMAIL_DEFKEY } from '@/lib/viewbook/global-content-keys'
+import type { SectionRenderMeta } from '@/lib/viewbook/section-status'
 import { SectionShell } from './SectionShell'
 import { SECTION_TITLES } from './section-titles'
 import { publicAssetUrl } from './ThemeStyle'
@@ -53,10 +54,12 @@ export function PcSetupSection({
   section,
   data,
   token,
+  meta,
 }: {
   section: PublicSection
   data: ViewbookPublicData
   token: string
+  meta: SectionRenderMeta
 }) {
   const hero = data.theme.sectionHeroes['pc-setup']
   const fields = orderedSetupFields(data)
@@ -65,6 +68,7 @@ export function PcSetupSection({
     <SectionShell
       section={section}
       stage={data.stage}
+      meta={meta}
       title={SECTION_TITLES['pc-setup']}
       heroUrl={hero ? publicAssetUrl(token, hero) : null}
       summary={<SummaryStat eyebrow={SECTION_TITLES['pc-setup']} headline={sectionStatusLabel(section)} />}

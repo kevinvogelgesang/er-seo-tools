@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import { render, screen, cleanup } from '@testing-library/react'
+import { defaultMeta } from './section-test-meta'
 import { describe, it, expect, afterEach } from 'vitest'
 import { DEFAULT_THEME } from '@/lib/viewbook/theme'
 import type { PublicMilestone, PublicSection, ViewbookPublicData } from '@/lib/viewbook/public-types'
@@ -37,7 +38,7 @@ describe('MilestonesSection', () => {
         milestone({ id: 3, title: 'Build', status: 'upcoming', targetDate: '2026-08-01T00:00:00.000Z' }),
       ],
     })
-    render(<MilestonesSection section={sec('milestones')} data={data} token="tok" />)
+    render(<MilestonesSection meta={defaultMeta()} section={sec('milestones')} data={data} token="tok" />)
     expect(screen.getByText('Current stage')).toBeDefined()
     const a = screen.getByRole('link', { name: /homepage mockup/i })
     expect(a.getAttribute('rel')).toBe('noopener noreferrer')
@@ -55,7 +56,7 @@ describe('MilestonesSection', () => {
         }),
       ],
     })
-    render(<MilestonesSection section={sec('milestones')} data={data} token="tok" />)
+    render(<MilestonesSection meta={defaultMeta()} section={sec('milestones')} data={data} token="tok" />)
     expect(screen.queryByRole('link', { name: /sneaky link/i })).toBeNull()
     expect(screen.getByText('Sneaky link')).toBeDefined()
   })
@@ -64,7 +65,7 @@ describe('MilestonesSection', () => {
     const data = base({
       milestones: [milestone({ id: 1, title: 'Kickoff', status: 'current' })],
     })
-    render(<MilestonesSection section={sec('milestones')} data={data} token="tok" />)
+    render(<MilestonesSection meta={defaultMeta()} section={sec('milestones')} data={data} token="tok" />)
     expect(screen.getByText(/reviews will appear here/i)).toBeDefined()
   })
 
@@ -80,13 +81,13 @@ describe('MilestonesSection', () => {
         reviewLinks: [{ id: 9, label: 'Homepage mockup', url: 'https://x.com/m', kind: 'mockup', feedback: [] }],
       })],
     })
-    const { rerender } = render(<MilestonesSection section={sec('milestones')} data={withReview} token="tok" />)
+    const { rerender } = render(<MilestonesSection meta={defaultMeta()} section={sec('milestones')} data={withReview} token="tok" />)
     expect(screen.getByText(/target: august 1, 2026/i)).toBeDefined()
     expect(screen.queryByRole('link', { name: /homepage mockup/i })).toBeNull()
     expect(screen.queryByText('Review & feedback')).toBeNull()
 
     rerender(
-      <MilestonesSection
+      <MilestonesSection meta={defaultMeta()}
         section={sec('milestones')}
         data={base({ stage: 'kickoff', stageLabel: 'Kickoff', milestones: [milestone({ status: 'current' })] })}
         token="tok"
@@ -102,7 +103,7 @@ describe('MilestonesSection', () => {
         milestone({ id: 2, title: 'Design', status: 'current' }),
       ],
     })
-    const { container } = render(<MilestonesSection section={sec('milestones')} data={data} token="tok" />)
+    const { container } = render(<MilestonesSection meta={defaultMeta()} section={sec('milestones')} data={data} token="tok" />)
     const cards = container.querySelectorAll('[id^="vb-milestone-"]')
     expect(cards.length).toBe(2)
     for (const card of cards) {
@@ -119,7 +120,7 @@ describe('MilestonesSection', () => {
         milestone({ id: 1, title: 'Design', status: 'current', description: 'Detailed design notes go here.' }),
       ],
     })
-    render(<MilestonesSection section={sec('milestones')} data={data} token="tok" />)
+    render(<MilestonesSection meta={defaultMeta()} section={sec('milestones')} data={data} token="tok" />)
     expect(screen.getByText('Detailed design notes go here.')).toBeDefined()
   })
 
@@ -127,7 +128,7 @@ describe('MilestonesSection', () => {
     const data = base({
       milestones: [milestone({ id: 1, title: 'Design', status: 'current', description: null })],
     })
-    const { container } = render(<MilestonesSection section={sec('milestones')} data={data} token="tok" />)
+    const { container } = render(<MilestonesSection meta={defaultMeta()} section={sec('milestones')} data={data} token="tok" />)
     expect(container.querySelector('[id="vb-milestone-1"] p.whitespace-pre-line')).toBeNull()
   })
 
@@ -142,7 +143,7 @@ describe('MilestonesSection', () => {
           blocks: { 'process-milestones': { blocks: [{ heading: 'How it works', body: 'Our standard process.' }] } },
         },
       })
-      render(<MilestonesSection section={sec('milestones')} data={data} token="tok" />)
+      render(<MilestonesSection meta={defaultMeta()} section={sec('milestones')} data={data} token="tok" />)
       expect(screen.getByText('How it works')).toBeDefined()
       expect(screen.getByText('Our standard process.')).toBeDefined()
     })
@@ -152,7 +153,7 @@ describe('MilestonesSection', () => {
         milestones: oneMilestone,
         overrides: { 'process-milestones': 'Your custom timeline plan.' },
       })
-      render(<MilestonesSection section={sec('milestones')} data={data} token="tok" />)
+      render(<MilestonesSection meta={defaultMeta()} section={sec('milestones')} data={data} token="tok" />)
       expect(screen.getByText('Your custom timeline plan.')).toBeDefined()
     })
 
@@ -165,7 +166,7 @@ describe('MilestonesSection', () => {
         },
         overrides: { 'process-milestones': 'Your custom timeline plan.' },
       })
-      render(<MilestonesSection section={sec('milestones')} data={data} token="tok" />)
+      render(<MilestonesSection meta={defaultMeta()} section={sec('milestones')} data={data} token="tok" />)
       expect(screen.getByText('How it works')).toBeDefined()
       expect(screen.getByText('Our standard process.')).toBeDefined()
       expect(screen.getByText('Your custom timeline plan.')).toBeDefined()
@@ -173,7 +174,7 @@ describe('MilestonesSection', () => {
 
     it('renders no info-block heading when both blocks and override are empty', () => {
       const data = base({ milestones: oneMilestone })
-      const { container } = render(<MilestonesSection section={sec('milestones')} data={data} token="tok" />)
+      const { container } = render(<MilestonesSection meta={defaultMeta()} section={sec('milestones')} data={data} token="tok" />)
       expect(container.querySelector('#vb-process-milestones-info')).toBeNull()
     })
   })
@@ -202,7 +203,7 @@ describe('DataSourceSection', () => {
         },
       ],
     })
-    render(<DataSourceSection section={sec('data-source')} data={data} token="tok" />)
+    render(<DataSourceSection meta={defaultMeta()} section={sec('data-source')} data={data} token="tok" />)
     expect(screen.getByText('Your school')).toBeDefined()
     expect(screen.getByText('Pro Way')).toBeDefined()
     expect(screen.getByText(/updated by you/i)).toBeDefined()
@@ -224,7 +225,7 @@ describe('DataSourceSection', () => {
         }],
       }],
     })
-    render(<DataSourceSection section={sec('data-source')} data={data} token="tok" />)
+    render(<DataSourceSection meta={defaultMeta()} section={sec('data-source')} data={data} token="tok" />)
     expect(screen.getByText('not-json[')).toBeDefined()
   })
 
@@ -248,7 +249,7 @@ describe('DataSourceSection', () => {
       }],
     })
 
-    const { container } = render(<DataSourceSection section={sec('data-source')} data={data} token="tok" />)
+    const { container } = render(<DataSourceSection meta={defaultMeta()} section={sec('data-source')} data={data} token="tok" />)
     const lockedRow = container.querySelector('#vb-field-1')
     expect(lockedRow?.getAttribute('data-vb-locked')).toBe('true')
     expect(lockedRow?.className).toContain('bg-black')
@@ -267,11 +268,11 @@ describe('DataSourceSection', () => {
 
   it('renders a post-contract intro line and the ack action; both absent outside post-contract (PR5 Task 7)', () => {
     const postContract = base({ stage: 'post-contract' })
-    const { rerender } = render(<DataSourceSection section={sec('data-source')} data={postContract} token="tok" />)
+    const { rerender } = render(<DataSourceSection meta={defaultMeta()} section={sec('data-source')} data={postContract} token="tok" />)
     expect(screen.getByText(/before the kickoff call/i)).toBeDefined()
     expect(screen.getByRole('button', { name: /looks good/i })).toBeDefined()
 
-    rerender(<DataSourceSection section={sec('data-source')} data={base({ stage: 'kickoff' })} token="tok" />)
+    rerender(<DataSourceSection meta={defaultMeta()} section={sec('data-source')} data={base({ stage: 'kickoff' })} token="tok" />)
     expect(screen.queryByText(/before the kickoff call/i)).toBeNull()
     expect(screen.queryByRole('button', { name: /looks good/i })).toBeNull()
   })
@@ -288,7 +289,7 @@ describe('DataSourceSection', () => {
         }],
       }],
     })
-    const { container } = render(<DataSourceSection section={sec('data-source')} data={data} token="tok" />)
+    const { container } = render(<DataSourceSection meta={defaultMeta()} section={sec('data-source')} data={data} token="tok" />)
     expect(container.querySelector('script')).toBeNull()
     expect(container.querySelector('img[src="x"]')).toBeNull()
     expect((window as unknown as { __pwned?: boolean }).__pwned).toBeUndefined()

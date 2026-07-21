@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import { render, screen, cleanup } from '@testing-library/react'
+import { defaultMeta } from './section-test-meta'
 import { describe, it, expect, afterEach } from 'vitest'
 import { DEFAULT_THEME } from '@/lib/viewbook/theme'
 import type { PublicSection, ViewbookPublicData } from '@/lib/viewbook/public-types'
@@ -39,7 +40,7 @@ const data: ViewbookPublicData = {
 
 describe('BrandSection', () => {
   it('mounts the Task-3 contrast tester alongside the palette + typography specimens', () => {
-    render(<BrandSection section={section} data={data} token="tok" />)
+    render(<BrandSection meta={defaultMeta()} section={section} data={data} token="tok" />)
     expect(screen.getAllByTestId('contrast-ratio').length).toBeGreaterThan(0)
     expect(screen.getByText('Palette')).toBeDefined()
     expect(screen.getByText('Typography')).toBeDefined()
@@ -47,7 +48,7 @@ describe('BrandSection', () => {
   })
 
   it('passes the public viewbook id to the live contrast store subscriber', () => {
-    render(<BrandSection section={section} data={{ ...data, viewbookId: 42 }} token="tok" />)
+    render(<BrandSection meta={defaultMeta()} section={section} data={{ ...data, viewbookId: 42 }} token="tok" />)
     expect(screen.getByTestId('contrast-tester').getAttribute('data-viewbook-id')).toBe('42')
   })
 })

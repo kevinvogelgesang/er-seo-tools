@@ -18,9 +18,13 @@
 import type { ReactNode } from 'react'
 import type { PublicSection } from '@/lib/viewbook/public-types'
 import type { ViewbookStage } from '@/lib/viewbook/stages'
+import type { SectionRenderMeta } from '@/lib/viewbook/section-status'
+import { SECTION_COPY } from '@/lib/viewbook/section-copy'
 import { sectionDisplayMode, sectionInitiallyOpen } from '@/lib/viewbook/section-display'
 import { SectionReveal } from './SectionReveal'
-import { CornerBracket, TickDivider } from './SectionAccents'
+import { SectionSummaryPanel, StatusPill } from './SectionSummaryPanel'
+import { ChapterCtaButton } from './ChapterCtaButton'
+import { CornerBracket } from './SectionAccents'
 
 function fmtDate(iso: string): string {
   return new Date(iso).toLocaleDateString('en-US', {
@@ -34,6 +38,7 @@ export function SectionShell({
   heroUrl,
   summary,
   stage,
+  meta,
   children,
 }: {
   section: PublicSection
@@ -41,8 +46,12 @@ export function SectionShell({
   heroUrl: string | null
   summary?: ReactNode
   stage: ViewbookStage
+  meta: SectionRenderMeta
   children: ReactNode
 }) {
+  // Code-owned reading copy for this section — always defined (SECTION_COPY is
+  // keyed by the full SectionKey catalog and section.sectionKey is a SectionKey).
+  const copy = SECTION_COPY[section.sectionKey]
   const mode = sectionDisplayMode(section, stage)
   // Operator "collapse to hero" (state === 'collapsed'): the client sees ONLY
   // the brand hero band below — the section header strip (TickDivider) and the
@@ -84,6 +93,11 @@ export function SectionShell({
   return (
     <section
       id={section.sectionKey}
+      data-vb-section={section.sectionKey}
+      data-vb-status={meta.status}
+      // Sticky-offset controller (Lane A) reads this to flip which hero is
+      // active; a no-hero section seeds `false` (nothing to observe).
+      data-vb-hero-visible={meta.heroSize === 'none' ? 'false' : 'true'}
       className="flex w-full flex-col"
       // Replaces the fixed `scroll-mt-24` — anchor scrolls clear the measured
       // cumulative sticky chrome (nav + operator bar) published by the Lane-1
@@ -97,45 +111,72 @@ export function SectionShell({
         .vb-done-badge { animation: vb-pop 400ms ease-out both; }
         @media (prefers-reduced-motion: reduce) { .vb-done-badge { animation: none; } }
       `}</style>
-      <div
-        className={`relative flex ${heroUrl ? 'min-h-[38vh]' : 'min-h-[30vh]'} items-end overflow-hidden`}
-        style={{ background: 'var(--vb-primary)' }}
-      >
-        {/* Decorative-only corner accent (Task 10) — subtle brand-tinted
-            geometry, never load-bearing for layout or a11y. */}
-        <CornerBracket className="absolute left-4 top-4" />
-        {heroUrl && (
-          <>
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src={heroUrl} alt="" className="absolute inset-0 h-full w-full object-cover opacity-40" />
-            {/* brand-primary bottom fade keeps the on-primary headline on
-                effectively-primary pixels — preserves the theme's luminance
-                contract over any photo */}
-            <div
-              aria-hidden
-              className="absolute inset-0"
-              style={{ background: 'linear-gradient(to top, var(--vb-primary) 15%, transparent 70%)' }}
-            />
-          </>
-        )}
-        <h2
-          className="relative mx-auto w-full max-w-5xl px-6 pb-6 text-3xl font-extrabold tracking-tight sm:text-5xl"
-          style={{ color: 'var(--vb-on-primary)', fontFamily: 'var(--vb-heading-font)' }}
+      {/* Brand hero band — sized by meta.heroSize (spec §4.1): the lead section
+          gets a tall `full` hero, every other chapter a compact `chapter` band,
+          and `none` (carried/previous-stage renders) suppresses the band
+          entirely. `data-vb-hero` is the sentinel the sticky-offset controller
+          (Lane A) observes. */}
+      {meta.heroSize !== 'none' && (
+        <div
+          data-vb-hero
+          className={`relative flex ${meta.heroSize === 'full' ? 'min-h-[60vh]' : 'h-[220px]'} items-end overflow-hidden`}
+          style={{ background: 'var(--vb-primary)' }}
         >
-          {title}
-        </h2>
-      </div>
+          {/* Decorative-only corner accent (Task 10) — subtle brand-tinted
+              geometry, never load-bearing for layout or a11y. */}
+          <CornerBracket className="absolute left-4 top-4" />
+          {heroUrl && (
+            <>
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src={heroUrl} alt="" className="absolute inset-0 h-full w-full object-cover opacity-40" />
+              {/* brand-primary bottom fade keeps the on-primary headline on
+                  effectively-primary pixels — preserves the theme's luminance
+                  contract over any photo */}
+              <div
+                aria-hidden
+                className="absolute inset-0"
+                style={{ background: 'linear-gradient(to top, var(--vb-primary) 15%, transparent 70%)' }}
+              />
+            </>
+          )}
+          <h2
+            className="relative mx-auto w-full max-w-5xl px-6 pb-6 text-3xl font-extrabold tracking-tight sm:text-5xl"
+            style={{ color: 'var(--vb-on-primary)', fontFamily: 'var(--vb-heading-font)' }}
+          >
+            {title}
+          </h2>
+        </div>
+      )}
 
-      {/* Decorative hairline divider — the top of the section HEADER STRIP.
-          Full-width brand-tinted accent background (matching the sticky bar in
-          SectionReveal) so the divider + title/summary/toggle read as one
-          header block, visually distinct from the section body below. The
-          accent literal MUST match SectionReveal's sticky-bar background.
-          Suppressed entirely when hero-collapsed — only the hero band shows. */}
+      {/* Chapter header strip (replaces the bare TickDivider): the reader's
+          orienting row — chapter number, one-line purpose, live StatusPill, and
+          the optional primary CTA (the frozen ChapterCtaButton client island —
+          SectionShell stays a server component and never wires onClick itself).
+          Full-width brand-tinted accent background matching SectionReveal's
+          sticky bar. Suppressed when hero-collapsed — only the hero band shows. */}
       {!heroOnly && (
         <div style={{ background: 'color-mix(in srgb, var(--vb-primary) 10%, #fafafa)' }}>
-          <div className="mx-auto w-full max-w-5xl px-6 pt-5 pb-1">
-            <TickDivider />
+          <div className="mx-auto flex w-full max-w-5xl flex-wrap items-center gap-3 px-6 py-4">
+            {meta.chapterNumber != null && (
+              <span
+                aria-hidden
+                className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-sm font-bold"
+                style={{ background: 'var(--vb-primary)', color: 'var(--vb-on-primary)' }}
+              >
+                {meta.chapterNumber}
+              </span>
+            )}
+            <p className="min-w-0 text-sm font-medium text-black/70">{copy.purpose}</p>
+            <StatusPill status={meta.status} />
+            {copy.cta && (
+              <div className="ml-auto">
+                <ChapterCtaButton
+                  label={copy.cta.label}
+                  sectionKey={copy.cta.sectionKey}
+                  anchor={copy.cta.anchor}
+                />
+              </div>
+            )}
           </div>
         </div>
       )}
@@ -149,6 +190,9 @@ export function SectionShell({
           alwaysOpen={alwaysOpen}
           initiallyOpen={initiallyOpen}
         >
+          {/* Plain-language "what / what-we-need" panel + live status, always
+              first inside the detail region (spec §4.2 / Task 5). */}
+          <SectionSummaryPanel whatThis={copy.whatThis} whatWeNeed={copy.whatWeNeed} status={meta.status} />
           {section.introNote && (
             <p className="border-l-4 pl-4 text-lg text-black/70" style={{ borderColor: 'var(--vb-tertiary)' }}>
               {section.introNote}

@@ -4,6 +4,7 @@
 import type { PublicSection, ViewbookPublicData } from '@/lib/viewbook/public-types'
 import { FONT_MANIFEST } from '@/lib/viewbook/font-manifest'
 import { ContrastTester } from './ContrastTester'
+import type { SectionRenderMeta } from '@/lib/viewbook/section-status'
 import { SectionShell } from './SectionShell'
 import { SECTION_TITLES } from './section-titles'
 import { publicAssetUrl } from './ThemeStyle'
@@ -37,10 +38,12 @@ export function BrandSection({
   section,
   data,
   token,
+  meta,
 }: {
   section: PublicSection
   data: ViewbookPublicData
   token: string
+  meta: SectionRenderMeta
 }) {
   const hero = data.theme.sectionHeroes[section.sectionKey]
   const headingFamily = FONT_MANIFEST[data.theme.headingFont as keyof typeof FONT_MANIFEST]?.family ?? 'Inter'
@@ -49,6 +52,7 @@ export function BrandSection({
     <SectionShell
       section={section}
       stage={data.stage}
+      meta={meta}
       title={SECTION_TITLES[section.sectionKey]}
       heroUrl={hero ? publicAssetUrl(token, hero) : null}
       summary={<BrandSwatchesSummary />}
