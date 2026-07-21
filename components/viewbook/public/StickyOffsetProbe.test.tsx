@@ -163,6 +163,28 @@ describe('StickyOffsetProbe', () => {
     })
   })
 
+  it('dispatches vb:sticky-offset-change on window with the numeric offset whenever it publishes', async () => {
+    const handler = vi.fn()
+    window.addEventListener('vb:sticky-offset-change', handler)
+    try {
+      render(
+        <div>
+          <div data-vb-theme-root="">
+            <div id="vb-progress-nav" />
+          </div>
+          <StickyOffsetProbe />
+        </div>,
+      )
+      await waitFor(() => {
+        expect(handler).toHaveBeenCalled()
+      })
+      const event = handler.mock.calls[0][0] as CustomEvent<{ offset: number }>
+      expect(event.detail.offset).toBe(64)
+    } finally {
+      window.removeEventListener('vb:sticky-offset-change', handler)
+    }
+  })
+
   it('disconnects both observers on unmount', async () => {
     const moDisconnect = vi.spyOn(MutationObserver.prototype, 'disconnect')
     const { unmount } = render(

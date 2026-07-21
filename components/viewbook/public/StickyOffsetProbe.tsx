@@ -43,6 +43,20 @@ function resolveThemeRoot(): HTMLElement {
   return marked ?? document.documentElement
 }
 
+// Lane A's scroll controller needs to rebuild its IntersectionObserver
+// whenever the sticky offset changes (it can't read a CSS var into
+// `rootMargin` live). This is the frozen seam: fire alongside every CSS-var
+// publish, guarded the same defensive way as `viewbook-navigate.ts` — SSR/old
+// envs silently no-op, this must NEVER throw.
+function dispatchStickyOffsetChange(offset: number): void {
+  if (typeof window === 'undefined') return
+  try {
+    window.dispatchEvent(new CustomEvent('vb:sticky-offset-change', { detail: { offset } }))
+  } catch {
+    // CustomEvent unavailable — nothing more we can do.
+  }
+}
+
 export function StickyOffsetProbe() {
   useEffect(() => {
     let operatorEl: HTMLElement | null = document.getElementById(OPERATOR_BAR_ID)
@@ -63,6 +77,7 @@ export function StickyOffsetProbe() {
         root.style.setProperty('--vb-operator-bar-height', `${operatorHeight}px`)
         root.style.setProperty('--vb-sticky-offset', `${sticky}px`)
       }
+      dispatchStickyOffsetChange(sticky)
     }
 
     // Initial measurement — independent of whether/when the observers below
