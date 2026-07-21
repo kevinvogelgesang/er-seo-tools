@@ -56,4 +56,41 @@ describe('SectionCopyOverrides', () => {
       ),
     )
   })
+
+  // Review fix: SectionCopyOverrideRow used to seed plain useState from
+  // `resolved` ONCE — ViewbookEditor re-renders ContentTab with fresh
+  // `resolved` props on every syncVersion poll WITHOUT remounting (stable
+  // `key={sectionKey}`), so a later prop change (e.g. the resolved fallback
+  // after Clear override) never reached the fields. Now wired through
+  // useBaselineSync: while the row is idle (not focused, not saving) a
+  // changed `resolved` prop must be adopted, proving the stale-display bug
+  // is fixed.
+  it('adopts a changed resolved value while idle (reconcile after Clear/reload)', async () => {
+    const { rerender } = render(
+      <SectionCopyOverrides
+        viewbookId={7}
+        sectionKeys={['brand'] as const}
+        resolved={{ brand: { purpose: 'P', whatThis: 'T', whatWeNeed: null } } as never}
+      />,
+    )
+    expect((screen.getByLabelText('What this is — brand') as HTMLTextAreaElement).value).toBe('T')
+    expect((screen.getByLabelText('Chapter one-liner — brand') as HTMLTextAreaElement).value).toBe('P')
+
+    // Parent reload delivers a fresh `resolved` (e.g. the company-wide/code
+    // default fallback after a Clear) WITHOUT remounting this row.
+    rerender(
+      <SectionCopyOverrides
+        viewbookId={7}
+        sectionKeys={['brand'] as const}
+        resolved={{ brand: { purpose: 'P2', whatThis: 'Default company copy', whatWeNeed: null } } as never}
+      />,
+    )
+
+    await waitFor(() =>
+      expect((screen.getByLabelText('What this is — brand') as HTMLTextAreaElement).value).toBe(
+        'Default company copy',
+      ),
+    )
+    expect((screen.getByLabelText('Chapter one-liner — brand') as HTMLTextAreaElement).value).toBe('P2')
+  })
 })

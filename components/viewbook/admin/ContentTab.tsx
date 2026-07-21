@@ -219,11 +219,17 @@ function SectionCopyOverrideRow({
   sectionKey: SectionKey
   resolved: ResolvedSectionCopy
 }) {
-  const [purpose, setPurpose] = useState(resolved.purpose)
-  const [whatThis, setWhatThis] = useState(resolved.whatThis)
-  const [whatWeNeed, setWhatWeNeed] = useState(resolved.whatWeNeed ?? '')
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState<string | null>(null)
+  const { focused, onFocus, onBlur } = useFocusWithin()
+  const active = focused || busy
+
+  const { draft: purpose, setDraft: setPurpose, commit: commitPurpose } =
+    useBaselineSync(resolved.purpose, active)
+  const { draft: whatThis, setDraft: setWhatThis, commit: commitWhatThis } =
+    useBaselineSync(resolved.whatThis, active)
+  const { draft: whatWeNeed, setDraft: setWhatWeNeed, commit: commitWhatWeNeed } =
+    useBaselineSync(resolved.whatWeNeed ?? '', active)
 
   const endpoint = `/api/viewbooks/${viewbookId}/section-copy/${sectionKey}`
 
@@ -240,6 +246,12 @@ function SectionCopyOverrideRow({
           whatWeNeed: whatWeNeed.trim() === '' ? null : whatWeNeed,
         }),
       })
+      // Adopt the just-saved values as the new baseline so the next sync
+      // poll's `resolved` (which now reflects this save) can't be mistaken
+      // for a diverged draft and clobbered — mirrors OverrideRowEditor.
+      commitPurpose(purpose)
+      commitWhatThis(whatThis)
+      commitWhatWeNeed(whatWeNeed)
     } catch (e) {
       setErr(String(e))
     } finally {
@@ -252,8 +264,11 @@ function SectionCopyOverrideRow({
   // nothing to clear (matched by exact message, NOT `/404/`: jsonFetch throws
   // `Error('not_found')`, which has no "404" substring — Task 10 lesson). A
   // genuine (non-not_found) failure surfaces the error and leaves the fields.
-  // The resolved fallback re-applies on the next full profile reload (the
-  // route bumped syncVersion), so we never fabricate a reset value here.
+  // We deliberately do NOT reset the fields here: the DELETE bumps
+  // syncVersion, the parent reload delivers a fresh `resolved` (the
+  // company-wide/code-default fallback), and — now that the fields track
+  // `resolved` via useBaselineSync instead of a one-shot useState — the idle
+  // (not focused/not busy) row adopts that new value on its own.
   const clear = async () => {
     setBusy(true)
     setErr(null)
@@ -269,7 +284,11 @@ function SectionCopyOverrideRow({
   }
 
   return (
-    <div className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm dark:border-navy-border dark:bg-navy-card">
+    <div
+      onFocus={onFocus}
+      onBlur={onBlur}
+      className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm dark:border-navy-border dark:bg-navy-card"
+    >
       <h3 className="font-display font-semibold text-navy dark:text-white">{SECTION_TITLES[sectionKey]}</h3>
       <div className="mt-2 space-y-2">
         <div>

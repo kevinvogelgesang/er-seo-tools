@@ -68,6 +68,7 @@ function SectionRow({
     try {
       await jsonFetch(`/api/viewbooks/section-copy/${sectionKey}`, {
         method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           purpose,
           whatThis,
