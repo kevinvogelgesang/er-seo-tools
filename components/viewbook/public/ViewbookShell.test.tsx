@@ -3,11 +3,12 @@
 // INSIDE the body-font-scoped wrapper (the div carrying
 // `fontFamily: var(--vb-body-font)`), not after it — otherwise carried
 // sections silently fall back to the app default font.
-import { render, cleanup } from '@testing-library/react'
+import { render, cleanup, act } from '@testing-library/react'
 import { describe, it, expect, afterEach, vi } from 'vitest'
 import { DEFAULT_THEME } from '@/lib/viewbook/theme'
 import type { PublicSection, ViewbookPublicData } from '@/lib/viewbook/public-types'
 import { ViewbookShell } from './ViewbookShell'
+import { StrategySection } from './StrategySection'
 import { StickyOffsetProbe } from './StickyOffsetProbe'
 import { __resetSyncRegistry } from './useViewbookSync'
 
@@ -365,5 +366,52 @@ describe('ViewbookShell — continuous mode', () => {
     )
     expect(coll.querySelector('nav[aria-label="In this stage"]')).toBeNull()
     expect(coll.textContent).toContain('Earlier steps')
+  })
+})
+
+// P2-4 (spec §11 fix #5): exposure-point assurance for the dormant collapse
+// viewer. The collapse path does not run in production during Phase 1, so
+// before the Phase-2 toggle makes it reachable this proves the WHOLE dormant
+// path composes end-to-end through ViewbookShell with a REAL section component
+// (not the stub renderSection the other tests use): the CollapsibleSection
+// island renders, EarlierSteps renders for carried sections, and a vb:navigate
+// deep-link force-opens exactly the target. SectionShell/CollapsibleSection
+// have their own unit suites; this is the integration seam.
+describe('ViewbookShell — collapse-mode dormant-path assurance (P2-4)', () => {
+  it('composes the real collapse path: CollapsibleSection island + EarlierSteps render, vb:navigate force-opens the target', () => {
+    // No stored collapse prefs are stubbed in this suite → sections default to
+    // collapsed on a fresh machine.
+    const d = data({
+      viewerMode: 'collapse',
+      stage: 'building',
+      primarySections: [sec('strategy')],
+      carriedSections: [sec('brand')],
+    })
+    const { container } = render(
+      <ViewbookShell
+        token="tok"
+        data={d}
+        renderSection={(s, meta) => (
+          <StrategySection section={s} data={d} token="tok" isOperator={false} meta={meta} />
+        )}
+      />,
+    )
+
+    // EarlierSteps band renders for carried sections (collapse-only).
+    expect(container.textContent).toContain('Earlier steps')
+
+    // The dormant CollapsibleSection island renders, default-collapsed on a
+    // fresh machine.
+    const collapseButtons = () =>
+      Array.from(container.querySelectorAll<HTMLButtonElement>('.vb-collapsible button[aria-expanded]'))
+    expect(collapseButtons().length).toBeGreaterThanOrEqual(1)
+    expect(collapseButtons().every((b) => b.getAttribute('aria-expanded') === 'false')).toBe(true)
+
+    // A vb:navigate deep-link force-opens EXACTLY the target section.
+    act(() => {
+      window.dispatchEvent(new CustomEvent('vb:navigate', { detail: { sectionKey: 'strategy' } }))
+    })
+    const expanded = collapseButtons().filter((b) => b.getAttribute('aria-expanded') === 'true')
+    expect(expanded.length).toBe(1)
   })
 })

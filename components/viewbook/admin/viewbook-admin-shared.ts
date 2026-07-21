@@ -3,6 +3,15 @@
 // Shared client-side helpers for the viewbook admin components.
 
 import type { ViewbookTheme } from '@/lib/viewbook/theme'
+import type { ViewerMode } from '@/lib/viewbook/presentation-config'
+
+// Operator-facing labels for the public reading viewer mode (Phase 2). The
+// value strings are the stored enum (presentation-config.VIEWER_MODES); the
+// collapse controls below only take effect when 'collapse' is selected.
+export const VIEWER_MODE_LABELS: Record<ViewerMode, string> = {
+  continuous: 'Continuous reading (default)',
+  collapse: 'Collapse-first (legacy)',
+}
 
 export function publicViewbookUrl(token: string): string {
   const base =

@@ -10,9 +10,11 @@ afterEach(() => {
 
 const CONFIG = {
   collapseAffordance: 'chevron' as const,
+  collapseMorph: 'spread' as const,
   heroOverlayStrength: 55,
   revealDurationScale: 1.0,
   firstLoadDelayMs: 3000,
+  viewerMode: 'continuous' as const,
 }
 
 describe('PresentationEditor', () => {
@@ -28,6 +30,24 @@ describe('PresentationEditor', () => {
     expect(fetchMock).toHaveBeenCalledWith('/api/viewbooks/7', {
       method: 'PATCH',
       body: JSON.stringify({ collapseAffordance: 'pill' }),
+    })
+  })
+
+  it('the Reading viewer select is seeded from config and changing it PATCHes {viewerMode} then calls onSaved (P2-3)', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ ok: true }) })
+    vi.stubGlobal('fetch', fetchMock)
+    const onSaved = vi.fn()
+    render(<PresentationEditor viewbookId={7} config={CONFIG} onSaved={onSaved} />)
+
+    const select = screen.getByLabelText(/Reading viewer/) as HTMLSelectElement
+    expect(select.value).toBe('continuous') // seeded from config
+
+    fireEvent.change(select, { target: { value: 'collapse' } })
+
+    await waitFor(() => expect(onSaved).toHaveBeenCalledOnce())
+    expect(fetchMock).toHaveBeenCalledWith('/api/viewbooks/7', {
+      method: 'PATCH',
+      body: JSON.stringify({ viewerMode: 'collapse' }),
     })
   })
 
