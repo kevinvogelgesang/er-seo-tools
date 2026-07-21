@@ -194,7 +194,7 @@ export function SectionShell({
               first inside the detail region (spec §4.2 / Task 5). */}
           <SectionSummaryPanel whatThis={copy.whatThis} whatWeNeed={copy.whatWeNeed} status={meta.status} />
           {section.introNote && (
-            <p className="border-l-4 pl-4 text-lg text-black/70" style={{ borderColor: 'var(--vb-tertiary)' }}>
+            <p className="max-w-[68ch] border-l-4 pl-4 text-lg text-black/70" style={{ borderColor: 'var(--vb-tertiary)' }}>
               {section.introNote}
             </p>
           )}
