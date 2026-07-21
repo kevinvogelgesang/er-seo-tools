@@ -137,8 +137,8 @@ Schedule tick is hardcoded 60 s (`lib/jobs/worker.ts:244`), not env-configurable
 | Var | Code default | Read site |
 |---|---|---|
 | `HYBRID_CRAWL_MAX_DEPTH` | 3 | `lib/ada-audit/sitemap-crawler.ts:28`. BFS hop limit from the seed set. |
-| `HYBRID_CRAWL_MAX_ADDED` | 300 | `sitemap-crawler.ts:29`. Max linked pages discovered beyond the seed set. |
-| `HYBRID_CRAWL_MAX_FETCHES` | 400 | `sitemap-crawler.ts:30`. Max total page fetches performed during the crawl. |
+| `HYBRID_CRAWL_MAX_ADDED` | 600 | `sitemap-crawler.ts` (`HY_MAX_ADDED`). Max linked pages discovered beyond the seed set. **L3 2026-07-20: raised from 300** (large raw-HTML sites hit the old cap). |
+| `HYBRID_CRAWL_MAX_FETCHES` | 800 | `sitemap-crawler.ts` (`HY_MAX_FETCHES`). Max total page fetches performed during the crawl. **L3 2026-07-20: raised from 400.** The 120s raw sub-budget (`HYBRID_CRAWL_TIME_BUDGET_MS`) remains the backstop — reaching 800 within it depends on host latency. |
 | `HYBRID_CRAWL_TIME_BUDGET_MS` | 120000 | `sitemap-crawler.ts:31`. Crawl wall-clock budget ceiling; further clamped by remaining time in the `site-audit-discover` job. |
 | `HYBRID_CRAWL_CONCURRENCY` | 6 | `sitemap-crawler.ts:32`. Concurrent frontier fetches. |
 | `HYBRID_CRAWL_MAX_QUERY_VARIANTS_PER_PATH` | 5 | `sitemap-crawler.ts:33`. Faceted-nav trap guard — caps distinct query-string variants crawled per path. |
