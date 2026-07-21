@@ -958,6 +958,34 @@ decisions in the umbrella spec are settled — don't re-litigate.
 
 ## Status log
 
+- 2026-07-21 (**SF-retirement Phase 2 — under-expansion fix: L3 bound-adaptivity SHIPPED + DEPLOYED + PROD-RE-MEASURED; 3/4 clients cleared, 1 sf-required**) —
+  Built L3, the final + smallest increment: raise raw-crawl count-cap defaults `HYBRID_CRAWL_MAX_FETCHES` 400→800 +
+  `HYBRID_CRAWL_MAX_ADDED` 300→600 (extracted a testable `resolveRawCrawlBounds(deadlineMs, now): CrawlBounds` from the
+  inline bounds in `discoverPagesWithDeps`, behavior-preserving; rewired the one call site). No schema change; defaults ship
+  in code (no prod `.env` step). Time budget untouched — raw crawl still self-caps at `HY_TIME_BUDGET` (120s); `HARD_CAP`
+  (1000) still bounds total. **Beal / time-bound decision = option (b)** (Codex-agreed): count caps only; the spec's
+  "option (a)" freed-budget consumption deferred to a data-gated follow-up (the raw crawl's 120s sub-cap vs the ~240s overall
+  deadline is real slack, but consuming it needs a resumable-crawl refactor of the just-stabilized L2 core — deferred unless
+  the re-measure showed a site still >5% AND time-bound; it did not). Spec: `../specs/2026-07-20-hybrid-discovery-under-expansion-design.md` §L3 ·
+  Plan: `../plans/2026-07-20-hybrid-discovery-L3-bound-adaptivity.md`. Codex **P0 plan review** ACCEPT-WITH-FIXES (7 applied,
+  incl. removing the unsupported wave-throughput claim, moving the capped test to the `discoverPagesWithDeps` layer, the
+  ledger `thresholdResult`/`fallback` honesty fields, and the `npm run smoke` gate); **P1 diff review** self-verified
+  (behavior-preservation of the extraction) after the Codex job hung 24 min on the tiny diff and was killed. TDD build:
+  `resolveRawCrawlBounds` defaults red→green, magnitude guards at 600/800, `discoverPagesWithDeps` honest-cap-reporting.
+  Gates green in-session: `lint` (tsc) · **6792 tests** · `build` · `smoke` (Playwright, needed `CHROME_EXECUTABLE` for the
+  macOS Chrome path — the initial "/usr/bin/google-chrome not found" was environmental, not L3). PR #241 merged → `8a271c3`,
+  deployed, **prod source + defaults verified** (HEAD `8a271c3`, `600`/`800`), health 200 / 0 restarts. **PROD RE-MEASURE
+  (2026-07-21, authed via Kevin cookie, seoOnly⇒seoIntent⇒hybrid):** the Mon 2026-07-20 sweep baselines were verified to
+  predate L1+L2+L3, so the fresh runs measure all three combined — **healthcarecareer 14.9%→0%** (direct L3 win: `maxAdded@300`
+  → 600 unblocked it, discovered 330→420, now `depth`-bound), **beal 6.9%→0.96%**, **discovery 40.8%→2.37% filtered** (L1
+  win — raw 40.9% was pagination/param noise, sitemap covers content, `renderProbe:no-delta` = not JS-blind for content),
+  all three **`cleared-watch`** (≤5% but `depth`/`timeBudget`-bound, not `exhausted`) → N=8 clock can start; **soma → HARD_CAP**
+  (discovered 1000/1000, `discoveryCapped:true`, `renderStoppedBy:hardCapPrefull`) = **`sf-required`** (>1000 pages, the
+  masking caveat realized exactly as the plan predicted; N=8 clock does NOT start). Numbers in `2026-07-05-sf-live-parity-log.md`
+  → L3 ledger. **STILL OPEN (L2 acceptance, Kevin-gated):** the worst-case rendered-BFS process-tree-RSS memory drill on a
+  genuinely JS-blind client (cambria/glow/nuvani) — NOT exercised by this L3 re-measure (all 4 L3 clients were `no-delta`/`skipped`,
+  full rendered BFS never force-triggered). The Mon 2026-07-27 sweep is now the first fleet-wide run on L1+L2+L3.
+
 - 2026-07-20 (**SF-retirement Phase 2 — under-expansion fix: L2 rendered-DOM adaptive discovery SHIPPED + DEPLOYED; worst-case memory-verify Kevin-gated**) —
   Built L2, the JS-blind fix (the long pole). New `lib/ada-audit/seo/rendered-crawl.ts` (`fetchPageLinksViaBrowser` +
   bounded `buildProbeTargets`): the raw-HTTP crawl runs first (unchanged) → its output = `knownUrls`; a

@@ -761,14 +761,22 @@ exclusions; any pre-deploy figure is a **directional estimate only**.
 
 **Beal / time-bound decision:** option (b). L3 raises the *count* caps only; it does NOT implement the spec's "option (a)" freed-budget consumption. Rationale: the raw crawl self-caps at `HY_TIME_BUDGET` (120s) while the discover job grants ~240s overall — a raw-HTML site leaves ~120s unused — but converting that to raw-crawl time is a resumable-crawl refactor of the just-stabilized L2 core, deferred to a **data-gated follow-up** opened ONLY if this re-measure shows a site still >5% AND `stoppedBy:'timeBudget'`. L3 makes NO claim to help Beal (Codex F6).
 
-**Ledger — fill during prod re-measure** (pre = current prod run BEFORE deploy; post = fresh seoIntent audit AFTER deploy). Raw additions = count of `discoverySourcesJson.sources` entries labeled `'linked'` (NOT `addedByCrawl`, which is not persisted). Inspect BOTH `stoppedBy` and `renderStoppedBy`.
+**Ledger — MEASURED 2026-07-21** (deployed `8a271c3`, health 200 / 0 restarts / prod defaults confirmed 600/800). **Important:** the `pre` column = the Mon 2026-07-20 01:00 UTC sweep runs, which — verified from the DB (`discoverySourcesJson v:1`, `renderProbe:null`, `residualMissRateRaw:null`) — **predate L1, L2, AND L3.** So `post` is the combined **L1+L2+L3** effect (this manual re-measure also stands in for the pending L2 residual re-measure on these 4, though none turned out JS-blind-for-content). Post-runs are seoOnly (⇒seoIntent⇒hybrid), triggered via authed API (Kevin cookie). Raw additions = count of `sources` labeled `'linked'`.
 
-| client | pre resid (filt / raw) | pre stoppedBy | pre fetches | pre discovered / HARD_CAP | post resid (filt / raw) | post stoppedBy / renderStoppedBy | post fetches | post 'linked' | post discovered / HARD_CAP | thresholdResult | fallback / reason |
-|---|---|---|---|---|---|---|---|---|---|---|---|
-| healthcarecareer | — / — | maxAdded@300 (pre-L1 diag) | — | — | | | | | | | |
-| soma | — / — | maxFetches@400 (pre-L1 diag) | — | — | | | | | | | |
-| beal | — / — | timeBudget@120s (pre-L1 diag) | — | — | | | | | | | (time-bound → option-a follow-up if >5%) |
-| discoverycommunitycollege.com | — / — | maxFetches@400 (pre-L1 diag) | — | — | | | | | | | (primarily JS-blind → L2's job) |
+| client | pre resid | pre stoppedBy · disc/CAP | **post resid (filt / raw)** | post stoppedBy / renderStoppedBy (probe) | post fetches · linked · disc/CAP | thresholdResult | fallback |
+|---|---|---|---|---|---|---|---|
+| **healthcarecareercollege.edu** | 14.9% | maxAdded@300 · 330/1000 | **0% / 1.4%** | depth / — (no-delta) | 414 · 279 · 420/1000 | **cleared-watch** (≤5%, depth-bound) | none |
+| **beal.edu** | 6.9% | timeBudget@120s · 404/1000 | **0.96% / 2.65%** | depth / — (no-delta) | 433 · 54 · 440/1000 | **cleared-watch** (≤5%, depth-bound) | none |
+| **discoverycommunitycollege.com** | 40.8% | maxFetches@400 · 623/1000 | **2.37% / 40.9%** | timeBudget / — (no-delta) | 618 · 2 · 622/1000 | **cleared-watch** (≤5%; raw 40.9% was ~all pagination/param noise, sitemap covers content) | none |
+| **soma.edu** | 9.7% | maxFetches@400 · 999/1000 | **null (capped) / null** | timeBudget / **hardCapPrefull** (skipped) | 552 · 160 · **1000/1000** (`discoveryCapped:true`) | — (unmeasurable, HARD_CAP) | **sf-required** (>1000 relevant pages) |
+
+**Result: 3 of 4 clear the ≤5% STRICT per-run bar; Soma is an honest fail-closed.**
+- **healthcarecareer — the direct L3 win.** `maxAdded@300` was the sole block; with 600 it discovered 420 (279 linked, uncapped) and now stops on `depth` at **0% residual**.
+- **beal** cleared to 0.96%: was time-bound at 162 fetches, now crawls to `depth` (433 fetches, 54 linked) — L1's filter + a deeper crawl. (Confirms the option-(b) call — no option-(a) freed-budget work was needed; beal cleared without it.)
+- **discovery** cleared to 2.37% filtered. Its raw 40.9% is essentially unchanged (`renderProbe:no-delta` → *not* JS-blind for content; raw crawl still finds ~2 links, but the **sitemap (620) covers the content**), and L1's policy filter shows the true content-miss is 2.37% — the 40% was pagination/param noise. **NB:** its N=8 clock is `cleared-watch`, and its low residual rests on sitemap coverage — if a future run's sitemap shrinks, re-evaluate.
+- **soma — the masking caveat realized exactly as the plan predicted.** Filled the 1000-page `HARD_CAP` (`discoveryCapped:true`, `renderStoppedBy:hardCapPrefull`), so residual is unmeasurable → **`sf-required`, N=8 clock does not start.** L3's fetch raise (400→552) did not rescue a >1000-page site; SF stays its discovery instrument. No silent sub-5% pass.
+
+**L2 note:** the rendered probe RAN on all four (`no-delta`×3 / `skipped`×1, `renderedLinkedCount:0` everywhere) — none of the L3 clients are JS-blind-for-content, so the full rendered BFS never force-triggered here. The **worst-case rendered-BFS memory drill on a genuinely JS-blind client (cambria/glow/nuvani) remains the pending Kevin-gated L2-acceptance item** — this re-measure did not exercise it.
 
 **thresholdResult rule:** `cleared` only when filtered residual ≤5% AND `stoppedBy === 'exhausted'`; a ≤5% run that still stopped on a cap/time/depth bound is `cleared-watch`, never a bare `cleared`. **fallback rule:** a run >5% no lever can fix is `sf-required` + reason; its N=8 clock does not start; never a silent sub-5% pass.
 

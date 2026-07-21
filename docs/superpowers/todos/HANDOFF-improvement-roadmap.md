@@ -1,9 +1,6 @@
 # HANDOFF — Improvement Roadmap (living doc)
 
-**Last updated:** 2026-07-20 — SF-retirement **Phase 2 under-expansion fix: L2
-(rendered-DOM adaptive discovery) SHIPPED + DEPLOYED (PR #238)**. Remaining before L2
-acceptance = the **worst-case process-tree RSS drill (Kevin-gated)**. Next code item =
-**L3 (bounds)**. · **Updated by:** the L2 session.
+**Last updated:** 2026-07-21 — SF-retirement **Phase 2 under-expansion fix is now CODE-COMPLETE: L1 + L2 + L3 all SHIPPED + DEPLOYED.** L3 (bounds) shipped (PR #241 → `8a271c3`) and prod-re-measured: **3/4 clients cleared ≤5%, Soma `sf-required` (>1000 pages).** Remaining work is **monitoring/acceptance, not code**: the Kevin-gated L2 worst-case memory drill, and the Mon 2026-07-27 sweep (first fleet-wide run on L1+L2+L3) → fleet residuals + N=8 clocks. · **Updated by:** the L3 session.
 **Rule:** whoever completes (or advances) a tracker item updates this file *and* the tracker in the same commit.
 
 ---
@@ -11,92 +8,82 @@ acceptance = the **worst-case process-tree RSS drill (Kevin-gated)**. Next code 
 ## Paste this into a new chat to continue
 
 ```
-Continue the er-seo-tools improvement roadmap. Roadmap spine is otherwise [x]; active
-work is the SF-retirement campaign's Phase-2 hybrid-crawler under-expansion fix — the
-one code item Kevin's Phase-7 retirement bar gates on (bar: N=8 qualifying weekly
-seoIntent sweeps / discovery residualMiss ≤ 5% STRICT / fleet-wide / SF-as-crawler only).
+Continue the er-seo-tools improvement roadmap. Roadmap spine is otherwise [x]; active work
+is the SF-retirement campaign's Phase-2 hybrid-crawler under-expansion fix — the one thing
+Kevin's Phase-7 retirement bar gates on (bar: N=8 qualifying weekly seoIntent sweeps /
+discovery residualMiss ≤ 5% STRICT policy-filtered / fleet-wide / SF-as-crawler only).
 
 THE FIX = 3 phased increments; ONE Codex-reviewed spec covers all three:
 docs/superpowers/specs/2026-07-20-hybrid-discovery-under-expansion-design.md.
-  L1 = metric noise (param/pagination/taxonomy/thank-you/account) → DONE (PR #235).
-  L2 = JS-blind crawler (rendered-DOM adaptive discovery) → DONE (PR #238), memory-verify pending.
-  L3 = bound hits (large raw-HTML sites: healthcarecareer/soma/beal) → YOUR JOB.
+  L1 = metric noise (param/pagination/taxonomy/thank-you/account)  → SHIPPED (PR #235).
+  L2 = JS-blind crawler (rendered-DOM adaptive discovery)          → SHIPPED (PR #238/#239).
+  L3 = bound hits (large raw-HTML sites)                           → SHIPPED (PR #241, 8a271c3).
+**All three are DEPLOYED to prod.** The under-expansion fix is CODE-COMPLETE. What remains is
+acceptance + monitoring, below.
 
-DONE — L2 (rendered-DOM adaptive discovery): PR #238 (code) + PR #239 (Codex-P1 fixes
-that a merge-slip left out of #238 — always push before gh pr merge; verify the merged
-tip) → origin/main 6ed4672, deployed, health-verified (/api/health 200, 0 restarts, 491MB;
-prod source confirmed carrying all 4 fixes). Raw-HTTP crawl runs
-first (unchanged) → its output = knownUrls; a novelty-based probe renders homepage + ≤2
-shallow hubs; if ≥HYBRID_RENDER_PROBE_MIN_NOVEL (5) admissible URLs are novel, a bounded
-rendered BFS (hybridCrawl w/ knownKeys dedup-not-fetched, candidates through robots/trap
-filters, novel-hub priority) expands; raw+rendered merge by coverage key (mergeCrawlResults).
-ONE absolute discovery deadline + cancellable acquirePage (no slot leak); shared
-browser-request-guard (SSRF + off-domain-redirect-before-render + subresource block +
-anchor cap); v2 discoverySourcesJson + status:'running' persist guards. Codex P0 plan
-review (6 fixes) + P1 diff review (blocked → 4 unbounded-await-holds-a-slot fixes → cleared).
-New env: HYBRID_RENDER_{MAX_DEPTH 2, MAX_FETCHES 40, MAX_ADDED 300, CONCURRENCY 2,
-PROBE_MIN_NOVEL 5, PROBE_MAX_HUBS 2, MAX_ANCHORS_PER_PAGE 1500} (all default-safe, no
-prod .env step needed).
+DONE — L3 (bound adaptivity): raise HYBRID_CRAWL_MAX_FETCHES 400→800 + HYBRID_CRAWL_MAX_ADDED
+300→600 (via extracted testable resolveRawCrawlBounds; time budget + HARD_CAP untouched). Beal
+= option (b) (count caps only; freed-budget option-a deferred as a data-gated follow-up — not
+needed, beal cleared without it). Codex P0 plan review (7 fixes applied) + P1 self-verified.
+Gates green (lint/6792 tests/build/smoke). Deployed 8a271c3, prod source+defaults verified,
+health 200/0 restarts. PROD RE-MEASURE 2026-07-21 (authed via Kevin cookie, seoOnly⇒seoIntent):
+the Mon 2026-07-20 sweep baselines predated L1+L2+L3, so fresh runs measured all three combined:
+  · healthcarecareercollege.edu 14.9%→0%  (direct L3 win: maxAdded 300→600, discovered 330→420)
+  · beal.edu                    6.9%→0.96%
+  · discoverycommunitycollege.com 40.8%→2.37% filtered (L1 win: raw 40.9% was pagination/param
+      noise; sitemap covers content; renderProbe no-delta = NOT JS-blind for content)
+  → all 3 cleared ≤5% but 'cleared-watch' (depth/timeBudget-bound, not exhausted) → N=8 clock may start.
+  · soma.edu → filled HARD_CAP 1000 (discoveryCapped:true, renderStoppedBy hardCapPrefull) =
+      SF-REQUIRED (>1000 pages, masking caveat exactly as predicted; N=8 clock does NOT start).
+Ledger: docs/superpowers/todos/2026-07-05-sf-live-parity-log.md → "L3 — bound adaptivity".
 
-** BEFORE anything else — two Kevin-gated L2 acceptance items (do these first if Kevin
-is available; they are the only things standing between L2-deployed and L2-accepted): **
-  (1) WORST-CASE MEMORY DRILL (Codex-F1 mandated; MUST happen before the Mon 2026-07-27
-      sweep runs render-discovery fleet-wide). Needs a UI cookie (no autonomous cookie)
-      OR Kevin's sign-off to deliberately load the memory-scarred prod box to its
-      4-Chrome ceiling. Runbook: trigger a seoIntent site audit on a JS-blind client
-      (cambria) via the UI/authed POST /api/site-audit {seoIntent:true} WHILE 2 standalone
-      ADA audits run; on the server sample TOTAL PROCESS-TREE RSS every ~2s for the
-      discovery window: e.g.
-        ssh $PROD_SSH 'for i in $(seq 1 90); do ps -o rss= --ppid $(pgrep -f "seo-tools") -p $(pgrep -f "seo-tools") 2>/dev/null | awk "{s+=\$1} END{print s/1024\" MB\"}"; sleep 2; done'
-      (better: pstree/ps that sums the node parent + ALL chrome descendants — pm2 status
-      MISSES Chromium descendants + short peaks). PASS = peak tree RSS <2200 MB, ≥1400 MB
-      free, 0 PM2 restarts. Fail → lower HYBRID_RENDER_CONCURRENCY / investigate.
-  (2) L2 RESIDUAL RE-MEASURE — after cambria/glow/nuvani/brownson/federico get a
-      post-deploy seoIntent audit (the Mon 2026-07-27 sweep does this fleet-wide), read
-      each run's discoveryCoverageJson.residualMissRate (policy-filtered) → expect <5% on
-      the JS-blind five (probe should trigger; renderedAdded>0). RECORD before/after +
-      renderProbe/renderedAdded/renderStoppedBy per client in the parity log
-      (2026-07-05-sf-live-parity-log.md). Clients still >5% because >1000 pages /
-      router-only / isolated clusters = label 'sf-required' in the log, N=8 clock does
-      not start (fail-closed, never a silent pass).
+** BEFORE new code — the ONE remaining Kevin-gated acceptance item (L2): **
+  WORST-CASE MEMORY DRILL (Codex-F1 mandated; still NOT done — the L3 re-measure did NOT exercise
+  it, because all 4 L3 clients were renderProbe no-delta/skipped so the full rendered BFS never
+  force-triggered). Needs a genuinely JS-BLIND client (cambria/glow/nuvani) whose probe triggers a
+  full rendered BFS, run WHILE 2 standalone ADA audits run, sampling TOTAL PROCESS-TREE RSS (node
+  parent + ALL chrome descendants; pm2 status MISSES descendants + short peaks) every ~2s for the
+  discovery window. PASS = peak tree RSS <2200 MB, ≥1400 MB free, 0 PM2 restarts. Needs a UI cookie
+  (no autonomous cookie/password) OR Kevin sign-off to stress the memory-scarred prod box. SHOULD
+  precede relying on render-discovery fleet-wide. Fail → lower HYBRID_RENDER_CONCURRENCY / investigate.
 
-YOUR JOB (code): build L3 — bound adaptivity for large raw-HTML sites (healthcarecareer
-maxAdded@300, soma maxFetches@400; beal is time-budget-bound, NOT cap-bound — see Codex
-F6). Read spec §L3 (settled + Codex-reviewed). Two parts: (1) raise HYBRID_CRAWL_MAX_FETCHES
-400→800 + HYBRID_CRAWL_MAX_ADDED 300→600 with the wave-arithmetic headroom check; (2) keep
-stoppedBy/capped honestly reported. Beal: do NOT claim the cap raises help it — either let
-a raw-only crawl consume the freed rendered-pass budget under the single deadline (preferred,
-option a) or drop beal from L3's expected effect (option b) — decide in the plan. Flow:
-writing-plans for L3 → Codex P0 review → TDD → gates → PR → merge → deploy → prod re-measure
-→ tracker+handoff ritual.
+THE MONITORING WORK (this is the bulk of what's left toward Phase 7):
+  The Mon 2026-07-27 01:00 UTC weekly sweep is the FIRST fleet-wide run on L1+L2+L3 (the 2026-07-20
+  sweep predated all three). After it: read every client's discoveryCoverageJson.residualMissRate
+  (policy-filtered) + discoverySourcesJson (stoppedBy/renderProbe/renderStoppedBy/discoveredCount vs
+  HARD_CAP). Record fleet residuals in the parity log; for each client first reaching ≤5% STRICT,
+  START its N=8 consecutive-weekly-qualifying-sweeps clock; label >1000-page / router-only / isolated-
+  cluster clients 'sf-required' (fail-closed, never a silent pass). Especially check the 5 JS-blind
+  clients (cambria/glow/nuvani/brownson/federico) — does L2's rendered BFS trigger + clear them? — and
+  the ~6 under-expanders from cycles 3-4. This is a read-only prod-DB-probe activity per weekly sweep.
 
-WORKTREE: .claude/worktrees/hybrid-discovery-expansion exists (node_modules symlinked,
-.env copied, prisma/local-dev.db migrated). feat/hybrid-discovery-L2 is MERGED — for L3:
-`git fetch && git checkout -b feat/hybrid-discovery-L3 origin/main` in that worktree.
+FIRST STEPS: (1) er-seo-tools-multi-agent-coordination pre-flight (vb-* lanes share the checkout —
+the vb-reading-experience session merged PR #243 mid-L3). (2) prod health: source .claude/ops-secrets.local.sh
+from the MAIN checkout (gitignored, absent in worktrees) → ssh $PROD_SSH pm2 status + /api/health. (3)
+er-seo-tools-sf-retirement-campaign. Then do the L2 memory drill if Kevin's around, else the monitoring.
 
-FIRST STEPS: (1) er-seo-tools-multi-agent-coordination pre-flight (vb-* lanes + other
-sessions may share the checkout). (2) prod health: `source .claude/ops-secrets.local.sh`
-from the MAIN checkout (gitignored, absent in the worktree) → `ssh $PROD_SSH pm2 status`.
-(3) er-seo-tools-sf-retirement-campaign, then (do the L2 Kevin-gated items above if he's
-around) → writing-plans for L3.
+OPS: prod DB probes = node + PrismaClient (scp a temp script INTO $APP_HOME so @prisma/client resolves —
+NOT /tmp; run node from there; rm after; tsx importing app source hits the 'server-only' guard, so
+`new PrismaClient()` directly + replicate raw logic inline). Triggering seoIntent audits needs a UI
+cookie (no autonomous cookie/password in ops-secrets) — POST /api/site-audit {domain,clientId,seoOnly:true}
+with -H "Cookie: er_auth=<value>"; seoOnly is render-only (fast) + forces seoIntent + hybrid. App host =
+seo.erstaging.site. Codex = gpt-5.6-sol (5h<75% used) else terra, high; spec/plan review = P0, risky-diff
+pre-merge = P1; run Codex as a BACKGROUND bash job (foreground times out; NB even background review jobs
+have hung ~24min on a tiny diff — cap your patience, self-verify behavior-preservation). Claude commits
+(Codex can't). ALWAYS git push before gh pr merge + verify merged tip + prod source (L2 merge-slip lesson).
+Background poll monitors get KILLED ~30-60min — re-launch; they make progress each round. Gates are the
+ONLY type-check gate: npm run lint (tsc) / npm test (vitest — components/viewbook/admin/ViewbookEditor.test.tsx
+"copies the public URL…" is a KNOWN parallel-run flake, passes in isolation, unrelated — re-run in isolation
+to confirm, don't blanket-ignore) / npm run build (heap-capped, never bare next build) / npm run smoke needs
+CHROME_EXECUTABLE on macOS. Gate-green deploy + pm2 restart AUTONOMOUS; destructive/prod-memory-stressing
+server ops Kevin-gated. STANDING GATE: NO AI API.
 
-OPS: prod DB probes = node + PrismaClient (scp a temp script; tsx importing app source
-hits the 'server-only' guard when it pulls lib/seo-fetch/fetch.ts — replicate raw logic
-inline). Codex = gpt-5.6-sol (5h<75% used) else terra, high; spec/plan review = P0,
-risky-diff pre-merge review = P1; run Codex as a BACKGROUND bash job (foreground times
-out ~2min); Claude commits (Codex can't). Gates are the ONLY type-check gate: npm run
-lint (tsc) / npm test (vitest — NOTE: components/viewbook/admin/ViewbookEditor.test.tsx
-> "copies the public URL from the secondary masthead action" is a KNOWN parallel-run
-flake, passes 12/12 in isolation, unrelated to discovery — don't chase it) / npm run
-build (heap-capped — never bare next build). Gate-green deploy + pm2 restart AUTONOMOUS;
-destructive/prod-memory-stressing server ops Kevin-gated. STANDING GATE: NO AI API.
-
-NON-BLOCKING carryovers (need a UI-authed session — no autonomous cookie): (a) manual
-sweep "Queue all" → WeeklySweep(origin='manual') + /issues manual snapshot, no email,
-one-in-flight 409; (b) sweep error triage (PR #227) → dead_page + DeadPagesSection on a
-404-bearing client. Mon 2026-07-27 sweep auto-exercises both. Kevin questions:
-proway.erstaging.site in the cohort intentional? · sales MethodExplainer copy · D3
-page-count glance.
+NON-BLOCKING carryovers (need a UI-authed session — no autonomous cookie): (a) manual sweep "Queue all" →
+WeeklySweep(origin='manual') + /issues manual snapshot, no email, one-in-flight 409; (b) sweep error triage
+(PR #227) → dead_page + DeadPagesSection on a 404-bearing client. The Mon 2026-07-27 sweep auto-exercises both.
+RESOLVED 2026-07-21 (were open Kevin questions): proway.erstaging.site = intentional noindex canary (client 31);
+sales MethodExplainer copy reviewed, honest/OK as-is; D3 robots-validator "URLs" tile mislabels index child-count
+as page count → logged as docs/superpowers/nyi/FUTURE-d3-sitemap-url-count-label.md (fix-later).
 ```
 
 ---
@@ -104,22 +91,22 @@ page-count glance.
 ## Current state (one paragraph)
 
 Roadmap spine complete (A/B/C through C21, D0–D8). Active work is the **SF-retirement
-campaign, Phase 2 (hybrid discovery)** — the under-expansion fix Kevin's Phase-7 bar
-gates on (N=8 / residualMiss ≤ 5% strict / fleet-wide / split gate, set 2026-07-20). A
-29-domain prod probe split the blocked clients into **JS-blind** (raw-HTTP can't see
-client-rendered nav — the dominant cause), **bound-capped**, and **metric noise**; the
-fix is 3 phased increments under one Codex-reviewed spec. **L1 (policy-filtered coverage
-metric) SHIPPED (PR #235). L2 (rendered-DOM adaptive discovery — the JS-blind fix)
-SHIPPED + DEPLOYED (PR #238)**: raw crawl first → probe (novel-admissible-URL trigger) →
-bounded rendered BFS → merge; one absolute deadline + cancellable `acquirePage`; shared
-SSRF/subresource/redirect guard; all memory bounds (`BROWSER_POOL_SIZE`≤4,
-`HYBRID_RENDER_CONCURRENCY`=2) Codex-verified through a P0 plan review + a P1 diff review
-that initially blocked on 4 unbounded-await-holds-a-Chrome-slot bugs (all fixed → cleared).
-Health-verified in prod (200, 0 restarts, 489 MB). **Two L2 acceptance items remain, both
-Kevin-gated:** the worst-case process-tree RSS drill (needs a cookie or sign-off to stress
-prod; MUST precede the Mon 2026-07-27 sweep) and the residual re-measure on the five
-JS-blind clients (lands from that sweep — record in the parity log). **Next code item =
-L3 (bounds)** — spec §L3 written + Codex-reviewed, so the next session writes the L3 plan
-(Codex P0) → TDD → deploy → prod re-measure. Work lives in worktree
-`.claude/worktrees/hybrid-discovery-expansion`. See `2026-07-05-sf-live-parity-log.md` →
-`🔧 2026-07-20 — Hybrid-discovery under-expansion fix`.
+campaign, Phase 2 (hybrid discovery)** — the under-expansion fix Kevin's Phase-7 bar gates
+on (N=8 / residualMiss ≤ 5% strict policy-filtered / fleet-wide, set 2026-07-20). A 29-domain
+prod probe split the blocked clients into **JS-blind** (client-rendered nav), **bound-capped**,
+and **metric noise**; the fix is 3 phased increments under one Codex-reviewed spec, and **all
+three are now SHIPPED + DEPLOYED: L1 (policy-filtered coverage metric, PR #235), L2 (rendered-DOM
+adaptive discovery, PR #238/#239), L3 (raise raw-crawl count caps 800/600, PR #241 → `8a271c3`).**
+L3's prod re-measure (2026-07-21, all three increments combined since the Mon 2026-07-20 sweep
+baselines predated them): **healthcarecareer 14.9%→0%** (direct L3 win), **beal 6.9%→0.96%**,
+**discovery 40.8%→2.37% filtered** (L1 win — sitemap covers content, the 40% was pagination/param
+noise) — all three `cleared-watch` (≤5%, depth/time-bound); **soma → HARD_CAP 1000 = `sf-required`**
+(>1000 pages, the masking caveat exactly as predicted). Ledger in `2026-07-05-sf-live-parity-log.md`
+→ "L3 — bound adaptivity". **Remaining is acceptance + monitoring, not code:** (1) the Kevin-gated
+**worst-case rendered-BFS memory drill** on a genuinely JS-blind client (cambria) — still not done
+(the L3 clients were all `no-delta`/`skipped`, so the full rendered BFS never fired); (2) the **Mon
+2026-07-27 sweep** — the first fleet-wide run on L1+L2+L3 — from which to record fleet residuals,
+start N=8 clocks on clients that reach ≤5%, and label `sf-required` clients (fail-closed). Non-blocking
+UI-authed carryovers (manual-sweep queue-all, sweep error triage) ride that sweep. Work lives in
+worktree `.claude/worktrees/hybrid-discovery-expansion` (branch `docs/l3-shipped` for this ritual;
+`feat/hybrid-discovery-L3` merged).
