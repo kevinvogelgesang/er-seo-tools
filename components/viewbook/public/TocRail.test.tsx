@@ -120,62 +120,13 @@ describe('TocRail', () => {
     expect(document.activeElement).toBe(rows[1])
   })
 
-  it('Escape does NOT collapse the desktop rail — it is permanently expanded', () => {
-    const { container } = render(<TocRail toc={toc} searchIndex={searchIndex} verbose={false} />)
-    const nav = container.querySelector('[data-vb-toc-nav]') as HTMLElement
-    const rows = entries(container)
-    act(() => {
-      rows[0].focus()
-    })
-    expect(nav.getAttribute('data-vb-open')).toBe('true')
-    act(() => {
-      fireEvent.keyDown(nav, { key: 'Escape' })
-    })
-    expect(nav.getAttribute('data-vb-open')).toBe('true')
-  })
-
-  // Codex-review fix P2-3 (hamburger-persistent rail): the rail's open state
-  // is now owned SOLELY by the hamburger trigger (+ Escape) — mouse
-  // enter/leave and blur no longer touch it at all. These two cases replace
-  // the old hover-driven "collapses on mouse-leave once focus is outside"
-  // assertion, which encoded exactly the behavior Kevin asked to remove.
-  it('mouse-leave does NOT collapse the rail, even when focus is outside it', () => {
-    const { container } = render(<TocRail toc={toc} searchIndex={searchIndex} verbose={false} />)
-    const nav = container.querySelector('[data-vb-toc-nav]') as HTMLElement
-    expect(nav.getAttribute('data-vb-open')).toBe('true') // default-open
-
-    // Focus outside the rail (the old code's onBlur collapse trigger), then
-    // mouse-leave the rail (the old code's onMouseLeave collapse trigger).
-    // Neither may change `open` now — only the hamburger/Escape may.
-    const outside = document.createElement('button')
-    document.body.appendChild(outside)
-    act(() => {
-      outside.focus()
-    })
-    act(() => {
-      fireEvent.mouseLeave(nav)
-    })
-    expect(nav.getAttribute('data-vb-open')).toBe('true')
-    outside.remove()
-  })
-
-  it('mouse-leave does NOT collapse the rail — the desktop rail is permanently expanded (no hamburger to collapse it)', () => {
-    const { container } = render(<TocRail toc={toc} searchIndex={searchIndex} verbose={false} />)
-    const nav = container.querySelector('[data-vb-toc-nav]') as HTMLElement
-    // No hamburger trigger exists on the permanently-expanded desktop rail.
-    expect(container.querySelector('[data-vb-toc-trigger]')).toBeNull()
-    expect(nav.getAttribute('data-vb-open')).toBe('true')
-
-    // mouse enter/leave must be fully inert — no collapse, no change at all.
-    act(() => {
-      fireEvent.mouseEnter(nav)
-    })
-    expect(nav.getAttribute('data-vb-open')).toBe('true')
-    act(() => {
-      fireEvent.mouseLeave(nav)
-    })
-    expect(nav.getAttribute('data-vb-open')).toBe('true')
-  })
+  // Feature B (hamburger full-hide) retired the `data-vb-open`-attribute
+  // permanently-expanded model these three cases encoded (Escape-is-inert,
+  // mouse-leave-is-inert while "no hamburger exists"). There now IS a
+  // hamburger and hide/show fully mounts/unmounts the nav — see the
+  // 'TocRail desktop hide toggle' describe block below for the current
+  // contract. Mouse hover/leave were never wired to any handler before or
+  // after this change, so there's nothing load-bearing left to assert here.
 
   it('mobile (< 768px) renders a FAB button', () => {
     mockMatchMedia(true)
@@ -191,14 +142,12 @@ describe('TocRail', () => {
     ).not.toThrow()
   })
 
-  // Task 7: default-expanded, left-anchored, hamburger toggle.
+  // Task 7 (default-expanded, left-anchored) + Feature B (hamburger toggle).
 
-  it('desktop rail defaults to expanded (open) without any interaction', () => {
+  it('desktop rail defaults to expanded (nav mounted) without any interaction', () => {
     const { container } = render(<TocRail toc={toc} searchIndex={searchIndex} verbose={false} />)
     const nav = container.querySelector('[data-vb-toc-nav]') as HTMLElement
-    expect(nav.getAttribute('data-vb-open')).toBe('true')
-    // Permanently expanded — no hamburger trigger to rely on for this assertion.
-    expect(container.querySelector('[data-vb-toc-trigger]')).toBeNull()
+    expect(nav).not.toBeNull()
     // The inner card renders at its full (expanded) width.
     const card = container.querySelector('[data-vb-toc-list]')?.parentElement as HTMLElement
     expect(card.style.width).toBe('240px')
@@ -211,15 +160,6 @@ describe('TocRail', () => {
     expect(nav.className).not.toContain('right-3')
   })
 
-  it('desktop rail is permanently expanded — no hamburger trigger is rendered', () => {
-    const { container } = render(<TocRail toc={toc} searchIndex={searchIndex} verbose={false} />)
-    const nav = container.querySelector('[data-vb-toc-nav]') as HTMLElement
-    // DESKTOP_RAIL_COLLAPSIBLE = false ⇒ the hamburger toggle is gone entirely
-    // on desktop; the rail just stays open.
-    expect(container.querySelector('[data-vb-toc-trigger]')).toBeNull()
-    expect(nav.getAttribute('data-vb-open')).toBe('true')
-  })
-
   it('a done entry renders the filled glyph and an acked-not-done entry renders the hollow glyph', () => {
     const { container } = render(<TocRail toc={toc} searchIndex={searchIndex} verbose={false} />)
     const welcome = container.querySelector('[data-anchor="#welcome"]') as HTMLElement
@@ -228,15 +168,14 @@ describe('TocRail', () => {
     expect(dataSource.querySelector('[data-vb-glyph="acked"]')).not.toBeNull()
   })
 
-  it('activating a TOC item does not collapse the desktop rail', () => {
+  it('activating a TOC item does not hide the desktop rail', () => {
     const { container } = render(<TocRail toc={toc} searchIndex={searchIndex} verbose={false} />)
-    const nav = container.querySelector('[data-vb-toc-nav]') as HTMLElement
     const welcome = container.querySelector('[data-anchor="#welcome"]') as HTMLElement
-    expect(nav.getAttribute('data-vb-open')).toBe('true')
+    expect(container.querySelector('[data-vb-toc-nav]')).not.toBeNull()
     act(() => {
       fireEvent.click(welcome)
     })
-    expect(nav.getAttribute('data-vb-open')).toBe('true')
+    expect(container.querySelector('[data-vb-toc-nav]')).not.toBeNull()
   })
 })
 
@@ -251,5 +190,35 @@ describe('TocRail — active-marker hook (continuous viewer)', () => {
     )
     expect(child).toBeTruthy()
     expect((child as HTMLElement).getAttribute('data-vb-toc-section')).toBeNull()
+  })
+})
+
+describe('TocRail desktop hide toggle', () => {
+  it('renders the rail nav expanded by default with an always-present hamburger', () => {
+    const { container } = render(<TocRail toc={toc} searchIndex={searchIndex} verbose={false} />)
+    expect(container.querySelector('[data-vb-toc-hamburger]')).not.toBeNull()
+    const nav = container.querySelector('[data-vb-toc-nav]')
+    expect(nav).not.toBeNull()
+    // hamburger reflects expanded state + controls the mounted nav
+    const btn = container.querySelector('[data-vb-toc-hamburger]')!
+    expect(btn.getAttribute('aria-expanded')).toBe('true')
+    expect(btn.getAttribute('aria-controls')).toBe(nav!.getAttribute('id'))
+  })
+
+  it('hiding removes the rail nav from the DOM; hamburger stays and drops aria-controls', () => {
+    const { container } = render(<TocRail toc={toc} searchIndex={searchIndex} verbose={false} />)
+    const btn = container.querySelector('[data-vb-toc-hamburger]')!
+    fireEvent.click(btn)
+    expect(container.querySelector('[data-vb-toc-nav]')).toBeNull()
+    expect(btn.getAttribute('aria-expanded')).toBe('false')
+    expect(btn.getAttribute('aria-controls')).toBeNull()
+  })
+
+  it('re-showing restores the rail nav', () => {
+    const { container } = render(<TocRail toc={toc} searchIndex={searchIndex} verbose={false} />)
+    const btn = container.querySelector('[data-vb-toc-hamburger]')!
+    fireEvent.click(btn) // hide
+    fireEvent.click(btn) // show
+    expect(container.querySelector('[data-vb-toc-nav]')).not.toBeNull()
   })
 })
