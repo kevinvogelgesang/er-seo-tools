@@ -29,12 +29,42 @@ const MAX_HTML_BYTES = 1_000_000
 // ─── Hybrid-crawl env tunables ───────────────────────────────────────────────
 
 const HY_MAX_DEPTH = () => parsePositiveInt(process.env.HYBRID_CRAWL_MAX_DEPTH, 3)
-const HY_MAX_ADDED = () => parsePositiveInt(process.env.HYBRID_CRAWL_MAX_ADDED, 300)
-const HY_MAX_FETCHES = () => parsePositiveInt(process.env.HYBRID_CRAWL_MAX_FETCHES, 400)
+// L3 (2026-07-20): raised from 300/400. Large raw-HTML client sites
+// (healthcarecareer hit maxAdded@300; soma hit maxFetches@400) were cut off
+// before finishing a productive raw crawl. The count raise does NOT touch the
+// time budget: the raw crawl still self-caps at HY_TIME_BUDGET (120s) and
+// HARD_CAP (1000) still bounds total pages. Whether a site can actually reach
+// 800 fetches within 120s depends on its per-fetch latency (concurrency 6, a
+// wave = one batch of ≤6 fetches) — so the count raise only helps a site with
+// genuine time/hardCap headroom; a site already near 120s at 400 fetches will
+// instead stop at stoppedBy:'timeBudget' (honestly reported, no silent gain).
+// maxAdded is checked before hardCap, so a maxAdded stop can co-exist with a
+// latent 1000-page limit — the re-measure inspects discovered count vs HARD_CAP.
+const HY_MAX_ADDED = () => parsePositiveInt(process.env.HYBRID_CRAWL_MAX_ADDED, 600)
+const HY_MAX_FETCHES = () => parsePositiveInt(process.env.HYBRID_CRAWL_MAX_FETCHES, 800)
 const HY_TIME_BUDGET = () => parsePositiveInt(process.env.HYBRID_CRAWL_TIME_BUDGET_MS, 120_000)
 const HY_CONCURRENCY = () => parsePositiveInt(process.env.HYBRID_CRAWL_CONCURRENCY, 6)
 const HY_QUERY_VARIANTS = () => parsePositiveInt(process.env.HYBRID_CRAWL_MAX_QUERY_VARIANTS_PER_PATH, 5)
 const HY_PATH_SEGMENTS = () => parsePositiveInt(process.env.HYBRID_CRAWL_MAX_PATH_SEGMENTS, 12)
+
+/** Raw-crawl bounds from env, with the raw time sub-budget clamped to the
+ *  smaller of HY_TIME_BUDGET (120s) and the remaining overall deadline. The
+ *  120s sub-cap is intentional (reserves the rest of the overall discovery
+ *  deadline for the L2 rendered pass); see the L3 plan's "Beal / time-bound
+ *  decision" for why letting raw consume the freed budget is a deferred
+ *  follow-up, not this change. */
+export function resolveRawCrawlBounds(deadlineMs: number, now: number): CrawlBounds {
+  return {
+    maxDepth: HY_MAX_DEPTH(),
+    maxAdded: HY_MAX_ADDED(),
+    maxFetches: HY_MAX_FETCHES(),
+    timeBudgetMs: Math.min(HY_TIME_BUDGET(), Math.max(0, deadlineMs - now)),
+    hardCap: HARD_CAP,
+    maxQueryVariantsPerPath: HY_QUERY_VARIANTS(),
+    maxPathSegments: HY_PATH_SEGMENTS(),
+    concurrency: HY_CONCURRENCY(),
+  }
+}
 
 // ─── L2 rendered-DOM discovery env tunables ──────────────────────────────────
 const RENDER_MAX_DEPTH = () => parsePositiveInt(process.env.HYBRID_RENDER_MAX_DEPTH, 2)
@@ -393,16 +423,7 @@ export async function discoverPagesWithDeps(
   // resolver's `capped` flag (sitemap mode) or, for provided seeds, whether the
   // raw seed count exceeded the cap before slicing.
   const sitemapCappedBefore = opts.seeds ? opts.seeds.length > HARD_CAP : (seedSource === 'sitemap' && seedCapped)
-  const bounds: CrawlBounds = {
-    maxDepth: HY_MAX_DEPTH(),
-    maxAdded: HY_MAX_ADDED(),
-    maxFetches: HY_MAX_FETCHES(),
-    timeBudgetMs: Math.min(HY_TIME_BUDGET(), Math.max(0, deadlineMs - deps.now())), // raw sub-budget ≤ overall deadline
-    hardCap: HARD_CAP,
-    maxQueryVariantsPerPath: HY_QUERY_VARIANTS(),
-    maxPathSegments: HY_PATH_SEGMENTS(),
-    concurrency: HY_CONCURRENCY(),
-  }
+  const bounds = resolveRawCrawlBounds(deadlineMs, deps.now())
   const crawl = await hybridCrawl(
     seedUrls.map((u) => ({ url: u, source: seedSource })),
     host,
