@@ -65,7 +65,7 @@ export interface SweepMembership {
 export type SweepTool = 'ada-audit' | 'seo-parser'
 export type CoverageState = 'comparable' | 'first-baseline' | 'partial' | 'failed'
 export type ChangeState = 'new' | 'worsened' | 'fewer' | 'detected' | 'stale'
-export type IssueUnit = 'pages' | 'targets' | 'groups'
+export type IssueUnit = 'pages' | 'targets' | 'groups' | 'links'
 
 export interface SemanticKey {
   clientId: number
@@ -161,7 +161,7 @@ const MEMBER_OUTCOMES: readonly MemberOutcome[] = [
 const TOOLS: readonly SweepTool[] = ['ada-audit', 'seo-parser']
 const COVERAGE_STATES: readonly CoverageState[] = ['comparable', 'first-baseline', 'partial', 'failed']
 const CHANGE_STATES: readonly ChangeState[] = ['new', 'worsened', 'fewer', 'detected', 'stale']
-const ISSUE_UNITS: readonly IssueUnit[] = ['pages', 'targets', 'groups']
+const ISSUE_UNITS: readonly IssueUnit[] = ['pages', 'targets', 'groups', 'links']
 const SEVERITIES: readonly ('critical' | 'warning' | 'notice')[] = ['critical', 'warning', 'notice']
 const SEVERITY_CHANGED_VALUES: readonly ('escalated' | 'downgraded')[] = ['escalated', 'downgraded']
 
