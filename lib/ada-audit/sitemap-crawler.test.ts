@@ -1,4 +1,4 @@
-import { afterEach, describe, it, expect, vi } from 'vitest'
+import { afterEach, beforeEach, describe, it, expect, vi } from 'vitest'
 
 const safeFetchMock = vi.hoisted(() => vi.fn())
 
@@ -14,7 +14,7 @@ vi.mock('./sitemap-crawler-browser-fetch', () => ({
   fetchSitemapViaBrowser: vi.fn(),
 }))
 
-import { discoverPages, discoverPagesWithDeps } from './sitemap-crawler'
+import { discoverPages, discoverPagesWithDeps, resolveRawCrawlBounds } from './sitemap-crawler'
 import { SafeUrlError } from '../security/safe-url'
 import { fetchSitemapViaBrowser } from './sitemap-crawler-browser-fetch'
 import { extractPageLocs, extractChildSitemapLocs, isSitemapIndex } from '@/lib/seo-fetch/sitemap-parse'
@@ -896,5 +896,79 @@ describe('discoverPages rendered pass (L2)', () => {
     expect(rendered.mock.calls.length).toBe(2)
     expect(r.coverage?.renderedFetches).toBe(2)
     delete process.env.HYBRID_RENDER_PROBE_MIN_NOVEL
+  })
+})
+
+describe('resolveRawCrawlBounds', () => {
+  const saved = { ...process.env }
+  beforeEach(() => {
+    delete process.env.HYBRID_CRAWL_MAX_ADDED
+    delete process.env.HYBRID_CRAWL_MAX_FETCHES
+    delete process.env.HYBRID_CRAWL_TIME_BUDGET_MS
+  })
+  afterEach(() => { process.env = { ...saved } })
+
+  it('defaults to the L3 raised count caps (800 fetches / 600 added)', () => {
+    const b = resolveRawCrawlBounds(100_000, 0)
+    expect(b.maxFetches).toBe(800)
+    expect(b.maxAdded).toBe(600)
+  })
+
+  it('keeps the raw time sub-budget capped at HY_TIME_BUDGET (120s), not the overall deadline', () => {
+    // overall deadline is 240s out; raw crawl must still self-cap at 120s
+    const b = resolveRawCrawlBounds(240_000, 0)
+    expect(b.timeBudgetMs).toBe(120_000)
+  })
+
+  it('clamps the raw sub-budget to the remaining deadline when it is under 120s', () => {
+    const b = resolveRawCrawlBounds(30_000, 0)
+    expect(b.timeBudgetMs).toBe(30_000)
+  })
+
+  it('respects env overrides for the count caps', () => {
+    process.env.HYBRID_CRAWL_MAX_FETCHES = '1200'
+    process.env.HYBRID_CRAWL_MAX_ADDED = '900'
+    const b = resolveRawCrawlBounds(100_000, 0)
+    expect(b.maxFetches).toBe(1200)
+    expect(b.maxAdded).toBe(900)
+  })
+})
+
+// L3 (2026-07-20): a count-cap stop must be reported via coverage.stoppedBy, NOT
+// the coarse `capped` flag (which is only seedCapped || hardCap || hardCapPrefull).
+// This also proves resolveRawCrawlBounds is wired into discovery (the env cap
+// actually bounds the crawl).
+describe('discoverPagesWithDeps honest cap reporting (L3)', () => {
+  const saved = { ...process.env }
+  afterEach(() => { process.env = { ...saved } })
+
+  it('a maxAdded stop is reported via coverage.stoppedBy, not the coarse capped flag', async () => {
+    process.env.HYBRID_CRAWL_MAX_ADDED = '2' // force the count cap through resolveRawCrawlBounds
+    const g: Record<string, string[]> = {
+      'https://x.com/': ['https://x.com/a', 'https://x.com/b', 'https://x.com/c', 'https://x.com/d'],
+      'https://x.com/a': [], 'https://x.com/b': [], 'https://x.com/c': [], 'https://x.com/d': [],
+    }
+    const r = await discoverPagesWithDeps('x.com', { hybrid: true }, {
+      resolveSeeds: async () => ({ urls: ['https://x.com/'], mode: 'sitemap', capped: false }),
+      fetchPageLinks: async (u) => (u in g ? { links: g[u], finalUrl: u } : null),
+      now: () => 0, robots: { disallow: [], allow: [] },
+    })
+    expect(r.coverage!.stoppedBy).toBe('maxAdded')
+    expect(r.capped).toBe(false) // a count-cap stop is NOT a coarse-capped run
+  })
+
+  it('a maxFetches stop is reported via coverage.stoppedBy, not the coarse capped flag', async () => {
+    process.env.HYBRID_CRAWL_MAX_FETCHES = '2'
+    const g: Record<string, string[]> = {
+      'https://x.com/': ['https://x.com/a', 'https://x.com/b', 'https://x.com/c'],
+      'https://x.com/a': [], 'https://x.com/b': [], 'https://x.com/c': [],
+    }
+    const r = await discoverPagesWithDeps('x.com', { hybrid: true }, {
+      resolveSeeds: async () => ({ urls: ['https://x.com/'], mode: 'sitemap', capped: false }),
+      fetchPageLinks: async (u) => (u in g ? { links: g[u], finalUrl: u } : null),
+      now: () => 0, robots: { disallow: [], allow: [] },
+    })
+    expect(r.coverage!.stoppedBy).toBe('maxFetches')
+    expect(r.capped).toBe(false)
   })
 })

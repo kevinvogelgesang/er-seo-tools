@@ -752,3 +752,24 @@ recomputed values — the stored `sample` is capped at 50 off-baseline URLs and 
 exclusions; any pre-deploy figure is a **directional estimate only**.
 
 **Still open:** L2 (rendered-DOM discovery — the JS-blind fix, own plan) + L3 (bound adaptivity, own plan).
+
+---
+
+## L3 — bound adaptivity for large raw-HTML sites (2026-07-20)
+
+**Change:** `HYBRID_CRAWL_MAX_FETCHES` 400→800, `HYBRID_CRAWL_MAX_ADDED` 300→600 (defaults in `lib/ada-audit/sitemap-crawler.ts`; ship in code, no prod `.env` step). Plan: `docs/superpowers/plans/2026-07-20-hybrid-discovery-L3-bound-adaptivity.md`. Spec §L3. Codex P0: ACCEPT WITH NAMED FIXES (7 applied).
+
+**Beal / time-bound decision:** option (b). L3 raises the *count* caps only; it does NOT implement the spec's "option (a)" freed-budget consumption. Rationale: the raw crawl self-caps at `HY_TIME_BUDGET` (120s) while the discover job grants ~240s overall — a raw-HTML site leaves ~120s unused — but converting that to raw-crawl time is a resumable-crawl refactor of the just-stabilized L2 core, deferred to a **data-gated follow-up** opened ONLY if this re-measure shows a site still >5% AND `stoppedBy:'timeBudget'`. L3 makes NO claim to help Beal (Codex F6).
+
+**Ledger — fill during prod re-measure** (pre = current prod run BEFORE deploy; post = fresh seoIntent audit AFTER deploy). Raw additions = count of `discoverySourcesJson.sources` entries labeled `'linked'` (NOT `addedByCrawl`, which is not persisted). Inspect BOTH `stoppedBy` and `renderStoppedBy`.
+
+| client | pre resid (filt / raw) | pre stoppedBy | pre fetches | pre discovered / HARD_CAP | post resid (filt / raw) | post stoppedBy / renderStoppedBy | post fetches | post 'linked' | post discovered / HARD_CAP | thresholdResult | fallback / reason |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| healthcarecareer | — / — | maxAdded@300 (pre-L1 diag) | — | — | | | | | | | |
+| soma | — / — | maxFetches@400 (pre-L1 diag) | — | — | | | | | | | |
+| beal | — / — | timeBudget@120s (pre-L1 diag) | — | — | | | | | | | (time-bound → option-a follow-up if >5%) |
+| discoverycommunitycollege.com | — / — | maxFetches@400 (pre-L1 diag) | — | — | | | | | | | (primarily JS-blind → L2's job) |
+
+**thresholdResult rule:** `cleared` only when filtered residual ≤5% AND `stoppedBy === 'exhausted'`; a ≤5% run that still stopped on a cap/time/depth bound is `cleared-watch`, never a bare `cleared`. **fallback rule:** a run >5% no lever can fix is `sf-required` + reason; its N=8 clock does not start; never a silent sub-5% pass.
+
+**Note (Codex fix #3):** `maxAdded` is checked before `hardCap`, so a `maxAdded` stop can mask a latent 1000-page limit — compare `discovered` vs `HARD_CAP`, not just `stoppedBy`. A site that merely flips to `stoppedBy:'timeBudget'` with little extra work is honestly `cleared-watch`/`sf-required`, not a win.
