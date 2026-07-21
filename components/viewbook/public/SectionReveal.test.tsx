@@ -117,4 +117,22 @@ describe('SectionReveal (state-only)', () => {
     )
     expect(getByText('Data Source')).toBeDefined()
   })
+
+  // Task 8 — the reveal-on-hero-exit fix (Codex fix #5): the sticky bar's ONLY
+  // visible title content is this aria-hidden duplicate label, so the bar
+  // genuinely reads empty while the hero is in view and the label fades in
+  // once the hero scrolls off (CSS keyed off the ancestor's
+  // data-vb-hero-visible). It must carry no interactive children so it can
+  // never trap a click/tab stop while faded.
+  it('renders an aria-hidden duplicate sticky label with no interactive children', () => {
+    const { container } = render(
+      <SectionReveal regionId="r" title="Brand" alwaysOpen={false} initiallyOpen>
+        body
+      </SectionReveal>,
+    )
+    const dup = container.querySelector('[data-vb-sticky-label]')!
+    expect(dup).toBeTruthy()
+    expect(dup.getAttribute('aria-hidden')).toBe('true')
+    expect(dup.querySelector('a,button')).toBeNull()
+  })
 })

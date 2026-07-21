@@ -82,18 +82,33 @@ export function SectionReveal({
         .vb-reveal[data-vb-expanded="false"] { grid-template-rows: 0fr; }
         .vb-reveal > .vb-reveal-inner { overflow: hidden; min-height: 0; }
         @media (prefers-reduced-motion: reduce) { .vb-reveal { transition: none; } }
+        [data-vb-sticky-label] { transition: opacity 200ms; }
+        [data-vb-hero-visible="true"] [data-vb-sticky-label] { opacity: 0; }
+        @media (prefers-reduced-motion: reduce) { [data-vb-sticky-label] { transition: none; } }
       `}</style>
 
       {/* Compact STICKY header bar (§4.3): pins under the top nav at
           `--vb-sticky-offset`; the next section's header pushes it up via
           standard CSS sticky stacking — no JS. It IS the toggle for non-
-          always-open sections. It carries the section title as a SHRUNK H2
-          (~H3 size) so a pinned bar names its section. The outer div spans
-          full width with a brand-tinted accent background (opaque — also
-          keeps body content from showing through when pinned) that visually
-          groups this header strip apart from the section body; the inner div
-          centres the content to the 5xl column. The accent MUST match the
-          TickDivider strip's background in SectionShell. */}
+          always-open sections. The outer div spans full width with a
+          brand-tinted accent background (opaque — also keeps body content
+          from showing through when pinned) that visually groups this header
+          strip apart from the section body; the inner div centres the content
+          to the 5xl column. The accent MUST match the TickDivider strip's
+          background in SectionShell.
+
+          Task 8 (Codex fix #5 — the reveal must actually reveal): the bar's
+          ONLY visible title content is `[data-vb-sticky-label]` — an
+          aria-hidden, text-only duplicate of the title with NO
+          links/buttons inside it. There is deliberately no separate
+          always-visible title here, so the bar genuinely reads empty while
+          the section's own hero band is in view. The label fades in via the
+          CSS above, keyed off the ancestor `<section>`'s
+          `data-vb-hero-visible` (flipped by the Lane-A sticky-offset
+          controller as the hero leaves the viewport) — pure opacity, so the
+          bar's box height never changes. Any interactive content (the
+          toggle) stays OUTSIDE this faded subtree; CTAs live in SectionShell's
+          chapter header strip, never here. */}
       <div
         style={{
           position: 'sticky',
@@ -105,6 +120,8 @@ export function SectionReveal({
         <div className="mx-auto flex w-full max-w-5xl flex-wrap items-center gap-3 px-6 py-3">
           <div className="min-w-0 flex-1">
             <div
+              data-vb-sticky-label
+              aria-hidden="true"
               className="text-xl font-bold tracking-tight text-black/80 sm:text-2xl"
               style={{ fontFamily: 'var(--vb-heading-font)' }}
             >
@@ -143,7 +160,12 @@ export function SectionReveal({
         className="vb-reveal"
       >
         <div className="vb-reveal-inner">
-          <div className="mx-auto w-full max-w-5xl space-y-6 px-6 pb-10 pt-2">{children}</div>
+          {/* Task 8: prose measure — constrain the reading column (summary
+              panel + introNote + section body) to ~68ch for readability. This
+              is the ONLY width change in this task; the full-width sticky bar
+              above is untouched, and any wider cards nested in `children` are
+              out of scope here. */}
+          <div className="mx-auto w-full max-w-[68ch] space-y-6 px-6 pb-10 pt-2">{children}</div>
         </div>
       </div>
     </div>
