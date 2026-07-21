@@ -1,32 +1,12 @@
 // A plain-language "what / why" panel a section renders at the top of its
 // expanded body (spec §5.5). Server component; LIGHT-ONLY (color via --vb-*).
-// Extended for the continuous viewer: an optional status pill + a shared
-// StatusPill export reused by StageOverview / PreviousStages / the chapter header.
+// Extended for the continuous viewer: an optional status pill. StatusPill itself
+// now lives in ./StatusPill (relocated so it survives this panel's deletion in
+// Feature A); re-exported here so existing importers keep resolving.
 import type { SectionStatus } from '@/lib/viewbook/section-status'
+import { StatusPill } from './StatusPill'
 
-const STATUS_LABEL: Record<SectionStatus, string> = {
-  complete: 'Complete',
-  current: 'Current',
-  upcoming: 'Upcoming',
-  'needs-input': 'Needs input',
-}
-
-// Visible TEXT label always present (status is never conveyed by color alone).
-export function StatusPill({ status }: { status: SectionStatus }) {
-  const filled = status === 'complete' || status === 'needs-input'
-  const bg = status === 'complete' ? 'var(--vb-secondary)' : status === 'needs-input' ? 'var(--vb-primary)' : 'transparent'
-  // on-secondary for the secondary-bg 'complete' pill; on-primary for the primary-bg 'needs-input' pill.
-  const color = status === 'complete' ? 'var(--vb-on-secondary)' : status === 'needs-input' ? 'var(--vb-on-primary)' : 'rgba(0,0,0,0.6)'
-  return (
-    <span
-      data-vb-status-pill={status}
-      className="inline-flex shrink-0 items-center rounded-full border px-2.5 py-0.5 text-xs font-semibold"
-      style={{ background: bg, color, borderColor: filled ? 'transparent' : 'rgba(0,0,0,0.15)' }}
-    >
-      {STATUS_LABEL[status]}
-    </span>
-  )
-}
+export { StatusPill }
 
 export function SectionSummaryPanel({
   whatThis,

@@ -6,7 +6,7 @@
 import type { SectionKey } from '@/lib/viewbook/theme'
 import type { SectionStatus } from '@/lib/viewbook/section-status'
 import { navigateToAnchor } from './viewbook-navigate'
-import { StatusPill } from './SectionSummaryPanel'
+import { StatusPill } from './StatusPill'
 
 export function StageOverview({
   items,
