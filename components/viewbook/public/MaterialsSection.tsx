@@ -8,6 +8,7 @@ import { SECTION_TITLES } from './section-titles'
 import { publicAssetUrl } from './ThemeStyle'
 import { MaterialLinkForm } from './MaterialLinkForm'
 import { SummaryStat } from './SummaryStat'
+import type { SectionRenderMeta } from '@/lib/viewbook/section-status'
 
 function fmtDate(iso: string): string {
   return new Date(iso).toLocaleDateString('en-US', {
@@ -31,11 +32,13 @@ export function MaterialsSection({
   data,
   token,
   isOperator = false,
+  meta,
 }: {
   section: PublicSection
   data: ViewbookPublicData
   token: string
   isOperator?: boolean
+  meta: SectionRenderMeta
 }) {
   const hero = data.theme.sectionHeroes[section.sectionKey]
   const n = data.materials.length
@@ -57,6 +60,8 @@ export function MaterialsSection({
       isOperator={isOperator}
       viewbookId={data.viewbookId}
       token={token}
+      meta={meta}
+      viewerMode={data.viewerMode}
     >
       {data.materials.length === 0 ? (
         <p className="text-black/50">No materials yet — links you share with us will appear here.</p>

@@ -15,6 +15,7 @@ import { FieldEditor } from './FieldEditor'
 import { AckButton } from './AckButton'
 import { NotifyEmailsControl, type NotifyCandidate } from './NotifyEmailsControl'
 import { SummaryStat, sectionStatusLabel } from './SummaryStat'
+import type { SectionRenderMeta } from '@/lib/viewbook/section-status'
 
 function orderedSetupFields(data: ViewbookPublicData): PublicField[] {
   const all = data.fieldCategories.flatMap((c) => c.fields)
@@ -54,11 +55,13 @@ export function PcSetupSection({
   data,
   token,
   isOperator = false,
+  meta,
 }: {
   section: PublicSection
   data: ViewbookPublicData
   token: string
   isOperator?: boolean
+  meta: SectionRenderMeta
 }) {
   const hero = data.theme.sectionHeroes['pc-setup']
   const fields = orderedSetupFields(data)
@@ -75,6 +78,8 @@ export function PcSetupSection({
       isOperator={isOperator}
       viewbookId={data.viewbookId}
       token={token}
+      meta={meta}
+      viewerMode={data.viewerMode}
     >
       <div className="space-y-4">
         {fields.map((field) => (

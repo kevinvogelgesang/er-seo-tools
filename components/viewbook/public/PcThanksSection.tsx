@@ -8,6 +8,7 @@ import { SectionShell } from './SectionShell'
 import { SECTION_TITLES } from './section-titles'
 import { publicAssetUrl } from './ThemeStyle'
 import { SummaryStat, sectionStatusLabel } from './SummaryStat'
+import type { SectionRenderMeta } from '@/lib/viewbook/section-status'
 
 const THANK_YOU_COPY =
   "Thank you! We've received your information — adjust anything or add users; we look forward to starting."
@@ -17,11 +18,13 @@ export function PcThanksSection({
   data,
   token,
   isOperator = false,
+  meta,
 }: {
   section: PublicSection
   data: ViewbookPublicData
   token: string
   isOperator?: boolean
+  meta: SectionRenderMeta
 }) {
   if (!data.pcCompletedAt) return null
   const hero = data.theme.sectionHeroes['pc-thanks']
@@ -38,6 +41,8 @@ export function PcThanksSection({
       isOperator={isOperator}
       viewbookId={data.viewbookId}
       token={token}
+      meta={meta}
+      viewerMode={data.viewerMode}
     >
       <p className="text-lg text-black/70" style={{ fontFamily: 'var(--vb-body-font)' }}>{THANK_YOU_COPY}</p>
     </SectionShell>

@@ -6,6 +6,7 @@ import { SectionShell } from './SectionShell'
 import { SECTION_TITLES } from './section-titles'
 import { publicAssetUrl } from './ThemeStyle'
 import { SummaryStat, sectionStatusLabel } from './SummaryStat'
+import type { SectionRenderMeta } from '@/lib/viewbook/section-status'
 
 function Placeholder({ what }: { what: string }) {
   return <p className="text-black/50">{what} is coming soon.</p>
@@ -33,11 +34,13 @@ export function WelcomeSection({
   data,
   token,
   isOperator = false,
+  meta,
 }: {
   section: PublicSection
   data: ViewbookPublicData
   token: string
   isOperator?: boolean
+  meta: SectionRenderMeta
 }) {
   const hero = data.theme.sectionHeroes[section.sectionKey]
   const { team, blocks } = data.global
@@ -59,6 +62,8 @@ export function WelcomeSection({
       isOperator={isOperator}
       viewbookId={data.viewbookId}
       token={token}
+      meta={meta}
+      viewerMode={data.viewerMode}
     >
       {blocks.why?.blocks?.length ? <Blocks blocks={blocks.why.blocks} /> : <Placeholder what="Our story" />}
 

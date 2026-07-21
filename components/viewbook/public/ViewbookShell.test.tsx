@@ -47,6 +47,9 @@ const data = (over: Partial<ViewbookPublicData> = {}): ViewbookPublicData => ({
   theme: DEFAULT_THEME,
   stage: 'building',
   stageLabel: 'Now Building',
+  // Default these EarlierSteps/mount regressions to the DORMANT collapse path
+  // (they assert EarlierSteps). Continuous-wiring tests override to 'continuous'.
+  viewerMode: 'collapse',
   syncVersion: 0,
   pcCompletedAt: null,
   clientNotifyJson: [],
@@ -71,8 +74,6 @@ describe('ViewbookShell', () => {
           primarySections: [sec('strategy')],
           carriedSections: [sec('brand')],
         })}
-        primarySections={[sec('strategy')]}
-        carriedSections={[sec('brand')]}
         renderSection={(s) => <p data-testid={`section-${s.sectionKey}`}>{s.sectionKey} body</p>}
       />,
     )
@@ -102,8 +103,6 @@ describe('ViewbookShell', () => {
       <ViewbookShell
         token="tok"
         data={data({ primarySections: [sec('welcome')] })}
-        primarySections={[sec('welcome')]}
-        carriedSections={[]}
         renderSection={(s) => <p data-testid={`section-${s.sectionKey}`}>{s.sectionKey} body</p>}
       />,
     )
@@ -122,8 +121,6 @@ describe('ViewbookShell sticky chrome (Task 5)', () => {
       <ViewbookShell
         token="tok"
         data={data({ primarySections: [sec('welcome')] })}
-        primarySections={[sec('welcome')]}
-        carriedSections={[]}
         renderSection={(s) => <p data-testid={`section-${s.sectionKey}`}>{s.sectionKey} body</p>}
       />,
     )
@@ -146,8 +143,6 @@ describe('ViewbookShell sticky chrome (Task 5)', () => {
       <ViewbookShell
         token="tok"
         data={data({ primarySections: [sec('welcome')] })}
-        primarySections={[sec('welcome')]}
-        carriedSections={[]}
         renderSection={(s) => <p data-testid={`section-${s.sectionKey}`}>{s.sectionKey} body</p>}
       />,
     )
@@ -160,8 +155,6 @@ describe('ViewbookShell sticky chrome (Task 5)', () => {
       <ViewbookShell
         token="tok"
         data={data({ primarySections: [sec('welcome')] })}
-        primarySections={[sec('welcome')]}
-        carriedSections={[]}
         renderSection={(s) => <p data-testid={`section-${s.sectionKey}`}>{s.sectionKey} body</p>}
       />,
     )
@@ -212,8 +205,6 @@ describe('ViewbookShell footer whitespace (Task 9)', () => {
           primarySections: [sec('milestones'), sec('materials')],
           carriedSections: [sec('welcome'), sec('strategy')],
         })}
-        primarySections={[sec('milestones'), sec('materials')]}
-        carriedSections={[sec('welcome'), sec('strategy')]}
         renderSection={(s) => <p data-testid={`section-${s.sectionKey}`}>{s.sectionKey} body</p>}
       />,
     )
@@ -262,8 +253,6 @@ describe('ViewbookShell nested-anchor scroll offset (Task P2-1)', () => {
       <ViewbookShell
         token="tok"
         data={data({ primarySections: [sec('welcome')] })}
-        primarySections={[sec('welcome')]}
-        carriedSections={[]}
         renderSection={(s) => <p data-testid={`section-${s.sectionKey}`}>{s.sectionKey} body</p>}
       />,
     )
@@ -284,8 +273,6 @@ describe('ViewbookShell reveal-scale CSS var (Task 4)', () => {
       <ViewbookShell
         token="tok"
         data={data({ primarySections: [sec('welcome')], revealDurationScale: 0.7 })}
-        primarySections={[sec('welcome')]}
-        carriedSections={[]}
         renderSection={(s) => <p data-testid={`section-${s.sectionKey}`}>{s.sectionKey} body</p>}
       />,
     )
@@ -302,8 +289,6 @@ describe('ViewbookShell TOC rail wiring', () => {
       <ViewbookShell
         token="tok"
         data={data({ stage: 'building', primarySections: [sec('welcome'), sec('data-source')] })}
-        primarySections={[sec('welcome'), sec('data-source')]}
-        carriedSections={[]}
         renderSection={(s) => <p data-testid={`section-${s.sectionKey}`}>{s.sectionKey} body</p>}
       />,
     )
@@ -317,8 +302,6 @@ describe('ViewbookShell TOC rail wiring', () => {
       <ViewbookShell
         token="tok"
         data={data({ stage: 'kickoff', primarySections: [sec('welcome')] })}
-        primarySections={[sec('welcome')]}
-        carriedSections={[]}
         renderSection={(s) => <p data-testid={`section-${s.sectionKey}`}>{s.sectionKey} body</p>}
       />,
     )
@@ -329,5 +312,58 @@ describe('ViewbookShell TOC rail wiring', () => {
     // … but the search box is verbose-only, and verbose is `stage ===
     // 'building'` — outside that stage there is no input[type=search] at all.
     expect(container.querySelector('input[type="search"]')).toBeNull()
+  })
+})
+
+// Continuous-mode wiring (spec §4): the active default viewer renders the lead
+// section, the "In this stage" overview, chapter sections, and "Previous
+// stages" (grouped carried) — NOT EarlierSteps.
+describe('ViewbookShell — continuous mode', () => {
+  const renderShell = (over = {}) =>
+    render(
+      <ViewbookShell
+        token="tok"
+        data={data({ viewerMode: 'continuous', stage: 'kickoff', ...over })}
+        renderSection={(s) => <p data-testid={`section-${s.sectionKey}`}>{s.sectionKey} body</p>}
+      />,
+    )
+
+  it('renders the lead, the In-this-stage overview, and chapter sections', () => {
+    const { container } = renderShell({
+      primarySections: [sec('welcome'), sec('milestones'), sec('strategy')],
+      carriedSections: [],
+    })
+    expect(container.querySelector('nav[aria-label="In this stage"]')).not.toBeNull()
+    expect(container.querySelector('[data-testid="section-welcome"]')).not.toBeNull()
+    expect(container.querySelector('[data-testid="section-strategy"]')).not.toBeNull()
+    // Collapse-only "Earlier steps" band must NOT appear.
+    expect(container.textContent).not.toContain('Earlier steps')
+  })
+
+  it('renders Previous stages for carried sections (not EarlierSteps)', () => {
+    const { container } = renderShell({
+      primarySections: [sec('welcome')],
+      carriedSections: [sec('pc-setup')],
+    })
+    expect(container.querySelector('section[aria-label="Previous stages"]')).not.toBeNull()
+    expect(container.textContent).toContain('Previous stages')
+    expect(container.textContent).not.toContain('Earlier steps')
+  })
+
+  it('mounts the ReadingProgressController (continuous only) — collapse mode does not', () => {
+    // The controller returns null; assert indirectly: continuous renders the
+    // overview nav, collapse renders EarlierSteps and no overview.
+    const { container: cont } = renderShell({ primarySections: [sec('welcome')], carriedSections: [sec('pc-setup')] })
+    expect(cont.querySelector('nav[aria-label="In this stage"]')).not.toBeNull()
+    cleanup()
+    const { container: coll } = render(
+      <ViewbookShell
+        token="tok"
+        data={data({ viewerMode: 'collapse', stage: 'kickoff', primarySections: [sec('welcome')], carriedSections: [sec('pc-setup')] })}
+        renderSection={(s) => <p data-testid={`section-${s.sectionKey}`}>{s.sectionKey} body</p>}
+      />,
+    )
+    expect(coll.querySelector('nav[aria-label="In this stage"]')).toBeNull()
+    expect(coll.textContent).toContain('Earlier steps')
   })
 })

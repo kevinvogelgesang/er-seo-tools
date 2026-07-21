@@ -22,6 +22,7 @@ vi.mock('./AssessmentNotesEditors', () => ({
 }))
 
 import { AssessmentSection } from './AssessmentSection'
+const meta = (over = {}) => ({ heroSize: 'chapter', chapterNumber: 1, status: 'current', isLead: false, ...over })
 
 beforeEach(() => {
   getOperatorEmailForPublicPage.mockResolvedValue(null) // public viewer by default
@@ -49,7 +50,7 @@ const data = {
   dataLockedAt: null,
   theme: DEFAULT_THEME,
   stage: 'building',
-  stageLabel: 'Now Building',
+  stageLabel: 'Now Building', viewerMode: 'continuous',
   pcCompletedAt: null,
   clientNotifyJson: [],
   teamMembers: [],
@@ -88,7 +89,7 @@ function load(over: Partial<AssessmentLoad> = {}): AssessmentLoad {
 
 // Async server component: call it as a function, render the resolved JSX.
 async function renderSection() {
-  render(await AssessmentSection({ section, data, token: 'tok' }))
+  render(await AssessmentSection({ section, data, token: 'tok', meta: meta() }))
 }
 
 describe('AssessmentSection', () => {

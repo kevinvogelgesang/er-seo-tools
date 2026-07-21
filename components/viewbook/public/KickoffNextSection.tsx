@@ -7,6 +7,7 @@ import { ChapterCtaButton } from './ChapterCtaButton'
 import { SECTION_TITLES } from './section-titles'
 import { publicAssetUrl } from './ThemeStyle'
 import { SummaryStat, sectionStatusLabel } from './SummaryStat'
+import type { SectionRenderMeta } from '@/lib/viewbook/section-status'
 
 // Code-owned reader-facing action summary for the kickoff "Next Steps" chapter.
 // Concrete next actions (no operator data) + one prominent CTA back into the
@@ -55,11 +56,13 @@ function KickoffActionSummary() {
 
 export function KickoffNextSection({
   isOperator,
+  meta,
   section,
   data,
   token,
 }: {
   isOperator: boolean
+  meta: SectionRenderMeta
   section: PublicSection
   data: ViewbookPublicData
   token: string
@@ -85,6 +88,8 @@ export function KickoffNextSection({
       isOperator={isOperator}
       viewbookId={data.viewbookId}
       token={token}
+      meta={meta}
+      viewerMode={data.viewerMode}
     >
       {isOperator ? (
         <KickoffNextCta viewbookId={data.viewbookId} csmName={data.csmName} />

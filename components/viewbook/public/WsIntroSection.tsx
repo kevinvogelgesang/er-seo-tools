@@ -12,6 +12,7 @@ import { SectionShell } from './SectionShell'
 import { SECTION_TITLES } from './section-titles'
 import { publicAssetUrl } from './ThemeStyle'
 import { SummaryStat, sectionStatusLabel } from './SummaryStat'
+import type { SectionRenderMeta } from '@/lib/viewbook/section-status'
 
 const LEAD =
   "Now we dial in the look and feel of your site — your brand palette, typography, and the accessibility bar every page has to clear."
@@ -21,11 +22,13 @@ export function WsIntroSection({
   data,
   token,
   isOperator = false,
+  meta,
 }: {
   section: PublicSection
   data: ViewbookPublicData
   token: string
   isOperator?: boolean
+  meta: SectionRenderMeta
 }) {
   // The lineup already gates rendering to the 'website-specifics' stage —
   // this is a defensive belt-and-suspenders check, mirroring KickoffNextSection.
@@ -44,6 +47,8 @@ export function WsIntroSection({
       isOperator={isOperator}
       viewbookId={data.viewbookId}
       token={token}
+      meta={meta}
+      viewerMode={data.viewerMode}
     >
       <p className="text-lg text-black/70" style={{ fontFamily: 'var(--vb-body-font)' }}>{LEAD}</p>
     </SectionShell>

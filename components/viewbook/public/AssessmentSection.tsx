@@ -16,6 +16,7 @@ import { publicAssetUrl } from './ThemeStyle'
 import { Tooltip } from './Tooltip'
 import { SummaryStat, sectionStatusLabel } from './SummaryStat'
 import { AssessmentNotesEditors } from './AssessmentNotesEditors'
+import type { SectionRenderMeta } from '@/lib/viewbook/section-status'
 
 function fmtDate(iso: string): string {
   return new Date(iso).toLocaleDateString('en-US', {
@@ -263,11 +264,13 @@ export async function AssessmentSection({
   data,
   token,
   isOperator = false,
+  meta,
 }: {
   section: PublicSection
   data: ViewbookPublicData
   token: string
   isOperator?: boolean
+  meta: SectionRenderMeta
 }) {
   const [load, operatorEmail] = await Promise.all([
     loadAssessmentData(token),
@@ -305,6 +308,8 @@ export async function AssessmentSection({
       isOperator={isOperator}
       viewbookId={data.viewbookId}
       token={token}
+      meta={meta}
+      viewerMode={data.viewerMode}
     >
       {assessment ? (
         <AssessmentBody assessment={assessment} narrative={section.narrative} notesSlot={notesSlot} />

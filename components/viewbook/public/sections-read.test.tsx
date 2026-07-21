@@ -10,6 +10,7 @@ import { MaterialsSection } from './MaterialsSection'
 import { MilestonesSection } from './MilestonesSection'
 import { KickoffNextSection } from './KickoffNextSection'
 import { stubAllSectionsExpanded } from './test-support/stub-expanded-storage'
+const meta = (over = {}) => ({ heroSize: 'chapter', chapterNumber: 1, status: 'current', isLead: false, ...over })
 
 vi.mock('next/navigation', () => ({ useRouter: () => ({ refresh: vi.fn() }) }))
 
@@ -42,7 +43,7 @@ const base = (over: Partial<ViewbookPublicData> = {}): ViewbookPublicData => ({
   dataLockedAt: null,
   theme: DEFAULT_THEME,
   stage: 'building',
-  stageLabel: 'Now Building',
+  stageLabel: 'Now Building', viewerMode: 'continuous',
   pcCompletedAt: null,
   clientNotifyJson: [],
   teamMembers: [],
@@ -66,13 +67,13 @@ describe('WelcomeSection', () => {
         blocks: { why: { blocks: [{ heading: 'Why', body: 'Because.' }] } },
       },
     })
-    render(<WelcomeSection section={sec('welcome')} data={data} token="tok" />)
+    render(<WelcomeSection meta={meta()} section={sec('welcome')} data={data} token="tok" />)
     expect(screen.getByText('Hi Acme!')).toBeDefined()
     expect(screen.getByText('Kev')).toBeDefined()
     expect(screen.getByText('Because.')).toBeDefined()
 
     cleanup()
-    render(<WelcomeSection section={sec('welcome')} data={base()} token="tok" />)
+    render(<WelcomeSection meta={meta()} section={sec('welcome')} data={base()} token="tok" />)
     expect(screen.getAllByText(/coming soon/i).length).toBeGreaterThan(0)
   })
 
@@ -91,7 +92,7 @@ describe('WelcomeSection', () => {
         blocks: {},
       },
     })
-    const { container } = render(<WelcomeSection section={sec('welcome')} data={data} token="tok" />)
+    const { container } = render(<WelcomeSection meta={meta()} section={sec('welcome')} data={data} token="tok" />)
     expect(screen.getByText('Your ER contact')).toBeDefined()
     expect(screen.getAllByText('Casey CSM')).toHaveLength(1)
     expect(screen.getByRole('link', { name: 'casey@example.com' }).getAttribute('href')).toBe('mailto:casey@example.com')
@@ -102,7 +103,7 @@ describe('WelcomeSection', () => {
   })
 
   it('hides a dangling CSM card while keeping the ordinary team grid', () => {
-    render(<WelcomeSection section={sec('welcome')} data={base({
+    render(<WelcomeSection meta={meta()} section={sec('welcome')} data={base({
       csmName: 'Former CSM',
       global: { team: [{ name: 'Dana Designer', role: 'Designer', photo: null, blurb: '' }], blocks: {} },
     })} token="tok" />)
@@ -114,7 +115,7 @@ describe('WelcomeSection', () => {
 describe('BrandSection', () => {
   it('renders the three swatches with hex labels and the narrative prose', () => {
     render(
-      <BrandSection section={sec('brand', { narrative: 'Bold and warm.' })} data={base()} token="tok" />,
+      <BrandSection meta={meta()} section={sec('brand', { narrative: 'Bold and warm.' })} data={base()} token="tok" />,
     )
     expect(screen.getByText('#122033')).toBeDefined()
     expect(screen.getByText('Bold and warm.')).toBeDefined()
@@ -130,7 +131,7 @@ describe('StrategySection', () => {
       },
       overrides: { 'seo-base': 'Your custom plan.' },
     })
-    render(<StrategySection section={sec('strategy')} data={data} token="tok" />)
+    render(<StrategySection meta={meta()} section={sec('strategy')} data={data} token="tok" />)
     expect(screen.getByText('Do SEO well.')).toBeDefined()
     expect(screen.getByText('Your custom plan.')).toBeDefined()
     expect(screen.getByText(/your plan/i)).toBeDefined()
@@ -151,7 +152,7 @@ describe('StrategySection', () => {
       },
       global: { team: null, blocks: { 'seo-base': { blocks: [{ heading: 'Full', body: 'Long copy' }] } } },
     })
-    const { container } = render(<StrategySection section={sec('strategy')} data={data} token="tok" />)
+    const { container } = render(<StrategySection meta={meta()} section={sec('strategy')} data={data} token="tok" />)
     const links = screen.getAllByRole('link', { name: 'Open PDF' })
     expect(links.map((link) => link.getAttribute('href'))).toEqual([
       '/api/viewbook/tok/assets/global.pdf',
@@ -171,12 +172,12 @@ describe('KickoffNextSection', () => {
     const kickoff = base({ stage: 'kickoff', csmName: 'Kevin' })
     const building = base({ stage: 'building', csmName: 'Kevin' })
     const { rerender } = render(
-      <KickoffNextSection isOperator section={sec('kickoff-next')} data={kickoff} token="tok" />,
+      <KickoffNextSection meta={meta()} isOperator section={sec('kickoff-next')} data={kickoff} token="tok" />,
     )
     expect(screen.getByText('Ready for the next step?')).toBeDefined()
     // v2 SectionShell adds a summary-row toggle button; target the CTA by name.
     expect(screen.getByRole('button', { name: 'Move to Website Specifics' })).toBeDefined()
-    rerender(<KickoffNextSection isOperator section={sec('kickoff-next')} data={building} token="tok" />)
+    rerender(<KickoffNextSection meta={meta()} isOperator section={sec('kickoff-next')} data={building} token="tok" />)
     expect(screen.queryByText('Ready for the next step?')).toBeNull()
   })
 
@@ -184,10 +185,10 @@ describe('KickoffNextSection', () => {
     const named = base({ stage: 'kickoff', csmName: 'Kevin' })
     const neutral = base({ stage: 'kickoff', csmName: null })
     const { rerender } = render(
-      <KickoffNextSection isOperator={false} section={sec('kickoff-next')} data={named} token="tok" />,
+      <KickoffNextSection meta={meta()} isOperator={false} section={sec('kickoff-next')} data={named} token="tok" />,
     )
     expect(screen.getByText(/Reach out to Kevin/)).toBeDefined()
-    rerender(<KickoffNextSection isOperator={false} section={sec('kickoff-next')} data={neutral} token="tok" />)
+    rerender(<KickoffNextSection meta={meta()} isOperator={false} section={sec('kickoff-next')} data={neutral} token="tok" />)
     expect(screen.getByText(/Reach out to your Enrollment Resources contact/)).toBeDefined()
   })
 
@@ -196,13 +197,13 @@ describe('KickoffNextSection', () => {
 
     // Anchor id present for ProgressNav's #kickoff-next scroll target.
     const { container, rerender } = render(
-      <KickoffNextSection isOperator section={sec('kickoff-next')} data={data} token="tok" />,
+      <KickoffNextSection meta={meta()} isOperator section={sec('kickoff-next')} data={data} token="tok" />,
     )
     expect(container.querySelector('#kickoff-next')).not.toBeNull()
 
     // introNote renders when set.
     rerender(
-      <KickoffNextSection
+      <KickoffNextSection meta={meta()}
         isOperator
         section={sec('kickoff-next', { introNote: 'One more thing before we move on.' })}
         data={data}
@@ -218,7 +219,7 @@ describe('KickoffNextSection', () => {
     // DOM, title (header band) still visible.
     cleanup()
     const { container: doneContainer } = render(
-      <KickoffNextSection
+      <KickoffNextSection meta={meta()}
         isOperator
         section={sec('kickoff-next', { state: 'done', doneAt: '2026-07-16T00:00:00.000Z' })}
         data={data}
@@ -247,7 +248,7 @@ describe('MaterialsSection', () => {
         { id: 2, label: 'Logo files', status: 'requested', url: null, addedBy: 'kevin@er.com', providedAt: null },
       ],
     })
-    render(<MaterialsSection section={sec('materials')} data={data} token="tok" />)
+    render(<MaterialsSection meta={meta()} section={sec('materials')} data={data} token="tok" />)
     const a = screen.getByRole('link', { name: /brand book/i })
     expect(a.getAttribute('rel')).toBe('noopener noreferrer')
     expect(a.getAttribute('target')).toBe('_blank')
@@ -262,7 +263,7 @@ describe('MaterialsSection', () => {
         { id: 1, label: 'Sneaky', status: 'provided', url: 'javascript:alert(1)', addedBy: 'client', providedAt: null },
       ],
     })
-    render(<MaterialsSection section={sec('materials')} data={data} token="tok" />)
+    render(<MaterialsSection meta={meta()} section={sec('materials')} data={data} token="tok" />)
     expect(screen.queryByRole('link', { name: /sneaky/i })).toBeNull()
     expect(screen.getByText('Sneaky')).toBeDefined()
   })
@@ -304,7 +305,7 @@ describe('MilestonesSection', () => {
       }],
     })
 
-    render(<MilestonesSection section={sec('milestones')} data={data} token="tok" />)
+    render(<MilestonesSection meta={meta()} section={sec('milestones')} data={data} token="tok" />)
 
     expect(screen.getAllByRole('button', { name: 'Send feedback' })).toHaveLength(2)
     expect(screen.getByText('Make the headline warmer.')).toBeDefined()

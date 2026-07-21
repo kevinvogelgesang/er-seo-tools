@@ -10,6 +10,7 @@ import { publicAssetUrl } from './ThemeStyle'
 import { isHttpsUrl } from './MaterialsSection'
 import { FeedbackThread } from './FeedbackThread'
 import { SummaryStat } from './SummaryStat'
+import type { SectionRenderMeta } from '@/lib/viewbook/section-status'
 
 function fmtDate(iso: string): string {
   return new Date(iso).toLocaleDateString('en-US', {
@@ -81,11 +82,13 @@ export function MilestonesSection({
   data,
   token,
   isOperator = false,
+  meta,
 }: {
   section: PublicSection
   data: ViewbookPublicData
   token: string
   isOperator?: boolean
+  meta: SectionRenderMeta
 }) {
   const hero = data.theme.sectionHeroes[section.sectionKey]
   const withLinks = data.milestones.filter((m) => m.reviewLinks.length > 0)
@@ -111,6 +114,8 @@ export function MilestonesSection({
       isOperator={isOperator}
       viewbookId={data.viewbookId}
       token={token}
+      meta={meta}
+      viewerMode={data.viewerMode}
     >
       {hasInfo && (
         <div id="vb-process-milestones-info" className="space-y-4">

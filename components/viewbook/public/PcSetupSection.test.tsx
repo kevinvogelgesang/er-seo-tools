@@ -5,6 +5,7 @@ import { DEFAULT_THEME } from '@/lib/viewbook/theme'
 import type { PublicField, PublicFieldCategory, PublicSection, ViewbookPublicData } from '@/lib/viewbook/public-types'
 import { PcSetupSection } from './PcSetupSection'
 import { stubAllSectionsExpanded } from './test-support/stub-expanded-storage'
+const meta = (over = {}) => ({ heroSize: 'chapter', chapterNumber: 1, status: 'current', isLead: false, ...over })
 
 // This section is collapse-eligible (2026-07-19 revision, default collapsed)
 // — its body content is what these tests assert on, so render it expanded.
@@ -61,7 +62,7 @@ function data(over: Partial<ViewbookPublicData> = {}): ViewbookPublicData {
     dataLockedAt: null,
     theme: DEFAULT_THEME,
     stage: 'post-contract',
-    stageLabel: 'Getting Started',
+    stageLabel: 'Getting Started', viewerMode: 'continuous',
     pcCompletedAt: null,
     clientNotifyJson: [],
     teamMembers: [],
@@ -78,12 +79,12 @@ function data(over: Partial<ViewbookPublicData> = {}): ViewbookPublicData {
 
 describe('PcSetupSection', () => {
   it('renders the pc-setup title in post-contract', () => {
-    const { container } = render(<PcSetupSection section={section} data={data()} token="t" />)
+    const { container } = render(<PcSetupSection meta={meta()} section={section} data={data()} token="t" />)
     expect(container.textContent).toContain('Set Up Your Viewbook')
   })
 
   it('surfaces the PC_SETUP_DEF_KEYS labels, in order, and excludes non-designated fields', () => {
-    render(<PcSetupSection section={section} data={data()} token="t" />)
+    render(<PcSetupSection meta={meta()} section={section} data={data()} token="t" />)
     expect(screen.getByText('School name')).toBeDefined()
     expect(screen.getByText('Primary contact name')).toBeDefined()
     expect(screen.getByText('Primary contact email')).toBeDefined()
@@ -93,20 +94,20 @@ describe('PcSetupSection', () => {
   })
 
   it('shows the ack action only in post-contract', () => {
-    const { rerender } = render(<PcSetupSection section={section} data={data()} token="t" />)
+    const { rerender } = render(<PcSetupSection meta={meta()} section={section} data={data()} token="t" />)
     expect(screen.getByRole('button', { name: /looks good/i })).toBeDefined()
-    rerender(<PcSetupSection section={section} data={data({ stage: 'kickoff' })} token="t" />)
+    rerender(<PcSetupSection meta={meta()} section={section} data={data({ stage: 'kickoff' })} token="t" />)
     expect(screen.queryByRole('button', { name: /looks good/i })).toBeNull()
   })
 
   it('renders in a carried stage (kickoff) without hard-gating to post-contract', () => {
-    const { container } = render(<PcSetupSection section={section} data={data({ stage: 'kickoff' })} token="t" />)
+    const { container } = render(<PcSetupSection meta={meta()} section={section} data={data({ stage: 'kickoff' })} token="t" />)
     expect(container.textContent).toContain('Set Up Your Viewbook')
     expect(screen.getByText('School name')).toBeDefined()
   })
 
   it('offers the primary-contact email as a notify candidate derived from the answer value', () => {
-    render(<PcSetupSection section={section} data={data()} token="t" />)
+    render(<PcSetupSection meta={meta()} section={section} data={data()} token="t" />)
     expect(screen.getByText('Primary contact (contact@example.com)')).toBeDefined()
   })
 })

@@ -8,6 +8,7 @@ import { ContrastTester } from './ContrastTester'
 import { SectionShell } from './SectionShell'
 import { SECTION_TITLES } from './section-titles'
 import { publicAssetUrl } from './ThemeStyle'
+import type { SectionRenderMeta } from '@/lib/viewbook/section-status'
 
 const SWATCHES = [
   { key: 'primary', label: 'Primary' },
@@ -39,12 +40,14 @@ export function BrandSection({
   data,
   token,
   isOperator = false,
+  meta,
   resolvedFonts,
 }: {
   section: PublicSection
   data: ViewbookPublicData
   token: string
   isOperator?: boolean
+  meta: SectionRenderMeta
   resolvedFonts?: ResolvedThemeFonts
 }) {
   const hero = data.theme.sectionHeroes[section.sectionKey]
@@ -66,6 +69,8 @@ export function BrandSection({
       isOperator={isOperator}
       viewbookId={data.viewbookId}
       token={token}
+      meta={meta}
+      viewerMode={data.viewerMode}
     >
       <h3 className="text-xl font-bold" style={{ fontFamily: 'var(--vb-heading-font)' }}>
         Palette
