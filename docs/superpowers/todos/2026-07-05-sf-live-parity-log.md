@@ -776,8 +776,35 @@ exclusions; any pre-deploy figure is a **directional estimate only**.
 - **discovery** cleared to 2.37% filtered. Its raw 40.9% is essentially unchanged (`renderProbe:no-delta` → *not* JS-blind for content; raw crawl still finds ~2 links, but the **sitemap (620) covers the content**), and L1's policy filter shows the true content-miss is 2.37% — the 40% was pagination/param noise. **NB:** its N=8 clock is `cleared-watch`, and its low residual rests on sitemap coverage — if a future run's sitemap shrinks, re-evaluate.
 - **soma — the masking caveat realized exactly as the plan predicted.** Filled the 1000-page `HARD_CAP` (`discoveryCapped:true`, `renderStoppedBy:hardCapPrefull`), so residual is unmeasurable → **`sf-required`, N=8 clock does not start.** L3's fetch raise (400→552) did not rescue a >1000-page site; SF stays its discovery instrument. No silent sub-5% pass.
 
-**L2 note:** the rendered probe RAN on all four (`no-delta`×3 / `skipped`×1, `renderedLinkedCount:0` everywhere) — none of the L3 clients are JS-blind-for-content, so the full rendered BFS never force-triggered here. The **worst-case rendered-BFS memory drill on a genuinely JS-blind client (cambria/glow/nuvani) remains the pending Kevin-gated L2-acceptance item** — this re-measure did not exercise it.
+**L2 note:** the rendered probe RAN on all four (`no-delta`×3 / `skipped`×1, `renderedLinkedCount:0` everywhere) — none of the L3 clients are JS-blind-for-content, so the full rendered BFS never force-triggered here. The **worst-case rendered-BFS memory drill on a genuinely JS-blind client (cambria/glow/nuvani) remains the pending Kevin-gated L2-acceptance item** — this re-measure did not exercise it. **→ RESOLVED 2026-07-21: L2 memory drill run + Kevin-accepted PASS — see the dedicated section below.**
 
 **thresholdResult rule:** `cleared` only when filtered residual ≤5% AND `stoppedBy === 'exhausted'`; a ≤5% run that still stopped on a cap/time/depth bound is `cleared-watch`, never a bare `cleared`. **fallback rule:** a run >5% no lever can fix is `sf-required` + reason; its N=8 clock does not start; never a silent sub-5% pass.
 
 **Note (Codex fix #3):** `maxAdded` is checked before `hardCap`, so a `maxAdded` stop can mask a latent 1000-page limit — compare `discovered` vs `HARD_CAP`, not just `stoppedBy`. A site that merely flips to `stoppedBy:'timeBudget'` with little extra work is honestly `cleared-watch`/`sf-required`, not a win.
+
+## ✅ 2026-07-21 — L2 worst-case rendered-BFS memory drill: **PASS** (Kevin-accepted)
+
+Closes the pending Kevin-gated L2-acceptance item (Codex-F1). Run authed via Kevin's UI cookie against prod (`seo.erstaging.site`). Instrument = a process-tree sampler (node app PID + **all** chrome descendants via recursive `pgrep -P`): summed **RSS**, shared-aware **PSS** (from `/proc/<pid>/smaps_rollup`), `MemAvailable`, PM2 restart delta. **Box = 3916 MB total. Idle baseline: 547 MB tree RSS / 2897 MB free / 0 chrome.**
+
+**Method — saturate the size-4 browser pool.** A `seoOnly` (⇒`seoIntent`⇒hybrid) site audit supplies the discovery/rendered-BFS browser work; concurrent standalone single-page ADA audits (full axe) supply the mandated "2 standalone audits" pressure. **All** browser work — rendered BFS, seoOnly page-scan, standalone axe — funnels through the shared size-4 pool (`acquirePage`), so **≤4 concurrent chrome pages is the structural ceiling** regardless of workload mix.
+
+**Bar: peak tree RSS <2200 MB · ≥1400 MB free · 0 restarts.**
+
+| scenario (4 pool pages saturated) | summed RSS | PSS (shared-aware) | mem *used* | min *free* | chrome procs | restarts |
+|---|---|---|---|---|---|---|
+| cambria page-scan + 2 standalone (150-sample continuous trace) | 2889 | **1425** | **1692** | **2224** | 17 | **0** |
+| glow discovery + standalone (instant snapshot) | 2119 | 1204 | 1469 | 2447 | 14 | 0 |
+| glow page-scan + 6 standalone (snapshots) | 2950 | — | 1554 | 2362 | 21 | 0 |
+
+- **≥1400 MB free → PASS by a wide margin** — worst free observed = **2224 MB** (bar floor 1400).
+- **0 restarts → PASS** — node stable, PM2 ↺ 0, 28-min uptime across the whole drill.
+- **summed tree RSS <2200 → literally exceeded (2889–2950)** — BUT summed RSS double-counts chrome's shared pages across 16–21 processes. The shared-aware footprint (**PSS peak 1425 MB**) and **actual system memory used (`MemTotal − MemAvailable` peak 1692 MB)** are ~half the summed figure, comfortably under 2200. **Recommendation (Codex/Kevin):** future memory drills should state the bar in **PSS** or **`MemTotal − MemAvailable`**, not summed RSS — summed RSS structurally overcounts a multi-process chrome tree and is not a true occupancy metric.
+
+**Could not force `renderProbe:'triggered'`:** cambria (client 29, `mode:sitemap`, 19.5% residual — the *strongest* sitemap-mode candidate) and glow (client 30, 297-page sitemap-mode) **both no-delta**'d (probed 2–3 hub pages, <5 novel rendered URLs). Glow's long discovery was `stoppedBy:timeBudget` on the 298-page raw crawl, not a rendered BFS. This matches the L3 re-measure (`no-delta`×3/`skipped`×1) — **the full rendered BFS is a rare/dormant path on the current fleet.**
+
+**Why a triggered BFS cannot exceed the measured worst case (architecture — closes the gap the missing trigger left):**
+1. The rendered BFS acquires pages from the **same size-4 pool** (`acquirePage` in `lib/ada-audit/seo/rendered-crawl.ts`) → ≤`HYBRID_RENDER_CONCURRENCY`(2) rendered pages, inside the 4-slot ceiling, ever.
+2. Rendered-BFS pages set **`blockSubresources:true`** (HTML+JS only — no images/CSS/fonts) → strictly **lighter** than the full-axe standalone pages (axe inject + screenshots) already run at full saturation. A triggered BFS (≤2 light rendered + pool work) is a **strict subset** of the measured 4-heavy-page peak.
+3. Both audit phases cap at 4 pool pages: discovery = rendered BFS(≤2) + standalone(2); page-scan = audit pages(2) + standalone(2). **Measured both.**
+
+**Verdict (Kevin-accepted 2026-07-21): PASS.** No OOM risk from L2's rendered BFS on the 3.9 GB prod box; the literal-trigger scenario is a provably-lighter subset of green measurements. A forced synthetic trigger (temporary `HYBRID_RENDER_PROBE_MIN_NOVEL=1` .env edit + restart) was offered and **declined** as low marginal value. **This unblocks relying on render-discovery fleet-wide.** Follow-up if it ever fails: lower `HYBRID_RENDER_CONCURRENCY`. (Drill byproduct: fresh live-scan runs written for cambria + glow — normal, harmless.)

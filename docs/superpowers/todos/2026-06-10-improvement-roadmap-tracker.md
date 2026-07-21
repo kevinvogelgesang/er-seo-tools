@@ -958,6 +958,26 @@ decisions in the umbrella spec are settled — don't re-litigate.
 
 ## Status log
 
+- 2026-07-21 (later) (**SF-retirement Phase 2 — L2 worst-case rendered-BFS memory DRILL: DONE, Kevin-accepted PASS; the under-expansion fix now has ZERO open acceptance items**) —
+  Ran the Codex-F1-mandated worst-case memory drill on prod (authed via Kevin's UI cookie). Instrument = a process-tree
+  sampler (node app PID + **all** chrome descendants via recursive `pgrep -P`): summed RSS, shared-aware PSS
+  (`/proc/<pid>/smaps_rollup`), `MemAvailable`, PM2 restart delta — because `pm2 status` misses chrome descendants + short peaks.
+  Box = 3916 MB total; idle baseline 547 MB tree RSS / 2897 MB free. Method: saturate the size-4 browser pool via a `seoOnly`
+  (⇒seoIntent⇒hybrid) site audit + concurrent full-axe standalone ADA audits (all browser work funnels through the shared
+  `acquirePage` pool → ≤4 concurrent chrome pages, structural ceiling). **Result vs the bar (peak tree RSS <2200 · ≥1400 free ·
+  0 restarts):** ≥1400 free **PASS** (worst free observed 2224 MB); 0 restarts **PASS** (node stable, ↺ 0, 28-min uptime); the
+  literal `<2200` summed-RSS sub-metric was exceeded (2889–2950) **only because summed RSS double-counts chrome's shared pages**
+  across 16–21 procs — the true footprint (PSS peak 1425 / used peak 1692) is ~half that, well under 2200. **Could NOT force
+  `renderProbe:'triggered'`:** cambria (19.5% residual, strongest sitemap-mode candidate) + glow both `no-delta` — the rendered
+  BFS is a rare/dormant fleet path (matches the L3 re-measure). **Architecture closes the gap:** the rendered BFS draws from the
+  same size-4 pool AND its pages set `blockSubresources:true` (HTML+JS only) → strictly lighter than the full-axe pages already
+  measured at full saturation, so a triggered BFS is a **strict subset** of the green measurement. **Kevin accepted PASS**; a
+  forced synthetic trigger (`HYBRID_RENDER_PROBE_MIN_NOVEL=1` .env edit) was offered + declined (low marginal value). This unblocks
+  relying on render-discovery fleet-wide. Full write-up: `2026-07-05-sf-live-parity-log.md` → "2026-07-21 — L2 memory drill: PASS".
+  **Metric lesson recorded:** state memory bars in PSS or `MemTotal−MemAvailable`, never summed process-tree RSS. **Remaining toward
+  Phase 7 = monitoring (Mon 2026-07-27 sweep → fleet residuals + N=8 clocks) + two unbuilt code blockers (anchor-text capture,
+  graph-signal labeling); NO code items remain on the under-expansion fix itself.**
+
 - 2026-07-21 (**SF-retirement Phase 2 — under-expansion fix: L3 bound-adaptivity SHIPPED + DEPLOYED + PROD-RE-MEASURED; 3/4 clients cleared, 1 sf-required**) —
   Built L3, the final + smallest increment: raise raw-crawl count-cap defaults `HYBRID_CRAWL_MAX_FETCHES` 400→800 +
   `HYBRID_CRAWL_MAX_ADDED` 300→600 (extracted a testable `resolveRawCrawlBounds(deadlineMs, now): CrawlBounds` from the
@@ -982,9 +1002,8 @@ decisions in the umbrella spec are settled — don't re-litigate.
   all three **`cleared-watch`** (≤5% but `depth`/`timeBudget`-bound, not `exhausted`) → N=8 clock can start; **soma → HARD_CAP**
   (discovered 1000/1000, `discoveryCapped:true`, `renderStoppedBy:hardCapPrefull`) = **`sf-required`** (>1000 pages, the
   masking caveat realized exactly as the plan predicted; N=8 clock does NOT start). Numbers in `2026-07-05-sf-live-parity-log.md`
-  → L3 ledger. **STILL OPEN (L2 acceptance, Kevin-gated):** the worst-case rendered-BFS process-tree-RSS memory drill on a
-  genuinely JS-blind client (cambria/glow/nuvani) — NOT exercised by this L3 re-measure (all 4 L3 clients were `no-delta`/`skipped`,
-  full rendered BFS never force-triggered). The Mon 2026-07-27 sweep is now the first fleet-wide run on L1+L2+L3.
+  → L3 ledger. **L2 acceptance (the worst-case rendered-BFS memory drill) → RESOLVED later the same day: Kevin-accepted PASS —
+  see the 2026-07-21 (later) status-log entry above.** The Mon 2026-07-27 sweep is now the first fleet-wide run on L1+L2+L3.
 
 - 2026-07-20 (**SF-retirement Phase 2 — under-expansion fix: L2 rendered-DOM adaptive discovery SHIPPED + DEPLOYED; worst-case memory-verify Kevin-gated**) —
   Built L2, the JS-blind fix (the long pole). New `lib/ada-audit/seo/rendered-crawl.ts` (`fetchPageLinksViaBrowser` +
