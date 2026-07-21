@@ -10,6 +10,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { ContentTab } from './ContentTab'
+import { SECTION_COPY_FIXTURE } from '@/components/viewbook/public/test-support/section-copy-fixture'
 import { __resetSyncRegistry, useEditorActivity } from '@/components/viewbook/public/useViewbookSync'
 
 vi.mock('@/components/viewbook/public/useViewbookSync', async () => {
@@ -48,11 +49,11 @@ function openPanel(name: RegExp): ReturnType<typeof within> {
 describe('ContentTab welcome note', () => {
   it('adopts a newer welcomeNote prop from a background reload while idle', () => {
     const { rerender } = render(
-      <ContentTab viewbookId={1} welcomeNote="Original note" sections={[]} overrides={[]} onChanged={vi.fn()} />,
+      <ContentTab viewbookId={1} welcomeNote="Original note" sections={[]} overrides={[]} sectionCopy={SECTION_COPY_FIXTURE} onChanged={vi.fn()} />,
     )
     expect(lastCallFor('admin-content-welcome')).toBe(false)
 
-    rerender(<ContentTab viewbookId={1} welcomeNote="Updated elsewhere" sections={[]} overrides={[]} onChanged={vi.fn()} />)
+    rerender(<ContentTab viewbookId={1} welcomeNote="Updated elsewhere" sections={[]} overrides={[]} sectionCopy={SECTION_COPY_FIXTURE} onChanged={vi.fn()} />)
 
     expect(lastCallFor('admin-content-welcome')).toBe(false) // reconciled, not stuck dirty
     expect(welcomeControls().textarea.value).toBe('Updated elsewhere')
@@ -61,7 +62,7 @@ describe('ContentTab welcome note', () => {
   it('does not go stale-dirty after this tab saves its own welcome-note change', async () => {
     const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: async () => ({}) })
     vi.stubGlobal('fetch', fetchMock)
-    render(<ContentTab viewbookId={1} welcomeNote="" sections={[]} overrides={[]} onChanged={vi.fn()} />)
+    render(<ContentTab viewbookId={1} welcomeNote="" sections={[]} overrides={[]} sectionCopy={SECTION_COPY_FIXTURE} onChanged={vi.fn()} />)
 
     const { textarea, save } = welcomeControls()
     fireEvent.change(textarea, { target: { value: 'New note' } })
@@ -79,11 +80,11 @@ describe('ContentTab welcome note', () => {
 
   it('does not clobber a locally-diverged welcome-note draft with a background reload', () => {
     const { rerender } = render(
-      <ContentTab viewbookId={1} welcomeNote="Original note" sections={[]} overrides={[]} onChanged={vi.fn()} />,
+      <ContentTab viewbookId={1} welcomeNote="Original note" sections={[]} overrides={[]} sectionCopy={SECTION_COPY_FIXTURE} onChanged={vi.fn()} />,
     )
     fireEvent.change(welcomeControls().textarea, { target: { value: 'My in-progress edit' } })
 
-    rerender(<ContentTab viewbookId={1} welcomeNote="Updated elsewhere" sections={[]} overrides={[]} onChanged={vi.fn()} />)
+    rerender(<ContentTab viewbookId={1} welcomeNote="Updated elsewhere" sections={[]} overrides={[]} sectionCopy={SECTION_COPY_FIXTURE} onChanged={vi.fn()} />)
 
     expect(welcomeControls().textarea.value).toBe('My in-progress edit')
   })
@@ -97,7 +98,7 @@ describe('ContentTab client-specific override row', () => {
   it('does not go stale-dirty after saving an override (commit-on-success)', async () => {
     const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: async () => ({}) })
     vi.stubGlobal('fetch', fetchMock)
-    render(<ContentTab viewbookId={1} welcomeNote="" sections={[]} overrides={[{ contentKey: overrideKey, body: '' }]} onChanged={vi.fn()} />)
+    render(<ContentTab viewbookId={1} welcomeNote="" sections={[]} overrides={[{ contentKey: overrideKey, body: '' }]} sectionCopy={SECTION_COPY_FIXTURE} onChanged={vi.fn()} />)
 
     const row = openPanel(/^Process Client-specific content Using global content$/)
 
@@ -120,7 +121,7 @@ describe('ContentTab client-specific override row', () => {
   it('removes an existing override with the unchanged DELETE request', async () => {
     const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: async () => ({}) })
     vi.stubGlobal('fetch', fetchMock)
-    render(<ContentTab viewbookId={1} welcomeNote="" sections={[]} overrides={[{ contentKey: overrideKey, body: 'Existing copy' }]} onChanged={vi.fn()} />)
+    render(<ContentTab viewbookId={1} welcomeNote="" sections={[]} overrides={[{ contentKey: overrideKey, body: 'Existing copy' }]} sectionCopy={SECTION_COPY_FIXTURE} onChanged={vi.fn()} />)
     const row = openPanel(/^Process Client-specific content Client override$/)
 
     fireEvent.click(row.getByRole('button', { name: 'Remove override' }))
@@ -140,19 +141,20 @@ describe('ContentTab client-specific override row', () => {
   // succeed, nothing renders differently). It must render exactly ONCE
   // (the section-intro row), never a second time as an override row.
   it('does not render pc-intro a second time as a per-viewbook override row', () => {
-    render(<ContentTab viewbookId={1} welcomeNote="" sections={[]} overrides={[]} onChanged={vi.fn()} />)
+    render(<ContentTab viewbookId={1} welcomeNote="" sections={[]} overrides={[]} sectionCopy={SECTION_COPY_FIXTURE} onChanged={vi.fn()} />)
     expect(screen.getAllByRole('button', { name: /^Welcome Section copy/ })).toHaveLength(1)
     expect(screen.queryByRole('button', { name: /pc-intro.*Using global content/ })).toBeNull()
   })
 
   it('orders the authoring areas and identifies global versus overridden content', () => {
-    render(<ContentTab viewbookId={1} welcomeNote="" sections={[]} overrides={[{ contentKey: overrideKey, body: 'Existing copy' }]} onChanged={vi.fn()} />)
+    render(<ContentTab viewbookId={1} welcomeNote="" sections={[]} overrides={[{ contentKey: overrideKey, body: 'Existing copy' }]} sectionCopy={SECTION_COPY_FIXTURE} onChanged={vi.fn()} />)
 
     expect(screen.getAllByRole('heading', { level: 2 }).map((heading) => heading.textContent)).toEqual([
       'Strategy PDFs',
       'Welcome',
       'Section copy',
       'Client overrides',
+      'Section copy overrides',
     ])
     expect(screen.getByRole('button', { name: /Process.*Client override/ })).toBeTruthy()
     expect(screen.getByRole('button', { name: /Why it matters.*Using global content/ })).toBeTruthy()

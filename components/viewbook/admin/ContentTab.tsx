@@ -5,6 +5,7 @@
 
 import { useState } from 'react'
 import { SECTION_KEYS, type SectionKey } from '@/lib/viewbook/theme'
+import type { ResolvedSectionCopy } from '@/lib/viewbook/section-copy-content'
 import { OVERRIDE_ELIGIBLE_KEYS } from '@/lib/viewbook/global-content-keys'
 import { jsonFetch } from './viewbook-admin-shared'
 import { useBaselineSync, useEditorActivity, useFocusWithin } from '@/components/viewbook/public/useViewbookSync'
@@ -47,12 +48,14 @@ export function ContentTab({
   welcomeNote,
   sections,
   overrides,
+  sectionCopy,
   onChanged,
 }: {
   viewbookId: number
   welcomeNote: string | null
   sections: SectionRow[]
   overrides: OverrideRow[]
+  sectionCopy: Record<SectionKey, ResolvedSectionCopy>
   onChanged: () => void
 }) {
   const [error, setError] = useState<string | null>(null)
@@ -167,6 +170,163 @@ export function ContentTab({
           />
         ))}
       </section>
+
+      <section className="space-y-3">
+        <div>
+          <h2 className="font-display text-base font-bold text-navy dark:text-white">Section copy overrides</h2>
+          <p className="mt-1 text-xs text-gray-500 dark:text-white/55">
+            Tailor the ⓘ context copy (purpose, “What this is”, “What we need”) for this client. Each section falls back to the company-wide default until you save an override.
+          </p>
+        </div>
+        <SectionCopyOverrides viewbookId={viewbookId} sectionKeys={SECTION_KEYS} resolved={sectionCopy} />
+      </section>
+    </div>
+  )
+}
+
+// Per-viewbook overrides for the ⓘ section-copy tooltip (Task 11). Exported so
+// it is independently testable. Fed by ViewbookDetail.sectionCopy (resolved
+// code default ← company-wide ← per-viewbook), computed in getViewbookAdmin.
+// Save PUTs / Clear DELETEs /api/viewbooks/:id/section-copy/:sectionKey (Task
+// 9); the route bumps syncVersion, so ViewbookEditor's sync poll refetches the
+// whole profile and the resolved fallback re-applies after a Clear — this
+// component never fabricates a local "reset to default" value (the resolved
+// default isn't known client-side without that reload).
+export function SectionCopyOverrides({
+  viewbookId,
+  sectionKeys,
+  resolved,
+}: {
+  viewbookId: number
+  sectionKeys: readonly SectionKey[]
+  resolved: Record<SectionKey, ResolvedSectionCopy>
+}) {
+  return (
+    <div className="space-y-4">
+      {sectionKeys.map((key) => (
+        <SectionCopyOverrideRow key={key} viewbookId={viewbookId} sectionKey={key} resolved={resolved[key]} />
+      ))}
+    </div>
+  )
+}
+
+function SectionCopyOverrideRow({
+  viewbookId,
+  sectionKey,
+  resolved,
+}: {
+  viewbookId: number
+  sectionKey: SectionKey
+  resolved: ResolvedSectionCopy
+}) {
+  const [purpose, setPurpose] = useState(resolved.purpose)
+  const [whatThis, setWhatThis] = useState(resolved.whatThis)
+  const [whatWeNeed, setWhatWeNeed] = useState(resolved.whatWeNeed ?? '')
+  const [busy, setBusy] = useState(false)
+  const [err, setErr] = useState<string | null>(null)
+
+  const endpoint = `/api/viewbooks/${viewbookId}/section-copy/${sectionKey}`
+
+  const save = async () => {
+    setBusy(true)
+    setErr(null)
+    try {
+      await jsonFetch(endpoint, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          purpose,
+          whatThis,
+          whatWeNeed: whatWeNeed.trim() === '' ? null : whatWeNeed,
+        }),
+      })
+    } catch (e) {
+      setErr(String(e))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  // Clear override: await the DELETE FIRST (never mutate UI optimistically).
+  // Tolerate `not_found` — no per-viewbook override row existed, so there was
+  // nothing to clear (matched by exact message, NOT `/404/`: jsonFetch throws
+  // `Error('not_found')`, which has no "404" substring — Task 10 lesson). A
+  // genuine (non-not_found) failure surfaces the error and leaves the fields.
+  // The resolved fallback re-applies on the next full profile reload (the
+  // route bumped syncVersion), so we never fabricate a reset value here.
+  const clear = async () => {
+    setBusy(true)
+    setErr(null)
+    try {
+      await jsonFetch(endpoint, { method: 'DELETE' })
+    } catch (e) {
+      if (!(e instanceof Error && e.message === 'not_found')) {
+        setErr(String(e))
+      }
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <div className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm dark:border-navy-border dark:bg-navy-card">
+      <h3 className="font-display font-semibold text-navy dark:text-white">{SECTION_TITLES[sectionKey]}</h3>
+      <div className="mt-2 space-y-2">
+        <div>
+          <label className={editorLabelClass}>Chapter one-liner — {sectionKey}</label>
+          <textarea
+            aria-label={`Chapter one-liner — ${sectionKey}`}
+            className={`mt-1 ${editorTextareaClass}`}
+            value={purpose}
+            onChange={(e) => setPurpose(e.target.value)}
+            rows={2}
+            disabled={busy}
+          />
+        </div>
+        <div>
+          <label className={editorLabelClass}>What this is — {sectionKey}</label>
+          <textarea
+            aria-label={`What this is — ${sectionKey}`}
+            className={`mt-1 ${editorTextareaClass}`}
+            value={whatThis}
+            onChange={(e) => setWhatThis(e.target.value)}
+            rows={2}
+            disabled={busy}
+          />
+        </div>
+        <div>
+          <label className={editorLabelClass}>What we need — {sectionKey}</label>
+          <textarea
+            aria-label={`What we need — ${sectionKey}`}
+            className={`mt-1 ${editorTextareaClass}`}
+            value={whatWeNeed}
+            onChange={(e) => setWhatWeNeed(e.target.value)}
+            rows={2}
+            disabled={busy}
+          />
+        </div>
+      </div>
+      {err && <p className="mt-2 text-sm text-red-600 dark:text-red-400">{err}</p>}
+      <div className="mt-3 flex flex-wrap gap-2">
+        <button
+          type="button"
+          aria-label={`Save ${sectionKey} override`}
+          disabled={busy}
+          className={editorPrimaryBtnClass}
+          onClick={save}
+        >
+          Save
+        </button>
+        <button
+          type="button"
+          aria-label={`Clear ${sectionKey} override`}
+          disabled={busy}
+          className={editorDestructiveBtnClass}
+          onClick={clear}
+        >
+          Clear override
+        </button>
+      </div>
     </div>
   )
 }

@@ -2,8 +2,9 @@
 
 // Shared client-side helpers for the viewbook admin components.
 
-import type { ViewbookTheme } from '@/lib/viewbook/theme'
+import type { SectionKey, ViewbookTheme } from '@/lib/viewbook/theme'
 import type { ViewerMode } from '@/lib/viewbook/presentation-config'
+import type { ResolvedSectionCopy } from '@/lib/viewbook/section-copy-content'
 
 // Operator-facing labels for the public reading viewer mode (Phase 2). The
 // value strings are the stored enum (presentation-config.VIEWER_MODES); the
@@ -98,6 +99,10 @@ export interface ViewbookDetail {
     }[]
   }[]
   contentOverrides: { contentKey: string; body: string }[]
+  // Resolved ⓘ section-copy map (code default ← company-wide ← per-viewbook),
+  // computed server-side in getViewbookAdmin — feeds ContentTab's per-viewbook
+  // override editor (Task 11).
+  sectionCopy: Record<SectionKey, ResolvedSectionCopy>
   fields: {
     id: number
     defKey: string | null
