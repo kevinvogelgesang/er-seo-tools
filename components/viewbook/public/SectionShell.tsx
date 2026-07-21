@@ -81,7 +81,9 @@ import type { ViewbookStage } from '@/lib/viewbook/stages'
 import type { CollapseAffordanceKind } from '@/lib/viewbook/presentation-config'
 import { sectionDisplayMode, sectionInitiallyOpen } from '@/lib/viewbook/section-display'
 import { sectionSupportsCollapse } from '@/lib/viewbook/theme'
+import { SECTION_COPY } from '@/lib/viewbook/section-copy'
 import { SectionReveal } from './SectionReveal'
+import { SectionSummaryPanel } from './SectionSummaryPanel'
 import { CollapsibleSection } from './CollapsibleSection'
 import { CollapseAffordance } from './CollapseAffordance'
 import { CornerBracket, TickDivider } from './SectionAccents'
@@ -417,6 +419,15 @@ export function SectionShell({
       alwaysOpen={alwaysOpen}
       initiallyOpen={initiallyOpen}
     >
+      {/* Plain-language "what this is / what we need from you" guidance, always
+          first inside the expanded body. Copy is code-owned (SECTION_COPY);
+          guarded so an off-catalog section key can never crash the shell. */}
+      {SECTION_COPY[section.sectionKey] && (
+        <SectionSummaryPanel
+          whatThis={SECTION_COPY[section.sectionKey].whatThis}
+          whatWeNeed={SECTION_COPY[section.sectionKey].whatWeNeed}
+        />
+      )}
       {section.introNote && (
         <p className="border-l-4 pl-4 text-lg text-black/70" style={{ borderColor: 'var(--vb-tertiary)' }}>
           {section.introNote}
