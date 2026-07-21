@@ -655,10 +655,16 @@ no-expansion on `glow`/`cambria`/`nuvani` are distinct failure modes the increme
 2. **(ACTIVE / BLOCKING) hybrid-crawler under-expansion fix** → drive the 6 indexable under-expanders
    (+ possibly healthcare) to ≤5%. **This is the next buildable code item the bar gates on** (Phase 2
    frontier/depth tuning — full change-control cycle). Fleet-wide + per-run ≤5% makes this the long pole.
-3. **(BLOCKING, code) anchor-text capture** — the roadmap's 2026-07-06 note requires anchor-text capture
-   *before* the Phase-7 gate. Today `HarvestedLink` stores only source/target/kind and the live pipeline
-   emits none of the three anchor findings. Either build it (change-control cycle) or Kevin explicitly
-   supersedes that prerequisite (recorded). Until then: OPEN.
+3. ~~**(BLOCKING, code) anchor-text capture**~~ — ✅ **SHIPPED + prod-deployed 2026-07-21 (PR #255).**
+   The live-scan builder now captures `<a href>` anchor text (new nullable `HarvestedLink.anchorText`,
+   internal rows only) via an SWC-safe in-page extractor folded into the existing harvest `page.evaluate`,
+   and emits SF's three anchor findings (`empty_anchor_text` warning / `non_descriptive_anchor_text` notice /
+   `single_anchor_variation` notice, >10 gate) on the live-scan `CrawlRun` via a bounded O(1)-per-target
+   reducer + pure `mapAnchorTextFindings`. A durable `CrawlRun.anchorSummaryJson` marks analyzed-vs-legacy;
+   `IssueUnit` gained `'links'` end-to-end; a shared `lib/findings/anchor-text-shared.ts` keeps the live rule
+   identical to the SF parser. **Measurement-only** (no `scoreLiveSeo` change). Frozen characterization +
+   golden stayed byte-identical; Codex review clean. Prod-verify: read a real client's live-scan `CrawlRun`
+   anchor findings + `anchorSummaryJson` after the **Mon 2026-07-27** fleet-wide sweep.
 4. **(BLOCKING, code) graph-signal labeling + consumer acceptance.** NOT met — `brief.service.ts` output
    still says "Orphaned pages" and plain "inlinks" without the required "ER audited-set authority"
    qualification. Needs the labeling change AND consumer (brief/pillar) sign-off. Hard OPEN, not soft.
@@ -673,7 +679,8 @@ no-expansion on `glow`/`cambria`/`nuvani` are distinct failure modes the increme
 
 **Realistic clear date — NOT ~2026-08-31.** The passive N=8 streak for the already-clean clients would
 finish ≈ run #8 (2026-08-31), but the gate is fleet-wide and multiple BLOCKING code items remain
-(under-expansion fix, anchor-text, graph labeling — each a change-control cycle). Because an under-expander's
+(under-expansion fix, graph labeling, broken-link FP-rate evidence — each a change-control cycle;
+anchor-text is now DONE, shipped 2026-07-21). Because an under-expander's
 qualifying streak only starts *after* its coverage reaches ≤5%, the fleet clears roughly at **(latest
 blocking-fix ship date) + 8 clean weekly sweeps**, not +1. The long pole is the code, not the calendar.
 
