@@ -220,6 +220,35 @@ describe('viewbook admin routes', () => {
     expect(viewbook.syncVersion).toBe(beforeSync + 1)
   })
 
+  it('PATCH /api/viewbooks/:id: viewerMode branch (P2-2) — bad value 400, happy path persists collapse + one syncVersion bump', async () => {
+    const { id } = await mkViewbook()
+
+    // default is continuous (Phase 1 read side + column default)
+    const initial = await getViewbook(req(`/api/viewbooks/${id}`), params({ id: String(id) }))
+    expect((await initial.json()).viewbook.viewerMode).toBe('continuous')
+
+    const bad = await patchViewbook(
+      req(`/api/viewbooks/${id}`, { method: 'PATCH', body: JSON.stringify({ viewerMode: 'weird' }) }),
+      params({ id: String(id) }),
+    )
+    expect(bad.status).toBe(400)
+    expect((await bad.json()).error).toBe('invalid_viewer_mode')
+
+    const before = await getViewbook(req(`/api/viewbooks/${id}`), params({ id: String(id) }))
+    const beforeSync = (await before.json()).viewbook.syncVersion as number
+
+    const happy = await patchViewbook(
+      req(`/api/viewbooks/${id}`, { method: 'PATCH', body: JSON.stringify({ viewerMode: 'collapse' }) }),
+      params({ id: String(id) }),
+    )
+    expect(happy.status).toBe(200)
+
+    const after = await getViewbook(req(`/api/viewbooks/${id}`), params({ id: String(id) }))
+    const { viewbook } = await after.json()
+    expect(viewbook.viewerMode).toBe('collapse')
+    expect(viewbook.syncVersion).toBe(beforeSync + 1)
+  })
+
   it('POST /api/viewbooks/:id/assets: multipart logo attach stamps theme + file readable', async () => {
     const { id } = await mkViewbook()
     const form = new FormData()

@@ -204,6 +204,7 @@ export async function updateViewbookPresentation(
     heroOverlayStrength: number
     revealDurationScale: number
     firstLoadDelayMs: number
+    viewerMode: string
   }>,
 ): Promise<void> {
   if (Object.keys(patch).length === 0) return
