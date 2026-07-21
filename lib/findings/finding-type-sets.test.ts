@@ -17,6 +17,9 @@ import {
   BROKEN_FINDING_LABELS,
   DEAD_PAGE_FINDING_TYPE,
   DEAD_PAGE_FINDING_LABEL,
+  ANCHOR_FINDING_TYPES,
+  ANCHOR_FINDING_TYPE_SET,
+  ANCHOR_FINDING_LABELS,
   findingUnit,
 } from './finding-type-sets'
 
@@ -108,5 +111,18 @@ describe('findingUnit', () => {
 
   it('returns null for an unknown type (caller logs + falls back)', () => {
     expect(findingUnit('seo-parser', 'totally_unknown')).toBeNull()
+  })
+})
+
+describe('anchor finding types', () => {
+  it('exposes the 3 anchor types with labels', () => {
+    expect([...ANCHOR_FINDING_TYPES]).toEqual(['empty_anchor_text', 'non_descriptive_anchor_text', 'single_anchor_variation'])
+    for (const t of ANCHOR_FINDING_TYPES) expect(ANCHOR_FINDING_LABELS[t]).toBeTruthy()
+    expect(ANCHOR_FINDING_TYPE_SET.has('empty_anchor_text')).toBe(true)
+  })
+  it('findingUnit: empty/non-descriptive -> links, single-variation -> pages', () => {
+    expect(findingUnit('seo-parser', 'empty_anchor_text')).toBe('links')
+    expect(findingUnit('seo-parser', 'non_descriptive_anchor_text')).toBe('links')
+    expect(findingUnit('seo-parser', 'single_anchor_variation')).toBe('pages')
   })
 })

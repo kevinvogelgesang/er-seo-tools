@@ -67,6 +67,24 @@ export const BROKEN_FINDING_LABELS: Readonly<Record<string, string>> = brokenLab
 export const DEAD_PAGE_FINDING_TYPE = 'dead_page' as const
 export const DEAD_PAGE_FINDING_LABEL = 'Dead pages (404/410)'
 
+// Anchor-text findings (live-scan runs only) — parity with the SF anchor parser.
+// empty/non-descriptive are per-source-page (unit 'links'); single-variation is
+// a run-scope destination-diversity signal (unit 'pages'). Write-side source of
+// truth = anchor-text-mapper.ts's SEVERITY map.
+export const ANCHOR_FINDING_TYPES = [
+  'empty_anchor_text',
+  'non_descriptive_anchor_text',
+  'single_anchor_variation',
+] as const
+export type AnchorFindingType = (typeof ANCHOR_FINDING_TYPES)[number]
+export const ANCHOR_FINDING_TYPE_SET: ReadonlySet<string> = new Set(ANCHOR_FINDING_TYPES)
+const anchorLabels = {
+  empty_anchor_text: 'Empty anchor text',
+  non_descriptive_anchor_text: 'Non-descriptive anchor text',
+  single_anchor_variation: 'Single anchor-text variation',
+} satisfies Record<AnchorFindingType, string>
+export const ANCHOR_FINDING_LABELS: Readonly<Record<string, string>> = anchorLabels
+
 // ---------------------------------------------------------------------------
 // Sweep issue-unit map (the ONE home — sweep-error-triage Bucket 5).
 // `IssueUnit` is the sweep snapshot's per-group counting noun. This client-safe
@@ -75,7 +93,7 @@ export const DEAD_PAGE_FINDING_LABEL = 'Dead pages (404/410)'
 // type→unit knowledge here prevents the drift bucket 5 was about (validation
 // types silently falling through to the fallback).
 // ---------------------------------------------------------------------------
-export type IssueUnit = 'pages' | 'targets' | 'groups'
+export type IssueUnit = 'pages' | 'targets' | 'groups' | 'links'
 
 // Duplicate on-page types count DUPLICATE GROUPS (SF pageTitles.parser semantics);
 // missing/thin count PAGES.
@@ -117,5 +135,7 @@ export function findingUnit(tool: 'ada-audit' | 'seo-parser', type: string): Iss
   if (VALIDATION_PAGE_TYPES.has(type)) return 'pages'
   if (VALIDATION_TARGET_TYPES.has(type)) return 'targets'
   if (type === DEAD_PAGE_FINDING_TYPE) return 'pages'
+  if (type === 'empty_anchor_text' || type === 'non_descriptive_anchor_text') return 'links'
+  if (type === 'single_anchor_variation') return 'pages'
   return null
 }

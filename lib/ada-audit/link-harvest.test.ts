@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
-import { classifyTargets, normalizeLinkTarget, harvestLinks } from './link-harvest'
+import { JSDOM } from 'jsdom'
+import { classifyTargets, normalizeLinkTarget, harvestLinks, harvestAnchorsFromDocument } from './link-harvest'
 
 const base = 'https://www.example.com/dir/page'
 
@@ -58,4 +59,41 @@ it('harvestLinks returns targets + truncated + pageSeo from one evaluate', async
   expect(r.pageSeo).toEqual(seo)
   expect(r.targets.some((t) => t.kind === 'internal-link')).toBe(true)
   expect(r.targets.some((t) => t.kind === 'external-link')).toBe(true)
+})
+
+describe('harvestAnchorsFromDocument', () => {
+  const doc = (html: string) => new JSDOM(html).window.document
+  it('extracts trimmed textContent per <a href>', () => {
+    const out = harvestAnchorsFromDocument(doc('<a href="/a">  Programs </a><a href="/b">Apply</a>'))
+    expect(out).toEqual([{ href: '/a', text: 'Programs' }, { href: '/b', text: 'Apply' }])
+  })
+  it('falls back to descendant img alt when text is empty', () => {
+    const out = harvestAnchorsFromDocument(doc('<a href="/logo"><img src="l.png" alt="Home"></a>'))
+    expect(out[0]).toEqual({ href: '/logo', text: 'Home' })
+  })
+  it('empty when neither text nor img alt', () => {
+    const out = harvestAnchorsFromDocument(doc('<a href="/x"><img src="l.png"></a>'))
+    expect(out[0]).toEqual({ href: '/x', text: '' })
+  })
+  it('truncates at 2048 chars', () => {
+    const out = harvestAnchorsFromDocument(doc(`<a href="/x">${'z'.repeat(3000)}</a>`))
+    expect(out[0].text.length).toBe(2048)
+  })
+  it('injected source is SWC-helper-free (no typeof / escaping helpers)', () => {
+    const src = harvestAnchorsFromDocument.toString()
+    expect(src).not.toMatch(/_type_of|_object_spread|_define_property|_instanceof|require\(/)
+    expect(src).not.toMatch(/\btypeof\b/)
+  })
+})
+
+describe('classifyTargets anchor capture', () => {
+  it('attaches first-occurrence anchorText to internal links, dedup unchanged', () => {
+    const { targets } = classifyTargets(
+      ['/a', '/a'], [], 'ex.com', 'https://ex.com/', 300,
+      [{ href: '/a', text: 'First' }, { href: '/a', text: 'Second' }],
+    )
+    const internal = targets.filter((t) => t.kind === 'internal-link')
+    expect(internal).toHaveLength(1) // (kind,url) dedup unchanged
+    expect(internal[0].anchorText).toBe('First') // first occurrence wins
+  })
 })

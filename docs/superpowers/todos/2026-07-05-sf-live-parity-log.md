@@ -655,10 +655,16 @@ no-expansion on `glow`/`cambria`/`nuvani` are distinct failure modes the increme
 2. **(ACTIVE / BLOCKING) hybrid-crawler under-expansion fix** → drive the 6 indexable under-expanders
    (+ possibly healthcare) to ≤5%. **This is the next buildable code item the bar gates on** (Phase 2
    frontier/depth tuning — full change-control cycle). Fleet-wide + per-run ≤5% makes this the long pole.
-3. **(BLOCKING, code) anchor-text capture** — the roadmap's 2026-07-06 note requires anchor-text capture
-   *before* the Phase-7 gate. Today `HarvestedLink` stores only source/target/kind and the live pipeline
-   emits none of the three anchor findings. Either build it (change-control cycle) or Kevin explicitly
-   supersedes that prerequisite (recorded). Until then: OPEN.
+3. ~~**(BLOCKING, code) anchor-text capture**~~ — ✅ **SHIPPED + prod-deployed 2026-07-21 (PR #255).**
+   The live-scan builder now captures `<a href>` anchor text (new nullable `HarvestedLink.anchorText`,
+   internal rows only) via an SWC-safe in-page extractor folded into the existing harvest `page.evaluate`,
+   and emits SF's three anchor findings (`empty_anchor_text` warning / `non_descriptive_anchor_text` notice /
+   `single_anchor_variation` notice, >10 gate) on the live-scan `CrawlRun` via a bounded O(1)-per-target
+   reducer + pure `mapAnchorTextFindings`. A durable `CrawlRun.anchorSummaryJson` marks analyzed-vs-legacy;
+   `IssueUnit` gained `'links'` end-to-end; a shared `lib/findings/anchor-text-shared.ts` keeps the live rule
+   identical to the SF parser. **Measurement-only** (no `scoreLiveSeo` change). Frozen characterization +
+   golden stayed byte-identical; Codex review clean. Prod-verify: read a real client's live-scan `CrawlRun`
+   anchor findings + `anchorSummaryJson` after the **Mon 2026-07-27** fleet-wide sweep.
 4. **(BLOCKING, code) graph-signal labeling + consumer acceptance.** NOT met — `brief.service.ts` output
    still says "Orphaned pages" and plain "inlinks" without the required "ER audited-set authority"
    qualification. Needs the labeling change AND consumer (brief/pillar) sign-off. Hard OPEN, not soft.
@@ -673,7 +679,8 @@ no-expansion on `glow`/`cambria`/`nuvani` are distinct failure modes the increme
 
 **Realistic clear date — NOT ~2026-08-31.** The passive N=8 streak for the already-clean clients would
 finish ≈ run #8 (2026-08-31), but the gate is fleet-wide and multiple BLOCKING code items remain
-(under-expansion fix, anchor-text, graph labeling — each a change-control cycle). Because an under-expander's
+(under-expansion fix, graph labeling, broken-link FP-rate evidence — each a change-control cycle;
+anchor-text is now DONE, shipped 2026-07-21). Because an under-expander's
 qualifying streak only starts *after* its coverage reaches ≤5%, the fleet clears roughly at **(latest
 blocking-fix ship date) + 8 clean weekly sweeps**, not +1. The long pole is the code, not the calendar.
 
@@ -781,6 +788,30 @@ exclusions; any pre-deploy figure is a **directional estimate only**.
 **thresholdResult rule:** `cleared` only when filtered residual ≤5% AND `stoppedBy === 'exhausted'`; a ≤5% run that still stopped on a cap/time/depth bound is `cleared-watch`, never a bare `cleared`. **fallback rule:** a run >5% no lever can fix is `sf-required` + reason; its N=8 clock does not start; never a silent sub-5% pass.
 
 **Note (Codex fix #3):** `maxAdded` is checked before `hardCap`, so a `maxAdded` stop can mask a latent 1000-page limit — compare `discovered` vs `HARD_CAP`, not just `stoppedBy`. A site that merely flips to `stoppedBy:'timeBudget'` with little extra work is honestly `cleared-watch`/`sf-required`, not a win.
+
+---
+
+## 2026-07-21 — anchor-text capture (Phase-7 blocker #3): spec + plan READY (Codex-approved), execution pending
+
+The OPEN blocking item #3 ("anchor-text capture") now has a Codex-P0-approved spec + implementation plan
+ready for TDD execution. **Not yet implemented** — this session produced design docs only.
+
+- **Spec:** `docs/superpowers/specs/2026-07-21-live-anchor-text-capture-design.md` — Codex P0 **ACCEPT WITH 7 FIXES** (all applied).
+- **Plan:** `docs/superpowers/plans/2026-07-21-live-anchor-text-capture.md` — Codex P0 **ACCEPT WITH 8 FIXES** (all applied); 9 TDD tasks.
+- **Branch:** `feat/anchor-text-capture` (off `origin/main`, docs-only commits pushed to origin).
+- **Design (findings-parity-only, measurement-only):** the live-scan builder emits SF's 3 anchor findings
+  (`empty_anchor_text` / `non_descriptive_anchor_text` / `single_anchor_variation`) from a new nullable
+  `HarvestedLink.anchorText`, aggregated via a bounded O(1)-per-target reducer folded into the EXISTING
+  keyset stream; a durable `CrawlRun.anchorSummaryJson` marker distinguishes analyzed-clean from legacy;
+  `IssueUnit` gains `'links'`. NO `scoreLiveSeo` change. `HarvestedLink` dedup/cap + the frozen
+  `broken-link-verify.characterization.test.ts` are UNCHANGED. A shared `anchor-text-shared.ts` keeps the live
+  rule identical to the SF parser. **Rich aggregate stats rejected** — unrendered even on the SF path.
+- **Documented deviation (accepted):** within-page multiple-distinct-anchors to one destination are not
+  captured (first-anchor-per-(source,target) survives the unchanged dedup), so `single_anchor_variation` can
+  narrowly over-report vs SF; notice-severity, measurement-only. Fuller fidelity = a future increment.
+- **Next:** execute the plan (subagent-driven TDD) → gates → PR → deploy; the Mon 2026-07-27 sweep
+  auto-exercises the harvest for prod verification. Remaining Phase-7 blockers after this: graph-signal
+  ER-authority labeling (#4), broken-link FP-rate evidence (#5), §7 default-to-live (#6).
 
 ## ✅ 2026-07-21 — L2 worst-case rendered-BFS memory drill: **PASS** (Kevin-accepted)
 

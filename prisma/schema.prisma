@@ -419,6 +419,7 @@ model CrawlRun {
   contentSignalsJson    String? // C12: stale-date + readability signals (live-scan runs only); measurement, NOT a finding
   topicOverlapJson      String? // C12 Tier-1: semantic topic-overlap networks (live-scan runs only); measurement, NOT a finding
   contentAuditJson      String? // C12 D1: content-audit findings and retention metadata
+  anchorSummaryJson     String? // anchor-text: {v,targetsObserved,targetsTruncated,harvestTruncated}; null = analysis did not run (live-scan runs only)
   pages           CrawlPage[]
   findings        Finding[]
   violations      Violation[]
@@ -442,6 +443,7 @@ model HarvestedLink {
   targetUrl        String
   kind             String    // 'internal-link' | 'image' | 'external-link'
   harvestTruncated Boolean   @default(false)
+  anchorText       String?   // anchor-text: normalized visible anchor for internal-link rows; null for images/external/legacy
   createdAt        DateTime  @default(now())
 
   @@index([siteAuditId])
