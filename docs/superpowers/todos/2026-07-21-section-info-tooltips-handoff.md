@@ -1,57 +1,21 @@
-# Viewbook viewer polish — TWO features — IMPLEMENTATION handoff
+# Viewbook viewer polish — TWO features — SHIPPED
 
-**Date:** 2026-07-21. **Owner:** Kevin. **Status:** SPEC + PLAN COMPLETE & Codex-reviewed (both accept-with-named-fixes, all fixes applied). **NOT YET IMPLEMENTED** — next step is TDD build off the committed plan. Paused at Kevin's request after spec→Codex→plan→Codex.
+**Date:** 2026-07-21. **Owner:** Kevin. **Status:** ✅ SHIPPED to prod (both PRs merged + deployed + prod-verified). This doc is the done-state record; the spec + plan are archived (`docs/superpowers/archive/specs/2026-07-21-viewbook-viewer-polish-design.md` + `archive/plans/2026-07-21-viewbook-viewer-polish.md`).
 
-Two light-only public-viewer features, independently shippable, **2 PRs**:
-- **Feature A** — retire `SectionSummaryPanel`, surface `purpose`/`whatThis`/`whatWeNeed` in an ⓘ tooltip beside each section H2; company-wide-editable + per-viewbook overrides (reuses `ViewbookGlobalContent`/`ViewbookContentOverride` via a `section-copy:<sectionKey>` key namespace — NO migration).
-- **Feature B** — floating hamburger that fully hides the desktop ToC rail; device-local (`vb:toc-hidden`), default expanded.
+## What shipped
+- **PR #254 — Feature B (ToC hide toggle):** a floating circular hamburger (☰) on the desktop viewbook viewer that fully hides the ToC rail (unmounts the `<nav>`), replacing the dormant `DESKTOP_RAIL_COLLAPSIBLE` shrink path. Device-local (`vb:toc-hidden` localStorage), default expanded. Mobile FAB/bottom-sheet unchanged. New `components/viewbook/public/useTocHidden.ts`.
+- **PR #257 — Feature A (section info-tooltips):** retired `SectionSummaryPanel`; the per-section "What this is / What we need" copy now surfaces in an ⓘ tooltip beside each section H2 (continuous hero, `tone="on-primary"`) / in the collapse `headerStrip` — always a sibling of the H2, never inside it or a button. Company-wide-editable (`/viewbooks/settings` → `SectionCopyEditor`) + per-viewbook overrides (viewbook `ContentTab` → `SectionCopyOverrides`). Content model reuses `ViewbookGlobalContent`/`ViewbookContentOverride` under a reserved `section-copy:<sectionKey>` namespace — **NO migration**. `StatusPill` relocated to its own file; `Tooltip` widened to a `ReactNode` label + `on-primary` tone.
 
-## Where things stand
-- **Worktree/branch:** `.claude/worktrees/vb-viewer-polish` on `feat/vb-viewer-polish` (cut off `origin/main`; `node_modules` symlinked, `.env` copied). **NOT pushed, no PR yet.**
-- **Spec:** `docs/superpowers/specs/2026-07-21-viewbook-viewer-polish-design.md` — Codex-reviewed, 6 named fixes applied (commit `9e53593`).
-- **Plan:** `docs/superpowers/plans/2026-07-21-viewbook-viewer-polish.md` — 11 TDD tasks / 2 PRs, Codex-reviewed, 6 named fixes applied (commit `2271c1b`).
-- Branch commits: `1779ad1` spec → `9e53593` spec-fixes+tracker → `d5b1199` plan → `2271c1b` plan-fixes.
+## Key implementation homes
+- `lib/viewbook/section-copy-content.ts` — validate / 3-layer resolve (per-viewbook override ← company-wide ← code default) / store (array-form `$transaction` + `syncVersion` bump; delete = EXISTS-fence + 404, no bump on 0 rows). Reused code default = `lib/viewbook/section-copy.ts` (`SECTION_COPY`, client-safe).
+- `lib/viewbook/public-data.ts` `buildSectionCopyMap` + `getViewbookAdmin` (service.ts) both resolve the map (public viewer + admin editor).
+- Operator routes: `PUT/DELETE /api/viewbooks/section-copy/[sectionKey]` (company-wide) + `/api/viewbooks/[id]/section-copy/[sectionKey]` (override) — cookie-gated by omission, `requireOperatorEmail` first.
+- Admin editors reconcile drafts via `useBaselineSync` (idle-adopt of incoming resolved props) — the fix for the "Clear override left stale fields + silent re-create" review finding.
 
-## Locked decisions (Kevin)
-- Tooltip carries **all three** fields (`purpose` + `whatThis` + `whatWeNeed`), all editable.
-- ⓘ sits **beside the hero H2** (continuous viewer). Collapse viewer (dormant): ⓘ in `headerStrip` (never inside the `<h2>` or the collapse `<button>`).
-- Feature B persistence = **device-global** localStorage, default **expanded**.
+## Reviews / gotchas captured
+- Every task got a per-task spec+quality review; Codex `--base main` + a whole-branch review before merge. Findings fixed: SectionCopyEditor await-then-reset ordering + `not_found` matcher (was a `/404/` regex that never matched); ContentTab override-row `useBaselineSync` reconcile; `ThemePreview` no longer imports the prisma-coupled resolver (kept Prisma out of the `/viewbooks/[id]` browser bundle — uses client-safe `SECTION_COPY`).
+- Mid-session: `feat/anchor-text-capture` shipped to main; the shared symlinked Prisma client was regenerated to expect `anchorSummaryJson`, breaking the full test suite against the stale test template DB. Fixed by merging main + `prisma generate` + `rm -rf .test-dbs`. (Lesson: a worktree's symlinked node_modules Prisma client is shared across lanes.)
 
-## PR split & ordering
-- **PR 1 = Feature B** (Tasks 1–2): client-only, no schema, no content-write. Ship first. `/codex-review` optional.
-- **PR 2 = Feature A** (Tasks 3–11): content model + editing surfaces. **P1 → `/codex-review` before merge** (content-write path).
-
-## Key implementation facts (from the Codex-reviewed plan)
-- Content model reuses the two existing tables under `section-copy:<sectionKey>`; **NO migration**. New module `lib/viewbook/section-copy-content.ts` (validate/resolve/store). Queries use `in: SECTION_KEYS.map(sectionCopyKey)` (never `startsWith`); writes mirror `global-content.ts` (array-form `$transaction` + sync bump; global=bumpAll, override=bump-one; delete = EXISTS-fence + 404 on 0 rows).
-- Resolution is **whole-object per layer** (override ← company-wide ← code default); `whatWeNeed` empty→`null`; invalid layer falls through, not straight to code default.
-- `SectionShell` gets a **required** `sectionCopy` prop → tsc enumerates all ~13 caller sites; `ThemePreview` passes `resolveSectionCopy(key, null, null)`. `StatusPill` relocated to its own file first (Task 5), panel deleted in Task 7.
-- **Feature A admin data-flow (the subtle one):** `ContentTab` is fed by the CLIENT `ViewbookEditor` via `GET /api/viewbooks/:id` → `getViewbookAdmin` (`lib/viewbook/service.ts`) → `ViewbookDetail` (`viewbook-admin-shared.ts`). The resolved per-viewbook map rides that response — there's no server component to load it directly (Task 11 Step 0).
-- **Feature B:** retire `DESKTOP_RAIL_COLLAPSIBLE` + its 40px branch + `open`/`collapse` orphans; hamburger omits `aria-controls` while the rail nav is unmounted; focus-on-reshow guarded against initial-mount theft; `max-md:hidden` guard; persisted-hidden flash is a browser-eyeball check (no CLS — fixed positioning).
-
-## Guardrails (every step)
-- Coordination pre-flight already done; keep working IN the worktree (another session is live in the main checkout).
-- Light-only public viewer (no `dark:` in `components/viewbook/public/*`); jsdom pragma line 1 + NO jest-dom on RTL tests; array-form `$transaction` only.
-- Gate each task: `npx tsc --noEmit` + scoped `npx vitest run`. Before each PR: full `npx vitest run` + `npm run build`.
-- Deploy: `git push` (merge) → `source .claude/ops-secrets.local.sh && ssh $PROD_SSH "~/deploy.sh"` → prod-verify (health 200, deployed HEAD; NO migration). Browser-eyeball on a viewbook Kevin designates (ⓘ render + a company-wide edit + a per-viewbook override; Feature B hide/show + persisted-hidden flash).
-- On ship: update memory `project_viewbook_reading_experience`, move THIS handoff to done.
-
-## Tooling note (logged, work later)
-Recurring: `codex exec` as a background Bash job hangs on `Reading additional input from stdin...` unless `< /dev/null` is appended. Captured in memory `reference_codex_background_lanes` + roadmap tracker; fix = patch the consulting-codex skill command shapes.
-
-## Paste this into a new chat
-```
-Implement the Codex-reviewed plan for two viewbook viewer features. Do NOT re-brainstorm — spec + plan are done and Codex-reviewed. Use superpowers:subagent-driven-development (or executing-plans) to build task-by-task, TDD, gate each task (tsc --noEmit + scoped vitest), full vitest + npm run build before each PR.
-
-WORKTREE: .claude/worktrees/vb-viewer-polish on branch feat/vb-viewer-polish (already cut off origin/main; node_modules symlinked, .env copied). Work IN the worktree — another session may be live in the main checkout (run the er-seo-tools-multi-agent-coordination pre-flight).
-
-READ FIRST:
-- docs/superpowers/plans/2026-07-21-viewbook-viewer-polish.md   ← the plan (11 tasks / 2 PRs)
-- docs/superpowers/specs/2026-07-21-viewbook-viewer-polish-design.md   ← the spec
-- docs/superpowers/todos/2026-07-21-section-info-tooltips-handoff.md   ← this handoff (state, decisions, gotchas)
-- memory: project_viewbook_reading_experience, project_viewbook_viewer_collapse (sticky/overflow), reference_prod_ssh_access (deploy), reference_codex_background_lanes (codex background: append `< /dev/null`)
-
-PR 1 = Feature B (Tasks 1–2, client-only, no schema) — ship first, /codex-review optional.
-PR 2 = Feature A (Tasks 3–11, content model + editors) — P1, /codex-review before merge.
-
-GUARDRAILS: light-only public viewer (no dark: in components/viewbook/public/*); jsdom pragma line 1 + NO jest-dom; array-form $transaction only; NO migration (Feature A reuses existing tables via a section-copy:<key> namespace); deploy via ~/deploy.sh + prod-verify (health 200, deployed HEAD); browser-eyeball on a viewbook Kevin designates. On ship: update memory project_viewbook_reading_experience + move this handoff to done.
-```
+## Remaining (Kevin — browser eyeball only, no local/remote /verify for viewbook)
+- Feature B: hamburger hides/shows the desktop rail; persisted-hidden reload shows a brief rail flash (acceptable, no CLS); mobile FAB unchanged.
+- Feature A: ⓘ beside the section H2 shows What-this-is / What-we-need; a company-wide edit on `/viewbooks/settings` reflects in every viewbook; a per-viewbook override wins and "Clear override" reverts cleanly (fields update after the profile reload); the old panel is gone. Note: continuous-mode carried "earlier steps" sections (no hero) show no ⓘ by design (the full section with its ⓘ appears earlier in the same scroll; chapter header still shows the one-liner).
