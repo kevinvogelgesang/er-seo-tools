@@ -7,7 +7,7 @@
 import type { SectionKey, ViewbookTheme } from './theme'
 import type { ContentBlocks, GlobalContentKey, TeamMember } from './global-content-keys'
 import type { ViewbookStage } from './stages'
-import type { CollapseAffordanceKind, CollapseMorphKind } from './presentation-config'
+import type { CollapseAffordanceKind, CollapseMorphKind, ViewerMode } from './presentation-config'
 
 export interface PublicSection {
   sectionKey: SectionKey
@@ -156,4 +156,5 @@ export interface ViewbookPublicData {
   heroOverlayStrength: number // 0..100
   revealDurationScale: number // 0.4..1.6, per-viewbook reveal-animation pacing multiplier
   firstLoadDelayMs: number // 0..6000, delay before the welcome auto-reveal fires on first load
+  viewerMode: ViewerMode // 'continuous' (default active reading viewer) | 'collapse' (dormant collapse-first path); resolved by readPresentationConfig
 }

@@ -58,7 +58,14 @@ describe('readPresentationConfig', () => {
       heroOverlayStrength: 20,
       revealDurationScale: 1.2,
       firstLoadDelayMs: 1500,
+      viewerMode: 'continuous',
     })
+  })
+
+  it('viewerMode: defaults to continuous when absent, accepts collapse, degrades unknown', () => {
+    expect(readPresentationConfig({ collapseAffordance: 'chevron', heroOverlayStrength: 55 }).viewerMode).toBe('continuous')
+    expect(readPresentationConfig({ collapseAffordance: 'chevron', heroOverlayStrength: 55, viewerMode: 'collapse' }).viewerMode).toBe('collapse')
+    expect(readPresentationConfig({ collapseAffordance: 'chevron', heroOverlayStrength: 55, viewerMode: 'weird' }).viewerMode).toBe('continuous')
   })
 
   it('degrades a non-finite stored overlay to the default', () => {

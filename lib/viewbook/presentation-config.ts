@@ -29,12 +29,24 @@ export type CollapseAffordanceKind = (typeof COLLAPSE_AFFORDANCES)[number]
 export const COLLAPSE_MORPHS = ['spread', 'bloom', 'clip', 'pop'] as const
 export type CollapseMorphKind = (typeof COLLAPSE_MORPHS)[number]
 
+// Viewer render mode (spec §4). Continuous-reading is the default active viewer;
+// 'collapse' re-activates the dormant collapse-first path. The Phase-1 read side
+// defaults absent/invalid → 'continuous'; the DB column + strict write land in
+// Phase 2 (parsePresentationPatch validation).
+export const VIEWER_MODES = ['continuous', 'collapse'] as const
+export type ViewerMode = (typeof VIEWER_MODES)[number]
+
+function isViewerMode(v: unknown): v is ViewerMode {
+  return typeof v === 'string' && (VIEWER_MODES as readonly string[]).includes(v)
+}
+
 export const PRESENTATION_DEFAULTS = {
   collapseAffordance: 'chevron' as CollapseAffordanceKind,
   collapseMorph: 'spread' as CollapseMorphKind,
   heroOverlayStrength: 55,
   revealDurationScale: 1.0,
   firstLoadDelayMs: 3000,
+  viewerMode: 'continuous' as ViewerMode,
 }
 
 const REVEAL_SCALE_MIN = 0.4
@@ -103,12 +115,14 @@ export function readPresentationConfig(row: {
   heroOverlayStrength: number
   revealDurationScale?: number
   firstLoadDelayMs?: number
+  viewerMode?: string
 }): {
   collapseAffordance: CollapseAffordanceKind
   collapseMorph: CollapseMorphKind
   heroOverlayStrength: number
   revealDurationScale: number
   firstLoadDelayMs: number
+  viewerMode: ViewerMode
 } {
   return {
     collapseAffordance: isAffordance(row.collapseAffordance)
@@ -124,5 +138,6 @@ export function readPresentationConfig(row: {
     firstLoadDelayMs: Number.isFinite(row.firstLoadDelayMs as number)
       ? clamp(Math.round(row.firstLoadDelayMs as number), FIRST_LOAD_DELAY_MIN, FIRST_LOAD_DELAY_MAX)
       : PRESENTATION_DEFAULTS.firstLoadDelayMs,
+    viewerMode: isViewerMode(row.viewerMode) ? row.viewerMode : PRESENTATION_DEFAULTS.viewerMode,
   }
 }
