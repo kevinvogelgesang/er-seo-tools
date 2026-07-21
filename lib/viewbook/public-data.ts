@@ -22,6 +22,11 @@ import {
   type TeamMember,
 } from './global-content-keys'
 import { viewbookDisplayName } from './display-name'
+import { SECTION_KEYS, type SectionKey } from './theme'
+import {
+  getSectionCopyGlobalMap, getSectionCopyOverrideMap, resolveSectionCopy,
+  type ResolvedSectionCopy, type SectionCopyContent,
+} from './section-copy-content'
 import type {
   PublicFieldCategory,
   PublicGlobalContent,
@@ -100,7 +105,10 @@ export async function loadViewbookPublicData(token: string): Promise<ViewbookPub
   const primarySections = gatePcThanks(pick(lineup.primary), pcCompletedAt)
   const carriedSections = pick(lineup.carried)
 
-  const [fieldCategories, milestones, materials, docs, global, overrides, teamMembers] = await Promise.all([
+  const [
+    fieldCategories, milestones, materials, docs, global, overrides, teamMembers,
+    sectionCopyGlobal, sectionCopyOverrides,
+  ] = await Promise.all([
     guarded('fields', () => loadFieldCategories(vb.id), [] as PublicFieldCategory[]),
     guarded('milestones', () => loadMilestones(vb.id), [] as PublicMilestone[]),
     guarded('materials', () => loadMaterials(vb.id), [] as PublicMaterialLink[]),
@@ -108,7 +116,10 @@ export async function loadViewbookPublicData(token: string): Promise<ViewbookPub
     loadGlobal(), // self-guards PER KEY (Codex plan-fix 2)
     guarded('overrides', () => loadOverrides(vb.id), {} as Partial<Record<GlobalContentKey, string>>),
     guarded('team-members', () => loadTeamMembers(vb.id), [] as PublicTeamMember[]),
+    guarded('section-copy-global', () => getSectionCopyGlobalMap(), {} as Partial<Record<SectionKey, SectionCopyContent>>),
+    guarded('section-copy-overrides', () => getSectionCopyOverrideMap(vb.id), {} as Partial<Record<SectionKey, SectionCopyContent>>),
   ])
+  const sectionCopy = buildSectionCopyMap(sectionCopyGlobal, sectionCopyOverrides)
 
   // Header display-name (spec §7): the client-entered school-name answer
   // wins over the CRM client record name. Reuses the already-loaded (and
@@ -141,8 +152,22 @@ export async function loadViewbookPublicData(token: string): Promise<ViewbookPub
     docs,
     global,
     overrides,
+    sectionCopy,
     ...readPresentationConfig(vb),
   }
+}
+
+// Exported for direct unit testing: resolve every catalog key from the two
+// already-validated maps (missing key in a map = that layer absent).
+export function buildSectionCopyMap(
+  global: Partial<Record<SectionKey, SectionCopyContent>>,
+  overrides: Partial<Record<SectionKey, SectionCopyContent>>,
+): Record<SectionKey, ResolvedSectionCopy> {
+  const out = {} as Record<SectionKey, ResolvedSectionCopy>
+  for (const key of SECTION_KEYS) {
+    out[key] = resolveSectionCopy(key, global[key] ?? null, overrides[key] ?? null)
+  }
+  return out
 }
 
 // Exported for direct unit testing (see note above): drops 'pc-thanks' from
