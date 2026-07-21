@@ -90,6 +90,7 @@ export function KickoffNextSection({
       token={token}
       meta={meta}
       viewerMode={data.viewerMode}
+      sectionCopy={data.sectionCopy[section.sectionKey]}
     >
       {isOperator ? (
         <KickoffNextCta viewbookId={data.viewbookId} csmName={data.csmName} />

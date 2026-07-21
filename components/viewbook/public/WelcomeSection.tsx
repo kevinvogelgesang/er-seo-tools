@@ -64,6 +64,7 @@ export function WelcomeSection({
       token={token}
       meta={meta}
       viewerMode={data.viewerMode}
+      sectionCopy={data.sectionCopy[section.sectionKey]}
     >
       {blocks.why?.blocks?.length ? <Blocks blocks={blocks.why.blocks} /> : <Placeholder what="Our story" />}
 

@@ -52,6 +52,7 @@ export function PcInviteSection({
       token={token}
       meta={meta}
       viewerMode={data.viewerMode}
+      sectionCopy={data.sectionCopy[section.sectionKey]}
     >
       <div className="space-y-4">
         <p className="text-sm text-black/60">

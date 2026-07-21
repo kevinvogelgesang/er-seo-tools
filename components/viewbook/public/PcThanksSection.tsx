@@ -43,6 +43,7 @@ export function PcThanksSection({
       token={token}
       meta={meta}
       viewerMode={data.viewerMode}
+      sectionCopy={data.sectionCopy[section.sectionKey]}
     >
       <p className="text-lg text-black/70" style={{ fontFamily: 'var(--vb-body-font)' }}>{THANK_YOU_COPY}</p>
     </SectionShell>

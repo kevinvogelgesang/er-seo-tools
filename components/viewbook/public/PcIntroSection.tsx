@@ -46,6 +46,7 @@ export function PcIntroSection({
       token={token}
       meta={meta}
       viewerMode={data.viewerMode}
+      sectionCopy={data.sectionCopy[section.sectionKey]}
       autoRevealMs={data.stage === 'post-contract' ? data.firstLoadDelayMs : undefined}
     >
       <p className="text-lg text-black/70" style={{ fontFamily: 'var(--vb-body-font)' }}>

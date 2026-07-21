@@ -2,6 +2,7 @@
 import { render, screen, cleanup } from '@testing-library/react'
 import { describe, it, expect, afterEach, beforeEach, vi } from 'vitest'
 import { DEFAULT_THEME } from '@/lib/viewbook/theme'
+import { SECTION_COPY_FIXTURE } from './test-support/section-copy-fixture'
 import type { PublicSection, ViewbookPublicData } from '@/lib/viewbook/public-types'
 import { WelcomeSection } from './WelcomeSection'
 import { BrandSection } from './BrandSection'
@@ -55,6 +56,7 @@ const base = (over: Partial<ViewbookPublicData> = {}): ViewbookPublicData => ({
   docs: { global: [], own: [] },
   global: { team: null, pcIntro: null, blocks: {} },
   overrides: {},
+  sectionCopy: SECTION_COPY_FIXTURE,
   ...over,
 })
 

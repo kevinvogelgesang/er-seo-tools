@@ -6,6 +6,7 @@
 import { render, cleanup, act } from '@testing-library/react'
 import { describe, it, expect, afterEach, vi } from 'vitest'
 import { DEFAULT_THEME } from '@/lib/viewbook/theme'
+import { SECTION_COPY_FIXTURE } from './test-support/section-copy-fixture'
 import type { PublicSection, ViewbookPublicData } from '@/lib/viewbook/public-types'
 import { ViewbookShell } from './ViewbookShell'
 import { StrategySection } from './StrategySection'
@@ -63,6 +64,7 @@ const data = (over: Partial<ViewbookPublicData> = {}): ViewbookPublicData => ({
   docs: { global: [], own: [] },
   global: { team: null, pcIntro: null, blocks: {} },
   overrides: {},
+  sectionCopy: SECTION_COPY_FIXTURE,
   ...over,
 })
 

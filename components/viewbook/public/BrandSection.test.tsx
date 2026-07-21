@@ -2,6 +2,7 @@
 import { render, screen, cleanup } from '@testing-library/react'
 import { describe, it, expect, afterEach } from 'vitest'
 import { DEFAULT_THEME } from '@/lib/viewbook/theme'
+import { SECTION_COPY_FIXTURE } from './test-support/section-copy-fixture'
 import type { PublicSection, ViewbookPublicData } from '@/lib/viewbook/public-types'
 import { BrandSection } from './BrandSection'
 const meta = (over = {}) => ({ heroSize: 'chapter', chapterNumber: 1, status: 'current', isLead: false, ...over })
@@ -36,6 +37,7 @@ const data: ViewbookPublicData = {
   materials: [],
   global: { team: null, pcIntro: null, blocks: {} },
   overrides: {},
+  sectionCopy: SECTION_COPY_FIXTURE,
 } as unknown as ViewbookPublicData
 
 describe('BrandSection', () => {

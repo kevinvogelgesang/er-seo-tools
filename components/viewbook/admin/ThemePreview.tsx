@@ -10,6 +10,7 @@ import type { PublicSection } from '@/lib/viewbook/public-types'
 import { PRESENTATION_DEFAULTS } from '@/lib/viewbook/presentation-config'
 import type { CollapseAffordanceKind, CollapseMorphKind } from '@/lib/viewbook/presentation-config'
 import { SECTION_KEYS } from '@/lib/viewbook/theme'
+import { resolveSectionCopy } from '@/lib/viewbook/section-copy-content'
 import { SectionShell } from '@/components/viewbook/public/SectionShell'
 import type { SectionRenderMeta } from '@/lib/viewbook/section-status'
 import { ThemeStyle, themeCssVars, publicAssetUrl } from '@/components/viewbook/public/ThemeStyle'
@@ -161,6 +162,7 @@ export function ThemePreview({
                 token={PREVIEW_TOKEN}
                 previewMode
                 viewerMode="collapse"
+                sectionCopy={resolveSectionCopy(SAMPLE_SECTION.sectionKey, null, null)}
                 meta={{ heroSize: 'chapter', chapterNumber: 1, status: 'current', isLead: false } as SectionRenderMeta}
               >
                 <p className="text-black/80">

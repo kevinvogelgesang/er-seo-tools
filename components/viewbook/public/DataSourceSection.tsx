@@ -130,6 +130,7 @@ export function DataSourceSection({
       token={token}
       meta={meta}
       viewerMode={data.viewerMode}
+      sectionCopy={data.sectionCopy[section.sectionKey]}
     >
       {data.stage === 'post-contract' && (
         <p className="text-black/60">

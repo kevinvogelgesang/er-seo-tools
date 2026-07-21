@@ -83,8 +83,9 @@ import type { SectionRenderMeta } from '@/lib/viewbook/section-status'
 import { sectionDisplayMode, sectionInitiallyOpen } from '@/lib/viewbook/section-display'
 import { sectionSupportsCollapse } from '@/lib/viewbook/theme'
 import { SECTION_COPY } from '@/lib/viewbook/section-copy'
+import type { ResolvedSectionCopy } from '@/lib/viewbook/section-copy-content'
 import { SectionReveal } from './SectionReveal'
-import { SectionSummaryPanel } from './SectionSummaryPanel'
+import { Tooltip } from './Tooltip'
 import { StatusPill } from './StatusPill'
 import { ChapterCtaButton } from './ChapterCtaButton'
 import { CollapsibleSection } from './CollapsibleSection'
@@ -131,6 +132,7 @@ export function SectionShell({
   autoRevealMs,
   meta,
   viewerMode,
+  sectionCopy,
 }: {
   section: PublicSection
   title: string
@@ -156,6 +158,10 @@ export function SectionShell({
   // CollapsibleSection.tsx's prop banner for why every other caller must
   // leave this `undefined`.
   autoRevealMs?: number
+  // Feature A: the resolved plain-language section copy (per-viewbook override ←
+  // company-wide ← code default; resolved by the caller). Required so tsc flags
+  // every un-migrated caller.
+  sectionCopy: ResolvedSectionCopy
 }) {
   const mode = sectionDisplayMode(section, stage)
   const alwaysOpen = mode === 'always-open'
@@ -414,15 +420,38 @@ export function SectionShell({
     )
   }
 
+  // The chapter-header CTA still comes from the code catalog (not part of the
+  // per-viewbook-overridable copy); the rest of the copy is the resolved value.
+  const cta = SECTION_COPY[section.sectionKey]?.cta ?? null
+
+  // The ⓘ tooltip body shared by both viewer modes (continuous hero + collapse
+  // headerStrip) — the What-this-is / What-we-need guidance the SectionSummaryPanel
+  // used to render inline. The trigger is rendered as a SIBLING of the <h2>, never
+  // a descendant (accessible-name safety).
+  const infoTooltipId = `vb-info-${section.sectionKey}`
+  const infoTooltipBody = (
+    <span className="block space-y-1.5 text-left">
+      <span className="block">
+        <span className="block font-semibold uppercase tracking-wide text-white/60 text-[10px]">What this is</span>
+        <span className="block">{sectionCopy.whatThis}</span>
+      </span>
+      {sectionCopy.whatWeNeed != null && (
+        <span className="block">
+          <span className="block font-semibold uppercase tracking-wide text-white/60 text-[10px]">What we need</span>
+          <span className="block">{sectionCopy.whatWeNeed}</span>
+        </span>
+      )}
+    </span>
+  )
+
   const headerStrip = (
     <div style={{ background: 'color-mix(in srgb, var(--vb-primary) 10%, #fafafa)' }}>
-      <div className="mx-auto w-full max-w-5xl px-6 pt-5 pb-1">
-        <TickDivider />
+      <div className="mx-auto flex w-full max-w-5xl items-center gap-2 px-6 pt-5 pb-1">
+        <Tooltip id={infoTooltipId} label={infoTooltipBody} />
+        <div className="min-w-0 flex-1"><TickDivider /></div>
       </div>
     </div>
   )
-
-  const copy = SECTION_COPY[section.sectionKey]
 
   // ---- Continuous-reading render path (spec §5.4) --------------------------
   function buildContinuousHero(): ReactNode {
@@ -455,6 +484,7 @@ export function SectionShell({
             {title}
           </h2>
           {done && <DoneBadge size="hero" />}
+          <Tooltip id={infoTooltipId} label={infoTooltipBody} tone="on-primary" />
         </div>
       </div>
     )
@@ -471,9 +501,9 @@ export function SectionShell({
               {String(meta.chapterNumber).padStart(2, '0')}
             </span>
           )}
-          {copy && <span className="min-w-0 flex-1 text-sm text-black/60">{copy.purpose}</span>}
+          <span className="min-w-0 flex-1 text-sm text-black/60">{sectionCopy.purpose}</span>
           <StatusPill status={meta.status} />
-          {copy?.cta && <ChapterCtaButton {...copy.cta} />}
+          {cta && <ChapterCtaButton {...cta} />}
           <div className="w-full">
             <TickDivider />
           </div>
@@ -492,7 +522,6 @@ export function SectionShell({
         initiallyOpen={initiallyOpen}
         stickyLabel="continuous"
       >
-        {copy && <SectionSummaryPanel whatThis={copy.whatThis} whatWeNeed={copy.whatWeNeed} status={meta.status} />}
         {/* The section's own summary FACE (celebratory ✓ + "Completed {date}"
             for done/ack sections, plus the section's key-visual/headline —
             welcome note, brand swatches, status label) — carried into the
@@ -518,15 +547,9 @@ export function SectionShell({
       alwaysOpen={alwaysOpen}
       initiallyOpen={initiallyOpen}
     >
-      {/* Plain-language "what this is / what we need from you" guidance, always
-          first inside the expanded body. Copy is code-owned (SECTION_COPY);
-          guarded so an off-catalog section key can never crash the shell. */}
-      {SECTION_COPY[section.sectionKey] && (
-        <SectionSummaryPanel
-          whatThis={SECTION_COPY[section.sectionKey].whatThis}
-          whatWeNeed={SECTION_COPY[section.sectionKey].whatWeNeed}
-        />
-      )}
+      {/* Feature A: the "what this is / what we need" guidance moved OUT of the
+          body and into the ⓘ tooltip in `headerStrip` (a sibling of the heading,
+          not inside the collapse <button>). */}
       {section.introNote && (
         <p className="border-l-4 pl-4 text-lg text-black/70" style={{ borderColor: 'var(--vb-tertiary)' }}>
           {section.introNote}

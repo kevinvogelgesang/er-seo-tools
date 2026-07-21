@@ -2,6 +2,7 @@
 import { render, screen, cleanup } from '@testing-library/react'
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { DEFAULT_THEME } from '@/lib/viewbook/theme'
+import { SECTION_COPY_FIXTURE } from './test-support/section-copy-fixture'
 import type { PublicSection, ViewbookPublicData, PublicAssessmentNotes } from '@/lib/viewbook/public-types'
 import type { AssessmentData, AssessmentLoad } from '@/lib/viewbook/assessment'
 
@@ -61,6 +62,7 @@ const data = {
   materials: [],
   global: { team: null, pcIntro: null, blocks: {} },
   overrides: {},
+  sectionCopy: SECTION_COPY_FIXTURE,
 } as unknown as ViewbookPublicData
 
 const full: AssessmentData = {

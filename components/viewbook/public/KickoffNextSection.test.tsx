@@ -6,6 +6,7 @@ import { render, cleanup, fireEvent } from '@testing-library/react'
 import { describe, it, expect, afterEach, vi } from 'vitest'
 import { DEFAULT_THEME } from '@/lib/viewbook/theme'
 import type { PublicSection, ViewbookPublicData } from '@/lib/viewbook/public-types'
+import { SECTION_COPY_FIXTURE } from './test-support/section-copy-fixture'
 
 const navigateSpy = vi.fn()
 vi.mock('./viewbook-navigate', () => ({
@@ -41,6 +42,7 @@ const data = {
   collapseAffordance: 'chevron',
   heroOverlayStrength: 55,
   global: { team: null, pcIntro: null, blocks: {} },
+  sectionCopy: SECTION_COPY_FIXTURE,
 } as unknown as ViewbookPublicData
 
 describe('KickoffNextSection reader action summary', () => {

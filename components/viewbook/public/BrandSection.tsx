@@ -71,6 +71,7 @@ export function BrandSection({
       token={token}
       meta={meta}
       viewerMode={data.viewerMode}
+      sectionCopy={data.sectionCopy[section.sectionKey]}
     >
       <h3 className="text-xl font-bold" style={{ fontFamily: 'var(--vb-heading-font)' }}>
         Palette

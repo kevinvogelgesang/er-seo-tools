@@ -2,6 +2,7 @@
 import { act, render, screen, cleanup } from '@testing-library/react'
 import { describe, it, expect, afterEach, beforeEach, vi } from 'vitest'
 import { DEFAULT_THEME } from '@/lib/viewbook/theme'
+import { SECTION_COPY_FIXTURE } from './test-support/section-copy-fixture'
 import type { PublicSection, ViewbookPublicData } from '@/lib/viewbook/public-types'
 import { PcIntroSection } from './PcIntroSection'
 import { welcomeRevealedKey } from './useWelcomeAutoReveal'
@@ -52,6 +53,7 @@ function data(over: Partial<ViewbookPublicData> = {}): ViewbookPublicData {
     materials: [],
     global: { team: null, pcIntro: null, blocks: {} },
     overrides: {},
+    sectionCopy: SECTION_COPY_FIXTURE,
     ...over,
   } as unknown as ViewbookPublicData
 }
