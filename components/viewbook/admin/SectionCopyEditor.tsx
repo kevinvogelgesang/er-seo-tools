@@ -81,26 +81,29 @@ function SectionRow({
     }
   }
 
-  // Reset to default: reflect the CODE default locally right away (Codex
-  // plan-fix 5 — `initial` is the resolved value, not the code default; the
-  // reset must show the default, never fall back to `initial`), then DELETE
-  // the company-wide row in the background. The optimistic local update
-  // keeps "Reset" feeling instant; a non-404 delete failure surfaces an
-  // error without reverting the fields (the operator can Save to persist).
-  // Tolerate a 404 — no row existed means we're already at default.
+  // Reset to default: await the DELETE FIRST, then reflect the CODE default
+  // locally (Codex plan-fix 5 — `initial` is the resolved value, not the code
+  // default; the reset must show the default, never fall back to `initial`).
+  // A genuine (non-not_found) delete failure must NOT reset the fields — the
+  // DB row still exists, so showing the default would lie about persisted
+  // state. Tolerate `not_found` — no company-wide row existed means we're
+  // already at default — and fall through to reset the fields in that case.
   const reset = async () => {
     setBusy(true)
     setErr(null)
-    setPurpose(defaultCopy.purpose)
-    setWhatThis(defaultCopy.whatThis)
-    setWhatWeNeed(defaultCopy.whatWeNeed ?? '')
     try {
       await jsonFetch(`/api/viewbooks/section-copy/${sectionKey}`, { method: 'DELETE' })
     } catch (e) {
-      if (!/404/.test(String(e))) setErr(String(e))
-    } finally {
-      setBusy(false)
+      if (!(e instanceof Error && e.message === 'not_found')) {
+        setErr(String(e))
+        setBusy(false)
+        return
+      }
     }
+    setPurpose(defaultCopy.purpose)
+    setWhatThis(defaultCopy.whatThis)
+    setWhatWeNeed(defaultCopy.whatWeNeed ?? '')
+    setBusy(false)
   }
 
   return (
