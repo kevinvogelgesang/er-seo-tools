@@ -1,15 +1,14 @@
 import { StreamingParser } from '../streaming-parser.base';
 import { ParsedData, Issue, CSVRow } from '../../types';
 import { toString } from '../../utils/columnMapper';
+import { NON_DESCRIPTIVE_ANCHORS, isNonDescriptiveAnchor } from '@/lib/findings/anchor-text-shared';
 
 export class AnchorTextParser extends StreamingParser {
   static parserKey = 'anchortext';
   static filenamePattern = 'all_anchor_text';
 
-  private static NON_DESCRIPTIVE_ANCHORS = [
-    'click here', 'read more', 'learn more', 'more', 'here', 'link', 'this',
-    'page', 'click', 'go', 'see more', 'view more', 'continue', 'details', 'info',
-  ];
+  // Shared with the live-scan builder/mapper so the live rule never drifts (parity test).
+  private static NON_DESCRIPTIVE_ANCHORS = NON_DESCRIPTIVE_ANCHORS;
 
   private typeCol: string | null = null;
   private sourceCol: string | null = null;
@@ -57,7 +56,7 @@ export class AnchorTextParser extends StreamingParser {
         if (!this.destinationAnchors[destination]) this.destinationAnchors[destination] = new Set();
         this.destinationAnchors[destination].add(anchor);
       }
-      if (AnchorTextParser.NON_DESCRIPTIVE_ANCHORS.includes(normalizedAnchor)) {
+      if (isNonDescriptiveAnchor(anchor)) {
         if (this.nonDescriptiveUrls.length < 50) {
           this.nonDescriptiveUrls.push(`${source} -> "${anchor}" -> ${destination}`);
         }
