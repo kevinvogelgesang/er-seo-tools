@@ -49,25 +49,46 @@ Every PR follows house discipline: worktree lane off fresh `origin/main`, spec �
 
 ### Track 1 — Foundation: template library & section model (Claude-led)
 
-**F1. Template library data layer + template admin.**
-New Prisma models: `SectionTemplate` (renderer type, default title/copy, sort) + `SubsectionTemplate` (offering tags — website/VA/PPC multi-tag, copy, field defs). Absorbs THREE current content homes into one entity: code-owned section copy (`section-copy.ts`, `section-titles.ts`), the Q&A catalog (`catalog.ts`), and `ViewbookGlobalContent` (team/process/why/pc-intro/… keys). Renderer TYPES stay code-owned (content, fields/Q&A, milestones, invite, materials, feedback, docs…); templates select a type and carry content — this is the AI-readiness spine (§6) and the seam that makes VA/PPC a content problem later. Template admin panel evolves `/viewbooks/settings` (`GlobalContentEditor` grows into the template editor). Includes the **"What we need from you"** rename of the Data Source section (template copy). Seed script recreates the current 13 sections as website-offering templates with their existing copy — byte-parity with today's rendered defaults is the acceptance bar.
+**F1. Template library data layer + template admin — ADDITIVE (Codex fix #1).**
+New Prisma models: `SectionTemplate` (renderer type, default title/copy, sort) + `SubsectionTemplate` (offering tags — website/VA/PPC multi-tag, copy, field defs) + stable-keyed field definitions (a `FieldTemplate` equivalent — field defs are never anonymous array entries, or pull-from-template can't preserve answers). Absorbs THREE current content homes into one entity: code-owned section copy (`section-copy.ts`, `section-titles.ts`), the Q&A catalog (`catalog.ts`), and `ViewbookGlobalContent` (team/process/why/pc-intro/… keys, incl. PR #257's `section-copy:<key>` namespace). Renderer TYPES stay code-owned (content, fields/Q&A, milestones, invite, materials, feedback, docs…); templates select a type and carry validated content/config only — this is the AI-readiness spine (§6) and the seam that makes VA/PPC a content problem later.
 
-**F2. Viewbook instances + copy-on-create.**
-`Viewbook.offerings` flags (set at creation, ER-editable later). Creation snapshots matching templates → per-viewbook section + subsection instance rows (own copy of all content, order column). Per-section **"update to current global version"** pull action (explicit, never automatic — D8). Custom (user-created) sections are instances with no template ref. Test viewbooks wiped/reseeded in the migration. `syncCatalogQuestions` is replaced by the pull action; `ViewbookContentOverride` collapses into instance content (instances ARE the override layer now).
+F1 is **additive**: the legacy readers (`public-data.ts` resolve chain, `ViewbookGlobalContent`/`ViewbookContentOverride` routes) stay fully functional until F2 cuts over. The initial production templates are created by a **real migration (or one-time boot seeder)** — never a manually-invoked seed script that `prisma migrate deploy` won't run. Existing global rows + referenced assets (team photos etc.) are TRANSFORMED into templates, not discarded — "viewbooks are test-only" does not make the company roster/content disposable. Template admin panel evolves `/viewbooks/settings` (`GlobalContentEditor` grows into the template editor). Includes the **"What we need from you"** rename of the Data Source section (template copy). Acceptance bar: seeded website templates render byte-parity with today's defaults. Split into **F1a (schema + renderer registry + migration seed)** and **F1b (template admin UI)** if the spec confirms it's two PRs of work.
 
-**F3. Viewer rebuild — stages removed.**
-Sections render in instance order, **full width**, all visible from day one (original order preserved; completed sections stay in place — users never hunt for what they finished). Completed/acknowledged sections **grey out** with a **loud checkmark label on both collapsed and expanded heroes**. Current reveal/morph animations retained, now animating straight down. Removes: `STAGE_LINEUPS`/`stages.ts`, admin Advance/Roll-back, `ViewbookStageLog` writes, stage-change emails, `StageOverview`, `PreviousStages`, `EarlierSteps`, carried/origin grouping. **Separators**: ER-created rows between sections (optional text), rendered as labeled dividers + non-clickable ToC group labels (D10c). `pc-setup` org-basics fields move into ER-only viewbook options (admin), out of the client-facing flow (original item 5.2). Milestones section keeps its own status flow, decoupled from viewing stages (D10b).
+**Template/instance identity contracts (Codex fix #4 — bind every F-track spec):**
+- Durable section/subsection/field identities are SEPARATE from code-owned renderer types — `rendererType` is never section identity. (Today `SectionKey` drives rendering, theme heroes, anchors, ack routes, inspector selection, ToC, and local collapse keys — custom sections and repeated renderer types break that; instances get their own durable keys.)
+- Instances snapshot renderer type, title, content, offering tags, AND **template version**; rendering never depends on the current template row.
+- A generic content/fields renderer exists for user-created sections.
+- Sections and separators share ONE unambiguous total order (single order sequence, not two).
+- Offerings are explicit booleans (or another validated representation) — no Prisma/SQLite scalar-list assumptions.
+- Template FKs on instances are `SetNull` on template deletion — frozen instances must survive.
 
-**F4. Subsection completion + rings.** *(well-bounded → Codex lane)*
-Per-subsection completion/ack state; score-ring-style percent indicator (reuse the SEO/ADA ring pattern) per section fed by subsection completion; per-offering rings when a section contains subsections from multiple offerings (D7). Section-level ack remains the single gate.
+**F2. Viewbook instances + copy-on-create — the CUTOVER (Codex fixes #1, #5).**
+`Viewbook.offerings` flags (set at creation, ER-editable later). Creation snapshots matching templates → per-viewbook section + subsection instance rows (own copy of all content + assets, order column); `ViewbookField` becomes subsection-instance-owned. F2 performs the atomic read-model cutover (viewer/admin/inspector read instances), THEN retires the legacy global/override routes and stores. Test viewbooks wiped/reseeded in the migration. `syncCatalogQuestions` is replaced by the pull action; `ViewbookContentOverride` collapses into instance content (instances ARE the override layer now).
 
-**F5. Inspector + admin manipulation pass.**
+Semantics the F2 spec must pin (Codex fix #5):
+- **Pull ("update to current global version") is a versioned MERGE, not a JSON copy:** preserve field values, revisions, assignments, and completion for matching stable field/subsection keys; add newly-introduced definitions; ARCHIVE removed definitions (never delete history); explicit policy for local copy edits (overwrite with confirmation vs selective merge).
+- **Offering enable/disable after creation:** enabling adds the missing sections/subsections via the same snapshot path; disabling preserves completed/answered offering-exclusive subsections as archived data (exact behavior = spec-time Kevin call, see §9).
+- **Assets are truly frozen:** copying a filename is NOT a snapshot — current global team photos are mutable shared files deleted on replace (`global-content.ts`). Copy assets into viewbook scope, use immutable content-addressed assets, or add reference-aware retention.
+
+**F3. Viewer rebuild — stages removed (Codex fixes #2, #8).**
+Scope: ordered viewer + stage retirement + completion transition + pc-setup relocation. (Separator CREATION/reorder UI moved to F5b — F3 only teaches the viewer/ToC to RENDER separator rows: labeled dividers + non-clickable ToC group labels, D10c.) Sections render in instance order, **full width**, all visible from day one (completed sections stay in place — users never hunt for what they finished). Completed/acknowledged sections **grey out** with a **loud checkmark label on both collapsed and expanded heroes**. Current reveal/morph animations retained, now animating straight down. Removes: `STAGE_LINEUPS`/`stages.ts`, admin Advance/Roll-back, `ViewbookStageLog` writes, stage-change emails, `StageOverview`, `PreviousStages`, `EarlierSteps`, carried/origin grouping. `pc-setup` org-basics fields move into ER-only viewbook options (admin), out of the client-facing flow (original item 5.2). Milestones section keeps its own status flow, decoupled from viewing stages (D10b).
+
+Two contracts the F3 spec must pin (Codex fix #8):
+- **Post-stage completion:** `pcCompletedAt` currently requires stage `post-contract` + acks of `pc-setup`/`pc-invite`/`data-source` (`lib/viewbook/ack.ts`) and gates `pc-thanks` visibility + the pc-complete email. F3 must either replace it with a stage-free completion gate or remove `pcCompletedAt` + the pc-complete delivery + the `pc-thanks` gate. (Which — Kevin call at spec time, §9.)
+- **Canonical seed order:** there is no single current "original order" — `SECTION_KEYS` and the four `STAGE_LINEUPS` disagree. The F1-seed/F3 spec lists the exact initial 13-section order explicitly.
+
+**F4. Subsection completion + rings.** *(well-bounded → Codex lane; after F3)*
+Per-subsection completion/ack state; score-ring-style percent indicator (reuse the SEO/ADA ring pattern) per section fed by subsection completion; per-offering rings when a section contains subsections from multiple offerings (D7). Section-level ack remains the single gate. Whether a multi-tag subsection counts toward EVERY matching offering's ring = spec-time Kevin call (§9).
+
+**F5a. Inspector navigation/layout pass (Codex fix #2 split; after F3, independent of U3/U4).**
 - `SectionOutline` panel removed; **scroll-spy alone** decides what the edit pane shows, with the topmost-section-at-top bug fixed (item 8.1's reported issue).
 - Compact **section dropdown** in the inspector header (select → scrolls to section) — included outright rather than waiting on scroll-spy testing (original 8.2).
 - **Fit-canvas becomes the permanent layout**: inspector sits in its own panel beside the canvas, never hovering over the page; the fit-canvas button is deleted (8.3).
 - Selecting a block in the inspector **scrolls the page to that block + brief flash** (8.4).
+
+**F5b. Content + structural mutation pass (Codex fix #2 split — converges on the 1,138-line `InlineEditors.tsx` and the same field surfaces as U3/U4, hence LAST in the dependency graph).**
 - **Every field on the page is editable** in the inspector (8.5): all viewbook-local copy (section/subsection titles, body copy, headings) — writes to the instance copy per D8.
-- **Add section above/below the selected section** (5.4/8.6); reorder sections + separators via inspector AND the admin page (5.3.1).
+- **Add section above/below the selected section** (5.4/8.6); add/remove/reorder sections AND separators (creation + text editing) via inspector AND the admin page (5.3.1, D10c).
 - Admin `ViewbookEditor` parity: order manipulation, add/remove sections, separator management, offering flags.
 
 **F6. Promote-to-template.**
@@ -75,17 +96,31 @@ Per-subsection completion/ack state; score-ring-style percent indicator (reuse t
 
 ### Track 2 — Users & fields (Codex-led, parallel)
 
-**U1. Magic-link auth.**
-Per-member magic-link tokens (single-use-ish, 7-day first-click validity), long-lived per-person session cookie (~60 d), `/viewbook/[token]` becomes the LANDING page: invited-with-session → viewbook; stranger/expired → email prompt; entered email ∈ `ViewbookTeamMember` → fresh link sent (always works — D3), else a non-oracle "if this address was invited, a link is on its way" response. ER cookie auth exempt (D2). Removing a member revokes their sessions. Middleware stays anchored single-segment regexes (house rule — never a `/viewbook/` prefix). Client writes stop being anonymous: `author`/`valueUpdatedBy` carry the member identity from here on.
+**U1. Magic-link auth — DB-backed, per-viewbook revocable (Codex fix #6).**
+`/viewbook/[token]` becomes the LANDING page: invited-with-session → viewbook; stranger/expired → email prompt; entered email ∈ `ViewbookTeamMember` → fresh link sent (always works — D3), else a non-oracle "if this address was invited, a link is on its way" response. ER cookie auth exempt (D2). Middleware stays anchored single-segment regexes (house rule — never a `/viewbook/` prefix). Client writes stop being anonymous: member identity flows into `author`/`valueUpdatedBy`.
+
+Invariants the U1 spec must pin:
+- **Hashed opaque magic-link grants** (DB rows: `expiresAt` 7-day first-click, `consumedAt`) and **hashed opaque member-session rows** (~60 d, FK → `ViewbookTeamMember`); member deletion cascades session revocation. NOT stateless signed cookies — immediate revocation is a requirement.
+- **Per-viewbook cookie isolation** that still works for `/api/viewbook/[token]/*` routes — one global member cookie would clobber access for a person on multiple viewbooks. `HttpOnly`, `Secure`, `SameSite=Lax`, host-only, `Path=/`; logout; expiry cleanup (runCleanup); rotation/revocation behavior stated.
+- **One central `ViewbookPrincipal` resolver** (member / operator / dev-bypass / break-glass) — and EVERY token route (assets, sync, feedback, materials, answers, ack, team-members, setup) requires a principal. Middleware remains only the anchored bypass; authorization lives in handlers (today those routes are deliberately open pre-U1).
+- **Unauthorized landing requests never call `loadViewbookPublicData`** — the current page loads the full payload before branching; the email-prompt path must not build or serialize viewbook data.
+- **Durable, SQL-enforced rate limiting** on the email-request endpoint (per-address AND per-viewbook cooldown + volume caps, same non-oracle response) — a process-memory throttle is not enough for an email-spam surface.
+- **Member removal doesn't exist today** — U1 (or U2) adds the removal mutation that exercises revocation.
 
 **U2. Invite grid.**
 "Invite your team" converts to a grid-style entry: **3 blank person rows visible by default** (name/email), an **"Add another person"** button appending rows; roster + resend as today. 15-member cap stays unless it fights the grid UX.
 
-**U3. Field assignment + digest emails.**
-Anyone (client or ER) can **assign a field to a member**. Emails follow D1 exactly: a durable sweep (piggyback the existing 15-min viewbook digest job or a dedicated `every:5m` schedule) finds viewbooks where `lastAssignmentAt < now − X` with un-notified assignments and sends ONE digest per member listing all their pending fields, marking them notified. X configurable via env, default ~15 min. Assignment state lives on `ViewbookField` (assignee member id + notified marker); assignment/unassignment logged to `ViewbookActivity`.
+**U3. Field assignment + digest emails (Codex fixes #3, #7 — depends on F3, NOT free-floating).**
+Anyone (client or ER) can **assign a field to a member**. Assignment state lives on `ViewbookField` (assignee member id); assignment/unassignment logged to `ViewbookActivity`. `ViewbookField` becomes subsection-instance-owned in F2 and the field rows are re-shelled in F3, so U3 sequences AFTER F3 (if it must start earlier, split backend from field-row UI).
 
-**U4. Revision inversion.**
-Remove the lock system: `dataLockedAt`/`dataLockedBy`, locked-baseline read-only behavior, `AmendmentForm`/propose-a-change UI, the admin lock route. Every field: always editable, last write wins (optimistic `version` concurrency retained for simultaneous-edit safety), every write appends a revision row (repurpose/extend `ViewbookFieldAmendment` as the unified history — it is already append-only with `clientMutationId` idempotency). Per-field **accordion of prior versions** (value, author name, timestamp; ER entries badged with the ER logo — D9a). **Restore** = re-submit an old value as a new revision (D9b). Clients edit field values only (D9c).
+D1's global-quiescence guarantee must be **race-safe** (Codex fix #7) — a naive `assignee + notified marker` sweep lets an assignment race between the sweep's read and the send, producing exactly the stale digest D1 forbids. Required shape (fits the existing durable `ViewbookEmailDelivery` + `viewbook-email` machinery):
+- Every assignment mutation advances a per-viewbook **assignment epoch/version** + `lastAssignmentAt`.
+- Digest delivery CREATION is conditionally fenced on that epoch still being quiet (`lastAssignmentAt < now − X`; X env-configurable, default ~15 min; sweep piggybacks the 15-min viewbook digest job or a dedicated `every:5m` schedule).
+- Each per-member delivery row carries an immutable payload/cutoff + unique dedup key; the email job RE-CHECKS the epoch before sending and suppresses stale deliveries.
+- Sent/suppressed delivery state (not a loose boolean on the field) owns retry/idempotency.
+
+**U4. Revision inversion (after F3).**
+Remove the lock system: `dataLockedAt`/`dataLockedBy`, locked-baseline read-only behavior, `AmendmentForm`/propose-a-change UI, the admin lock route. Every field: always editable, last write wins (optimistic `version` concurrency retained for simultaneous-edit safety), every write appends a revision row (repurpose/extend `ViewbookFieldAmendment` as the unified history — it is already append-only with `clientMutationId` idempotency). Revision rows store **immutable `authorKind` + `authorNameSnapshot`** (+ optional member FK) — never just today's `'client' | operator-email` string (Codex fix #6 tail). Per-field **accordion of prior versions** (value, author name, timestamp; ER entries badged with the ER logo — D9a). **Restore** = re-submit an old value as a new revision (D9b). Clients edit field values only (D9c).
 
 ### Small riders
 
@@ -96,18 +131,20 @@ Remove the lock system: `dataLockedAt`/`dataLockedBy`, locked-baseline read-only
 ## 5. Sequencing
 
 ```
-S1 (rename) ──────────────────────────────────────────────┐
-U1 (auth) ──► U2 (grid) ──► U3 (assign) ─────► U4 (revisions)
-F1 (templates) ──► F2 (instances) ──► F3 (viewer) ──► F4 (rings)
-                                          └──► F5 (inspector/admin) ──► F6 (promote) ──► S3 (contrast)
+S1 (rename) — first, trivial
+U1 (auth) ──► U2 (grid)            [parallel with F1/F2]
+F1 (templates, additive) ──► F2 (instances + cutover) ──► F3 (viewer)
+F3 ──► F4 (rings)      [independent after F3]
+F3 ──► F5a (inspector nav/layout)  [independent after F3]
+F3 ──► U3 (assign) ──► U4 (revisions) ──► F5b (structural mutation) ──► F6 (promote) ──► S3 (contrast)
 S2 (confetti) — anytime
 ```
 
-**Hard guards:**
+**Hard guards (Codex fix #3 — U3/U4 are NOT F-track-independent):**
 1. **U1 lands before F3 starts** — both touch the public page entry (`app/(public)/viewbook/[token]/page.tsx`); auth-first is the cheap rebase direction.
-2. **U4 waits for F3** — the viewer rebuild re-shells the field rows U4 redesigns.
-3. **F-track is strictly serial** (each PR builds on the last's schema).
-4. U2/U3 are independent of the F-track and each other's viewer surface; they can interleave freely.
+2. **F-track is strictly serial through F3** (F1 → F2 → F3; each builds on the last's schema/cutover).
+3. **The field chain is `F2 → F3 → U3 → U4 → F5b`** — `ViewbookField` becomes instance-owned in F2, its rows are re-shelled in F3, U3 adds assignment state, U4 rewrites the same row/history path, and F5b converges on those surfaces last.
+4. U1/U2 run parallel with F1/F2; F4 and F5a hang off F3 independently.
 5. S3 is last, full stop.
 
 **Wave/session cadence:** one session per wave (per the tandem-wave model that worked for viewbook v1/v2): each session boots from the tracker + handoff, runs its lane(s), updates the tracker, stages the next handoff.
@@ -128,9 +165,9 @@ F6 closes the track with an audit: enumerate every mutation route, confirm 1–4
 
 Kevin has **3 usage resets** available; when Codex hits its limit, Kevin resets and the session re-queues Codex (established pattern).
 
-- **Codex builds:** U1, U2, U3, U4, F4 — the well-bounded lanes with crisp specs. Codex also reviews EVERY spec + plan (standing workflow) and pre-merge-reviews the risky F-track PRs (F2 schema, F3 viewer).
-- **Claude (+ subagents) builds:** F1, F2, F3, F5, F6, S1–S3 — the entangled/schema-heavy/design-heavy work.
-- **Reset checkpoints (plan around, adjust live):** budget one Codex window ≈ U1 + reviews; reset #1 → U2 + U3 + reviews; reset #2 → U4 + F4 + reviews; reset #3 → pre-merge reviews for F3/F5 + slack. If a window dies mid-PR, the session parks Codex's lane with a handoff note in the tracker and continues Claude-side work — never idle-wait on a reset.
+- **Codex builds:** U1, U2, U3, U4, F4 — the well-bounded lanes with crisp specs. Codex also reviews EVERY spec + plan (standing workflow) and pre-merge-reviews the risky F-track PRs (F2 schema/cutover, F3 viewer, F5b mutation).
+- **Claude (+ subagents) builds:** F1 (a/b), F2, F3, F5a, F5b, F6, S1–S3 — the entangled/schema-heavy/design-heavy work.
+- **Reset checkpoints (plan around, adjust live):** budget one Codex window ≈ U1 + reviews; reset #1 → U2 + reviews (U3/U4 now sit after F3 — fix #3); reset #2 → U3 + F4 + reviews; reset #3 → U4 + pre-merge reviews for F5a/F5b + slack. If a window dies mid-PR, the session parks Codex's lane with a handoff note in the tracker and continues Claude-side work — never idle-wait on a reset.
 - Per-PR specs for Codex lanes must be self-contained (Codex works from `er-seo-tools-workflow` discipline + the spec; it does not carry this chat's context).
 
 ## 8. Next roadmap seeds (explicitly out of scope here)
@@ -139,3 +176,14 @@ Kevin has **3 usage resets** available; when Codex hits its limit, Kevin resets 
 - **ER-facing AI editing surface** — gated on Kevin reopening the no-AI-API decision (roadmap tracker "Gated decisions"); §6 is its prerequisite work.
 - **Audit actionability** — sibling roadmap doc (SEO triage + in-place per-page rescan for SEO **and** ADA + Generate-Roadmap toggle).
 - Iterations flagged "may iterate later": milestone timeline presentation (D10b), separator ToC treatment (D10c), per-offering ring styling (D7).
+
+## 9. Open questions — Kevin calls, resolve at the owning PR's spec time
+
+From Codex's roadmap review (2026-07-22). Each belongs to a specific spec; none blocks starting U1/F1.
+
+1. **(F1)** Is ER roster/team display data intentionally FROZEN into each viewbook (photos included, later staff changes don't propagate) — or should team content stay live-shared? Copy-on-create (D8) implies frozen; confirm that's wanted for the team section specifically.
+2. **(F1/F3)** The exact canonical initial 13-section order (SECTION_KEYS vs STAGE_LINEUPS disagree today).
+3. **(F2)** Disabling an offering after creation: completed/answered offering-exclusive subsections are preserved as archived data (recommended) — or removed?
+4. **(F3)** Does `pc-thanks` keep a completion gate (stage-free replacement for `pcCompletedAt`) or become an always-visible final section?
+5. **(F4)** Does a multi-tag subsection count toward EVERY matching offering's ring?
+6. **(U1)** Do break-glass ER sessions (no email identity) get full operator exemption?
