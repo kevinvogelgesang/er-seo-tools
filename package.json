@@ -36,7 +36,7 @@
     "jose": "^5.10.0",
     "jsdom": "^25.0.1",
     "lighthouse": "^13.3.0",
-    "next": "^15.5.19",
+    "next": "^15.5.21",
     "papaparse": "^5.5.3",
     "pdfjs-dist": "^5.7.284",
     "pino": "^10.3.1",
@@ -49,7 +49,7 @@
     "remark-gfm": "^4.0.1",
     "sanitize-html": "^2.17.6",
     "server-only": "^0.0.1",
-    "sharp": "^0.34.5"
+    "sharp": "^0.35.3"
   },
   "devDependencies": {
     "@playwright/test": "^1.61.1",
@@ -81,6 +81,7 @@
         "ws": "^8.21.0"
       }
     },
-    "brace-expansion@>=2.0.0 <2.1.2": "2.1.2"
+    "brace-expansion@>=2.0.0 <2.1.2": "2.1.2",
+    "sharp@<0.35.0": "^0.35.3"
   }
 }
