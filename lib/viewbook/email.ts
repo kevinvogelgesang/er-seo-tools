@@ -33,6 +33,7 @@ export function stageChangeDeliveryStatements(input: {
 // `INSERT … SELECT … WHERE <cap predicate> … RETURNING "id"` statements.
 export function teamInviteDeliveryStatement(input: {
   viewbookId: number
+  memberId: number
   memberKey: string
   ordinal: number
   recipient: string
@@ -43,7 +44,7 @@ export function teamInviteDeliveryStatement(input: {
       kind: 'team-invite',
       recipient: input.recipient,
       dedupKey: `vb-invite:${input.memberKey}:${input.ordinal}`,
-      memberId: null,
+      memberId: input.memberId,
       stageLogId: null,
     },
   })

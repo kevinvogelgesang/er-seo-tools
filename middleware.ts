@@ -90,6 +90,9 @@ export function isPublicPath(pathname: string): boolean {
   // stays reachable/functional. v2 PR2: viewer-facing shared section
   // collapse. Same anchoring discipline.
   if (/^\/api\/viewbook\/[^/]+\/collapse$/.test(pathname)) return true
+  // U1 magic-link auth endpoints — explicit tail (never [^/]+: a wildcard
+  // would silently publicize future auth sub-routes).
+  if (/^\/api\/viewbook\/[^/]+\/auth\/(?:request|consume|logout)$/.test(pathname)) return true
   return PUBLIC_PATH_PREFIXES.some((prefix) => pathname.startsWith(prefix))
 }
 

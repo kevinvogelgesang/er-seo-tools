@@ -10,6 +10,8 @@ import {
   type ViewbookEmailDeps,
 } from './viewbook-email'
 import { recoverViewbookEmailDeliveries } from '@/lib/viewbook/email'
+import { GRANT_TTL_MS } from '@/lib/viewbook/auth-config'
+import { hashSecret } from '@/lib/viewbook/auth-secrets'
 
 const PREFIX = 'vb-email-handler-test-'
 const OLD_ENV = process.env
@@ -38,6 +40,27 @@ async function makeDelivery(options: {
       sentAt: options.sentAt ?? null,
       suppressedAt: options.suppressedAt ?? null,
     },
+  })
+}
+
+async function makeGrantDelivery(kind: 'team-invite' | 'magic-link', memberId: number | null | 'create' = 'create') {
+  const delivery = await makeDelivery()
+  let resolvedMemberId: number | null = memberId === 'create' ? null : memberId
+  if (memberId === 'create') {
+    const member = await prisma.viewbookTeamMember.create({
+      data: {
+        viewbookId: delivery.viewbookId,
+        memberKey: crypto.randomUUID(),
+        name: 'Jamie Client',
+        email: 'recipient@example.com',
+        addedBy: 'operator@example.com',
+      },
+    })
+    resolvedMemberId = member.id
+  }
+  return prisma.viewbookEmailDelivery.update({
+    where: { id: delivery.id },
+    data: { kind, memberId: resolvedMemberId, dedupKey: `vb-${kind}:${crypto.randomUUID()}` },
   })
 }
 
@@ -153,6 +176,65 @@ describe('runViewbookEmailJob', () => {
       sentAt: expect.any(Date),
       suppressedAt: null,
     })
+    expect(await prisma.viewbookAuthGrant.count()).toBe(0)
+  })
+
+  it.each([
+    ['team-invite', "You've been invited"],
+    ['magic-link', "Here's your sign-in link"],
+  ] as const)('mints a fresh grant at send time for %s delivery', async (kind, subjectPrefix) => {
+    const delivery = await makeGrantDelivery(kind)
+    const before = Date.now()
+    await runViewbookEmailJob({ deliveryId: delivery.id }, deps)
+
+    expect(sendEmail).toHaveBeenCalledTimes(1)
+    const sent = sendEmail.mock.calls[0][0]
+    expect(sent.content.subject).toContain(subjectPrefix)
+    const match = sent.content.text.match(/#g=([A-Za-z0-9_-]{43})/)
+    expect(match).not.toBeNull()
+    const grant = await prisma.viewbookAuthGrant.findFirstOrThrow({ where: { memberId: delivery.memberId! } })
+    expect(grant.tokenHash).toBe(hashSecret(match![1]))
+    expect(grant.expiresAt.getTime()).toBeGreaterThanOrEqual(before + GRANT_TTL_MS)
+    expect(grant.expiresAt.getTime()).toBeLessThanOrEqual(Date.now() + GRANT_TTL_MS)
+    expect(sent.content.text).toContain('expires in 7 days')
+  })
+
+  it('suppresses every grant-ineligible path without minting', async () => {
+    const dark = await makeGrantDelivery('magic-link')
+    delete process.env.MAILGUN_API_KEY
+    await runViewbookEmailJob({ deliveryId: dark.id }, deps)
+    process.env.MAILGUN_API_KEY = 'test-key'
+
+    const revoked = await makeGrantDelivery('magic-link')
+    await prisma.viewbook.update({ where: { id: revoked.viewbookId }, data: { revokedAt: new Date() } })
+    await runViewbookEmailJob({ deliveryId: revoked.id }, deps)
+
+    const archived = await makeGrantDelivery('team-invite')
+    const archivedViewbook = await prisma.viewbook.findUniqueOrThrow({ where: { id: archived.viewbookId } })
+    await prisma.client.update({ where: { id: archivedViewbook.clientId }, data: { archivedAt: new Date() } })
+    await runViewbookEmailJob({ deliveryId: archived.id }, deps)
+
+    const missingMember = await makeGrantDelivery('team-invite')
+    await prisma.viewbookTeamMember.delete({ where: { id: missingMember.memberId! } })
+    await runViewbookEmailJob({ deliveryId: missingMember.id }, deps)
+
+    const nullMember = await makeGrantDelivery('team-invite', null)
+    await runViewbookEmailJob({ deliveryId: nullMember.id }, deps)
+
+    expect(sendEmail).not.toHaveBeenCalled()
+    expect(await prisma.viewbookAuthGrant.count()).toBe(0)
+    for (const delivery of [dark, revoked, archived, missingMember, nullMember]) {
+      expect((await prisma.viewbookEmailDelivery.findUniqueOrThrow({ where: { id: delivery.id } })).suppressedAt).not.toBeNull()
+    }
+  })
+
+  it('terminally suppresses unknown kinds instead of falling through to another builder', async () => {
+    const delivery = await makeDelivery()
+    await prisma.viewbookEmailDelivery.update({ where: { id: delivery.id }, data: { kind: 'future-kind' } })
+    await runViewbookEmailJob({ deliveryId: delivery.id }, deps)
+    expect(sendEmail).not.toHaveBeenCalled()
+    expect(await prisma.viewbookAuthGrant.count()).toBe(0)
+    expect((await prisma.viewbookEmailDelivery.findUniqueOrThrow({ where: { id: delivery.id } })).suppressedAt).not.toBeNull()
   })
 
   it('a transient viewbook-lookup error throws so the job retries (never sends a login-walled CTA)', async () => {
