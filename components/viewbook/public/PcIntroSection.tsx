@@ -10,9 +10,7 @@ import { SECTION_TITLES } from './section-titles'
 import { publicAssetUrl } from './ThemeStyle'
 import { SummaryStat, sectionStatusLabel } from './SummaryStat'
 import type { SectionRenderMeta } from '@/lib/viewbook/section-status'
-
-const FALLBACK_INTRO =
-  "Welcome! Let's get your viewbook set up — a few quick basics, then invite your team so everyone can follow along."
+import { PC_INTRO_DEFAULT } from '@/lib/viewbook/content-validators'
 
 export function PcIntroSection({
   section,
@@ -50,7 +48,7 @@ export function PcIntroSection({
       autoRevealMs={data.stage === 'post-contract' ? data.firstLoadDelayMs : undefined}
     >
       <p className="text-lg text-black/70" style={{ fontFamily: 'var(--vb-body-font)' }}>
-        {data.global.pcIntro || FALLBACK_INTRO}
+        {data.global.pcIntro || PC_INTRO_DEFAULT}
       </p>
     </SectionShell>
   )
