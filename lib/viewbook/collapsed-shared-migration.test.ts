@@ -6,9 +6,16 @@
 // so we seed a pre-normalized row via raw SQL and re-run the exact backfill UPDATE
 // statements the migration.sql file uses.
 import crypto from 'crypto'
-import { afterAll, describe, expect, it } from 'vitest'
+import { afterAll, describe, expect, it, beforeAll } from 'vitest'
 import { prisma } from '@/lib/db'
 import { createViewbook } from './service'
+import { ensureSeededTemplates } from './__fixtures__/instance-test-helpers'
+
+// F2 (Task 3): createViewbook snapshots from the template library — seed it
+// once per file (idempotent; an earlier file in this worker may have wiped it).
+beforeAll(async () => {
+  await ensureSeededTemplates()
+})
 
 const PREFIX = 'vb-collapsed-migration-'
 

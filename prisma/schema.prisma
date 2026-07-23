@@ -905,10 +905,15 @@ model Viewbook {
   revealDurationScale Float @default(1.0)  // 0.4..1.6 animation DURATION multiplier (higher = slower); presentation config
   firstLoadDelayMs    Int   @default(3000) // 0..6000 ms before the welcome auto-expands on first device load
   viewerMode          String @default("continuous") // 'continuous' | 'collapse' — public reading viewer mode (unknown value degrades to continuous at read time)
+  // F2 offering flags (D5) — validated ≥1 true at every write surface
+  offeringWebsite Boolean @default(true)
+  offeringVa      Boolean @default(false)
+  offeringPpc     Boolean @default(false)
   createdBy       String? // operator email
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt
   sections         ViewbookSection[]
+  subsections      ViewbookSubsection[]
   fields           ViewbookField[]
   milestones       ViewbookMilestone[]
   contentOverrides ViewbookContentOverride[]
@@ -935,13 +940,68 @@ model ViewbookSection {
   acknowledgedAt DateTime?
   updatedAt  DateTime  @updatedAt
 
+  // F2 section INSTANCE columns (identity contracts: snapshot
+  // rendererType/title/content/version; FK SetNull; rendering never reads the template)
+  sectionTemplateId Int? // scalar for the SetNull relation below
+  sectionTemplate   SectionTemplate? @relation(fields: [sectionTemplateId], references: [id], onDelete: SetNull)
+  rendererType      String // snapshot; NEVER identity (sectionKey stays the durable per-viewbook key)
+  title             String // snapshot — viewer reads THIS from F2 on (F1b promised "applies after cutover")
+  copyJson          String // snapshot {v:1, copy:{purpose,whatThis,whatWeNeed}} (TemplateCopyV1)
+  contentJson       String? // snapshot of section-level renderer config (none seeded; carried for parity with templates)
+  sortOrder         Int // snapshot of the single total order — STORED now, viewer adopts it in F3
+  templateVersion   Int // SectionTemplate.version at snapshot/pull time ("update available" = < current)
+  version           Int       @default(1) // AGGREGATE content-tree fence (Codex fix #2): EVERY content/copy/title
+  //                                         mutation of the section OR its subsections, and every structural field
+  //                                         op (create/archive/re-parent), bumps THIS in the same array txn —
+  //                                         pull fences on it, so a subsection edit racing a pull 409s instead of
+  //                                         being silently overwritten. Answer-VALUE writes do NOT bump (pull
+  //                                         preserves values). Mirrors F1's template aggregate-version rule.
+  archivedAt        DateTime? // offering-disable archival — DISTINCT from state='hidden' (operator choice)
+  archiveReason     String? // 'offering' (F2's only section archiver; honest provenance for restore flows)
+  subsections       ViewbookSubsection[]
+
   @@unique([viewbookId, sectionKey])
+  @@unique([id, viewbookId]) // composite-FK target (tenant integrity, Codex fix #1)
+}
+
+model ViewbookSubsection {
+  id                   Int                 @id @default(autoincrement())
+  viewbookId           Int // shared scalar: composite section FK below + allowlist/retention scans
+  viewbook             Viewbook            @relation(fields: [viewbookId], references: [id], onDelete: Cascade)
+  sectionId            Int
+  // Composite relation (Codex fix #1): a subsection can NEVER point at another
+  // viewbook's section — cross-tenant rows are unrepresentable, which the asset
+  // allowlist and write authorization then inherit for free.
+  section              ViewbookSection     @relation(fields: [sectionId, viewbookId], references: [id, viewbookId], onDelete: Cascade)
+  subsectionTemplateId Int?
+  subsectionTemplate   SubsectionTemplate? @relation(fields: [subsectionTemplateId], references: [id], onDelete: SetNull)
+  subsectionKey        String // durable within the section; seeded = template subsectionKey
+  title                String
+  offeringWebsite      Boolean             @default(false) // snapshot of template tags at snapshot/pull time
+  offeringVa           Boolean             @default(false)
+  offeringPpc          Boolean             @default(false)
+  copyJson             String? // {v:1, copy:{intro?, whatWeNeed?}} (SubsectionCopyV1)
+  contentJson          String? // {v:1, ...} per-renderer content — asset refs point at THIS VIEWBOOK's scope (§8)
+  sortOrder            Int
+  version              Int                 @default(1)
+  archivedAt           DateTime?
+  archiveReason        String? // 'offering' | 'pull'
+  createdAt            DateTime            @default(now())
+  updatedAt            DateTime            @updatedAt
+  fields               ViewbookField[]
+
+  @@unique([sectionId, subsectionKey])
+  @@unique([id, viewbookId]) // composite-FK target for ViewbookField
+  @@index([viewbookId])
 }
 
 model ViewbookField {
   id             Int       @id @default(autoincrement())
   viewbookId     Int
   viewbook       Viewbook  @relation(fields: [viewbookId], references: [id], onDelete: Cascade)
+  // F2: fields become subsection-instance-owned (roadmap F2)
+  subsectionId   Int
+  subsection     ViewbookSubsection @relation(fields: [subsectionId, viewbookId], references: [id, viewbookId], onDelete: Cascade)
   defKey         String? // code-owned catalog key; NULL = custom field (never '')
   category       String // catalog category key (custom fields pick one)
   label          String
@@ -953,6 +1013,8 @@ model ViewbookField {
   valueUpdatedByKind String? // 'client' | 'member' | 'operator'
   valueUpdatedAt DateTime?
   archivedAt     DateTime? // soft archive — pre-lock/amended fields are never hard-deleted
+  archiveReason  String? // 'operator' (the existing archive route) | 'offering' | 'pull' —
+  //                        restore flows NEVER clear 'operator' archives (§0/§7)
   createdBy      String // 'seed' | operator email
   createdAt      DateTime  @default(now())
   amendments     ViewbookFieldAmendment[]
@@ -1209,6 +1271,7 @@ model SectionTemplate {
   createdAt    DateTime  @default(now())
   updatedAt    DateTime  @updatedAt
   subsections  SubsectionTemplate[]
+  instances    ViewbookSection[] // F2 section instances snapshotted from this template (SetNull on delete)
 }
 
 model SubsectionTemplate {
@@ -1228,6 +1291,7 @@ model SubsectionTemplate {
   createdAt         DateTime        @default(now())
   updatedAt         DateTime        @updatedAt
   fields            FieldTemplate[]
+  instances         ViewbookSubsection[] // F2 subsection instances snapshotted from this template (SetNull on delete)
 
   @@unique([sectionTemplateId, subsectionKey])
 }

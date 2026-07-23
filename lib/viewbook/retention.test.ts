@@ -1,4 +1,4 @@
-import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterAll, afterEach, beforeEach, describe, expect, it, vi, beforeAll } from 'vitest'
 import crypto from 'crypto'
 import { mkdir, mkdtemp, readdir, rm, writeFile, utimes } from 'fs/promises'
 import { tmpdir } from 'os'
@@ -7,6 +7,13 @@ import { prisma } from '@/lib/db'
 import { createViewbook } from './service'
 import { pruneViewbookActivity, pruneOrphanedViewbookAssetFiles, ORPHAN_ASSET_GRACE_MS } from './retention'
 import { DEFAULT_THEME } from './theme'
+import { ensureSeededTemplates } from './__fixtures__/instance-test-helpers'
+
+// F2 (Task 3): createViewbook snapshots from the template library — seed it
+// once per file (idempotent; an earlier file in this worker may have wiped it).
+beforeAll(async () => {
+  await ensureSeededTemplates()
+})
 
 afterAll(async () => {
   await prisma.client.deleteMany({ where: { name: { startsWith: 'vb-test-' } } })

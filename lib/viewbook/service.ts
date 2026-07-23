@@ -19,6 +19,14 @@ import { logError } from '@/lib/log'
 import { CATALOG } from './catalog'
 import { DEFAULT_MILESTONES } from './milestones'
 import {
+  DEFAULT_OFFERINGS,
+  offeringAvailability,
+  projectInstanceTree,
+  snapshotInstanceAssets,
+  type ViewbookOfferings,
+} from './instance-snapshot'
+import { loadTemplateTreeRaw } from './template-service'
+import {
   SECTION_KEYS,
   type SectionKey,
   type ViewbookTheme,
@@ -51,16 +59,35 @@ function isP2002(err: unknown): boolean {
   return err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002'
 }
 
+// F2 copy-on-create (spec §5): phase 1 = ONE atomic nested create of the
+// viewbook + its full instance tree (sections → subsections → fields,
+// projected from the RAW template library) + DEFAULT_MILESTONES; phase 2 =
+// best-effort asset snapshot driven by the phase-1 assetPlan (a phase-2
+// failure leaves a photoless but working viewbook — the §6 equal-version pull
+// repairs it). Offerings gate: all-false → 400; an enabled offering with zero
+// active matching template subsections → 409 (spec §7 applies at creation).
 export async function createViewbook(
   clientId: number,
   kind: ViewbookKind,
   createdBy: string,
+  offerings: ViewbookOfferings = DEFAULT_OFFERINGS,
 ): Promise<{ id: number; token: string }> {
+  if (!offerings.website && !offerings.va && !offerings.ppc) {
+    throw new HttpError(400, 'invalid_offerings')
+  }
   const client = await prisma.client.findUnique({ where: { id: clientId } })
   if (!client) throw new HttpError(404, 'not_found')
   if (client.archivedAt) throw new HttpError(409, 'client_archived')
 
+  const raw = await loadTemplateTreeRaw()
+  const availability = offeringAvailability(raw)
+  for (const key of ['website', 'va', 'ppc'] as const) {
+    if (offerings[key] && !availability[key]) throw new HttpError(409, 'offering_unavailable')
+  }
+  const { sections, assetPlan } = projectInstanceTree(raw, offerings, kind)
+
   const token = crypto.randomUUID()
+  let vbId: number
   try {
     const vb = await prisma.viewbook.create({
       data: {
@@ -71,21 +98,24 @@ export async function createViewbook(
         // PR5 Task 7: post-contract is the first stage a new viewbook enters
         // (spec fix 2) — the pc-* sections now have shipped renderers.
         stage: 'post-contract',
+        offeringWebsite: offerings.website,
+        offeringVa: offerings.va,
+        offeringPpc: offerings.ppc,
         sections: {
-          create: SECTION_KEYS.map((sectionKey) => ({
-            sectionKey,
-            state: sectionKey === 'assessment' && kind === 'new-build' ? 'hidden' : 'active',
-          })),
-        },
-        fields: {
-          create: CATALOG.map((e) => ({
-            defKey: e.defKey,
-            category: e.category,
-            label: e.label,
-            fieldType: e.fieldType,
-            sortOrder: e.sortOrder,
-            createdBy: 'seed',
-          })),
+          // The generated 5.22 input types demand a redundant `viewbook`
+          // relation on nested composite creates; the engine accepts the
+          // nested tree and populates BOTH shared scalars (viewbookId on
+          // every subsection/field) from the parents — pinned by
+          // instance-schema.test.ts. Hence the one narrow cast.
+          create: sections.map((s) => ({
+            ...s,
+            subsections: {
+              create: s.subsections.map((sub) => ({
+                ...sub,
+                fields: { create: sub.fields },
+              })),
+            },
+          })) as never,
         },
         milestones: {
           create: DEFAULT_MILESTONES.map((m, i) => ({
@@ -97,11 +127,18 @@ export async function createViewbook(
         },
       },
     })
-    return { id: vb.id, token }
+    vbId = vb.id
   } catch (err) {
     if (isP2002(err)) throw new HttpError(409, 'viewbook_exists')
     throw err
   }
+
+  // Phase 2 (best-effort; snapshotInstanceAssets fault-isolates per entry and
+  // never throws by contract — the catch is a belt against seam regressions).
+  await snapshotInstanceAssets(vbId, assetPlan).catch((err) => {
+    logError({ subsystem: 'viewbook', op: 'create-asset-snapshot', viewbookId: vbId }, err)
+  })
+  return { id: vbId, token }
 }
 
 export async function listViewbooks() {
@@ -613,9 +650,21 @@ export async function syncCatalogQuestions(viewbookId: number): Promise<{ added:
     select: { defKey: true },
   })
   const have = new Set(existing.map((f) => f.defKey))
+  // F2: fields are subsection-instance-owned — resolve each category's
+  // data-source subsection instance up front (subsectionKey === category by
+  // the catalog seed contract). A category with no live subsection instance
+  // is SKIPPED: pull (§6) is the real backfill path for structural gaps;
+  // this legacy sync only restores deleted rows into existing homes.
+  const subs = await prisma.viewbookSubsection.findMany({
+    where: { viewbookId, section: { sectionKey: 'data-source' }, archivedAt: null },
+    select: { id: true, subsectionKey: true },
+  })
+  const subIdByCategory = new Map(subs.map((s) => [s.subsectionKey, s.id]))
   let added = 0
   for (const e of CATALOG) {
     if (have.has(e.defKey)) continue
+    const subsectionId = subIdByCategory.get(e.category)
+    if (subsectionId === undefined) continue
     try {
       // Each admitted insert is its own bump+create transaction (mechanism
       // a, per-row): a concurrent-loser P2002 rolls the bump back along with
@@ -626,6 +675,7 @@ export async function syncCatalogQuestions(viewbookId: number): Promise<{ added:
         prisma.viewbookField.create({
           data: {
             viewbookId,
+            subsectionId,
             defKey: e.defKey,
             category: e.category,
             label: e.label,

@@ -1,8 +1,15 @@
 import crypto from 'crypto'
-import { afterAll, describe, expect, it } from 'vitest'
+import { afterAll, describe, expect, it, beforeAll } from 'vitest'
 import { prisma } from '@/lib/db'
 import { createViewbook } from './service'
 import { pruneViewbookAuthRows } from './auth-retention'
+import { ensureSeededTemplates } from './__fixtures__/instance-test-helpers'
+
+// F2 (Task 3): createViewbook snapshots from the template library — seed it
+// once per file (idempotent; an earlier file in this worker may have wiped it).
+beforeAll(async () => {
+  await ensureSeededTemplates()
+})
 
 const PREFIX = 'vb-auth-retention-u1-'
 const DAY_MS = 24 * 60 * 60 * 1000

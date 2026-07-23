@@ -1,9 +1,16 @@
 import crypto from 'crypto'
-import { describe, it, expect, vi, afterAll } from 'vitest'
+import { describe, it, expect, vi, afterAll, beforeAll } from 'vitest'
 import { prisma } from '@/lib/db'
 import { createViewbook } from './service'
 import { loadViewbookPublicData, gatePcThanks } from './public-data'
 import type { PublicSection } from './public-types'
+import { ensureSeededTemplates, dataSourceSubsectionId } from './__fixtures__/instance-test-helpers'
+
+// F2 (Task 3): createViewbook snapshots from the template library — seed it
+// once per file (idempotent; an earlier file in this worker may have wiped it).
+beforeAll(async () => {
+  await ensureSeededTemplates()
+})
 
 // Client.name is @unique — house pattern (route-auth.test.ts): random names.
 async function makeClient() {
@@ -256,6 +263,7 @@ describe('loadViewbookPublicData', () => {
     await prisma.viewbookField.create({
       data: {
         viewbookId: id,
+        subsectionId: await dataSourceSubsectionId(id, 'school'),
         defKey: null,
         category: 'school',
         label: 'Custom question',

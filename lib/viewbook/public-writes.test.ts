@@ -2,7 +2,7 @@
 // (replay, caps, route guards) already lives in app/api/viewbook/public-writes.test.ts;
 // this file adds only the fence-shared syncVersion assertions (v2 PR2 task 2).
 
-import { afterAll, describe, expect, it } from 'vitest'
+import { afterAll, describe, expect, it, beforeAll } from 'vitest'
 import crypto from 'crypto'
 import { prisma } from '@/lib/db'
 import { createViewbook } from '@/lib/viewbook/service'
@@ -10,6 +10,13 @@ import { requireViewbookToken } from '@/lib/viewbook/route-auth'
 import { mintSecret } from '@/lib/viewbook/auth-secrets'
 import type { PublicMutationAuth } from '@/lib/viewbook/principal'
 import { insertClientFeedback as insertClientFeedbackCore, insertClientMaterial as insertClientMaterialCore } from './public-writes'
+import { ensureSeededTemplates } from './__fixtures__/instance-test-helpers'
+
+// F2 (Task 3): createViewbook snapshots from the template library — seed it
+// once per file (idempotent; an earlier file in this worker may have wiped it).
+beforeAll(async () => {
+  await ensureSeededTemplates()
+})
 
 const LEGACY_TEST_AUTH = { principal: { kind: 'operator', email: 'client' } } as const
 function insertClientFeedback(...args: [Parameters<typeof insertClientFeedbackCore>[0], Parameters<typeof insertClientFeedbackCore>[1], Parameters<typeof insertClientFeedbackCore>[2], Parameters<typeof insertClientFeedbackCore>[4]?]) {

@@ -9,6 +9,13 @@ import { createViewbook } from '@/lib/viewbook/service'
 import { GET } from './[filename]/route'
 import { createAuthCookieValue } from '@/lib/auth'
 import { hashSecret, memberCookieName } from '@/lib/viewbook/auth-secrets'
+import { ensureSeededTemplates } from '@/lib/viewbook/__fixtures__/instance-test-helpers'
+
+// F2 (Task 3): createViewbook snapshots from the template library — seed it
+// once per file (idempotent; an earlier file in this worker may have wiped it).
+beforeAll(async () => {
+  await ensureSeededTemplates()
+})
 
 // 1x1 PNG (magic bytes are all the route cares about — files are read raw)
 const PNG = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3])

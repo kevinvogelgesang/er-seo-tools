@@ -7,6 +7,13 @@ import { createViewbook } from '@/lib/viewbook/service'
 import { requireViewbookToken } from '@/lib/viewbook/route-auth'
 import { acknowledgeSection as acknowledgeSectionCore } from '@/lib/viewbook/ack'
 import { DELETE as deleteAck } from './[id]/ack/[sectionKey]/route'
+import { ensureSeededTemplates } from '@/lib/viewbook/__fixtures__/instance-test-helpers'
+
+// F2 (Task 3): createViewbook snapshots from the template library — seed it
+// once per file (idempotent; an earlier file in this worker may have wiped it).
+beforeAll(async () => {
+  await ensureSeededTemplates()
+})
 
 // acknowledgeSection (test setup) enqueues pc-complete/team-invite emails via
 // a real durable Job row — mock the queue (ack.test.ts precedent) so this

@@ -20,6 +20,13 @@ import { OVERRIDE_ELIGIBLE_KEYS } from './global-content-keys'
 import { readViewbookAsset } from './assets'
 import { createViewbook } from './service'
 import crypto from 'crypto'
+import { ensureSeededTemplates } from './__fixtures__/instance-test-helpers'
+
+// F2 (Task 3): createViewbook snapshots from the template library — seed it
+// once per file (idempotent; an earlier file in this worker may have wiped it).
+beforeAll(async () => {
+  await ensureSeededTemplates()
+})
 
 // Real tiny PNG — attachTeamPhoto now decodes every upload via sharp, so the
 // old "PNG magic + zero bytes" fake is correctly rejected as invalid_image.

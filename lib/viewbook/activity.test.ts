@@ -1,8 +1,15 @@
-import { afterAll, describe, expect, it } from 'vitest'
+import { afterAll, describe, expect, it, beforeAll } from 'vitest'
 import crypto from 'crypto'
 import { prisma } from '@/lib/db'
 import { appendActivityStatements, listActivity } from './activity'
 import { createViewbook } from './service'
+import { ensureSeededTemplates } from './__fixtures__/instance-test-helpers'
+
+// F2 (Task 3): createViewbook snapshots from the template library — seed it
+// once per file (idempotent; an earlier file in this worker may have wiped it).
+beforeAll(async () => {
+  await ensureSeededTemplates()
+})
 
 afterAll(async () => {
   await prisma.client.deleteMany({ where: { name: { startsWith: 'vb-test-' } } })

@@ -49,6 +49,7 @@ import {
 } from './template-seed'
 import { GLOBAL_CONTENT_KEYS } from './global-content-keys'
 import type { GlobalContentKey, TeamMember, ContentBlocks } from './global-content-keys'
+import type { RawTemplateSection } from './instance-snapshot'
 
 // The four bridged (templateKey, 'main') content pairs and their legacy keys.
 export const BRIDGED_CONTENT: Record<string, { parts: Record<string, GlobalContentKey> }> = {
@@ -161,6 +162,25 @@ async function runGuarded<T extends Prisma.PrismaPromise<unknown>[]>(
     }
     throw err
   }
+}
+
+// F2 (Task 3): the RAW tree read the copy-on-create projection consumes —
+// verbatim JSON strings, no decoding, no degradation (Codex fix #5: the
+// snapshot must copy envelopes byte-verbatim; getTemplateTree's decoded views
+// stay admin-UI-only). Ordering matches getTemplateTree so snapshot sortOrder
+// is deterministic.
+export async function loadTemplateTreeRaw(): Promise<RawTemplateSection[]> {
+  return prisma.sectionTemplate.findMany({
+    orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }],
+    include: {
+      subsections: {
+        orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }],
+        include: {
+          fields: { orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }] },
+        },
+      },
+    },
+  })
 }
 
 export async function getTemplateTree(): Promise<{ sections: TemplateSectionView[] }> {

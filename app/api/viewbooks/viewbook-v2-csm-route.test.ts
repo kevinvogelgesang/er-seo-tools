@@ -5,6 +5,13 @@ import { prisma } from '@/lib/db'
 import { AUTH_COOKIE_NAME, createAuthCookieValue } from '@/lib/auth'
 import { createViewbook } from '@/lib/viewbook/service'
 import { PATCH as assignCsm } from './[id]/csm/route'
+import { ensureSeededTemplates } from '@/lib/viewbook/__fixtures__/instance-test-helpers'
+
+// F2 (Task 3): createViewbook snapshots from the template library — seed it
+// once per file (idempotent; an earlier file in this worker may have wiped it).
+beforeAll(async () => {
+  await ensureSeededTemplates()
+})
 
 const PREFIX = 'vb-csm-route-test-'
 const OPERATOR = 'kevin@enrollmentresources.com'

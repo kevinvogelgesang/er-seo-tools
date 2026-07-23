@@ -1,9 +1,16 @@
-import { afterAll, afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterAll, afterEach, beforeEach, describe, expect, it, beforeAll } from 'vitest'
 import crypto from 'crypto'
 import { prisma } from '@/lib/db'
 import { createViewbook } from './service'
 import { processViewbookDigest, runViewbookDigests, type ViewbookDigestDeps } from './digest'
 import type { SendArgs } from '@/lib/notify/transport'
+import { ensureSeededTemplates } from './__fixtures__/instance-test-helpers'
+
+// F2 (Task 3): createViewbook snapshots from the template library — seed it
+// once per file (idempotent; an earlier file in this worker may have wiped it).
+beforeAll(async () => {
+  await ensureSeededTemplates()
+})
 
 const OLD_ENV = process.env
 beforeEach(async () => {

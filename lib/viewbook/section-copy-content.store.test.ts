@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterAll } from 'vitest'
+import { describe, it, expect, beforeEach, afterAll, beforeAll } from 'vitest'
 import { prisma } from '@/lib/db'
 import { createViewbook } from './service'
 import crypto from 'crypto'
@@ -8,6 +8,13 @@ import {
   sectionCopyKey,
 } from './section-copy-content'
 import { HttpError } from '@/lib/api/errors'
+import { ensureSeededTemplates } from './__fixtures__/instance-test-helpers'
+
+// F2 (Task 3): createViewbook snapshots from the template library — seed it
+// once per file (idempotent; an earlier file in this worker may have wiped it).
+beforeAll(async () => {
+  await ensureSeededTemplates()
+})
 
 const OPERATOR = 'kevin@enrollmentresources.com'
 

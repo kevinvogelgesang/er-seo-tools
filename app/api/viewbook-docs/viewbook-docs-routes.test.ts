@@ -12,6 +12,13 @@ import { GET as getGlobal, POST as postGlobal } from './route'
 import { DELETE as deleteGlobal } from './[docId]/route'
 import { GET as getOwn, POST as postOwn } from '../viewbooks/[id]/docs/route'
 import { DELETE as deleteOwn } from '../viewbooks/[id]/docs/[docId]/route'
+import { ensureSeededTemplates } from '@/lib/viewbook/__fixtures__/instance-test-helpers'
+
+// F2 (Task 3): createViewbook snapshots from the template library — seed it
+// once per file (idempotent; an earlier file in this worker may have wiped it).
+beforeAll(async () => {
+  await ensureSeededTemplates()
+})
 
 const PREFIX = 'vb-doc-route-'
 const PDF = new File([Buffer.from('%PDF-1.7\nroute')], 'guide.pdf', { type: 'application/pdf' })

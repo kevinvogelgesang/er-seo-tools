@@ -10,6 +10,13 @@ import { POST as resolveFeedback } from './[id]/feedback/[feedbackId]/resolve/ro
 import { GET as getActivity } from './[id]/activity/route'
 import { POST as createMilestoneRoute } from './[id]/milestones/route'
 import { PATCH as updateMilestoneRoute } from './[id]/milestones/[milestoneId]/route'
+import { ensureSeededTemplates } from '@/lib/viewbook/__fixtures__/instance-test-helpers'
+
+// F2 (Task 3): createViewbook snapshots from the template library — seed it
+// once per file (idempotent; an earlier file in this worker may have wiped it).
+beforeAll(async () => {
+  await ensureSeededTemplates()
+})
 
 let cookie: string
 const savedEnv: Record<string, string | undefined> = {}

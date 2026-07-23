@@ -1,11 +1,18 @@
 import crypto from 'crypto'
-import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterAll, beforeEach, describe, expect, it, vi, beforeAll } from 'vitest'
 import type { NextRequest } from 'next/server'
 import { prisma } from '@/lib/db'
 import { createViewbook } from '@/lib/viewbook/service'
 import { requireViewbookToken } from '@/lib/viewbook/route-auth'
 import { resetWriteThrottleForTests } from '@/lib/viewbook/public-write-guard'
 import { POST } from './[token]/team-members/route'
+import { ensureSeededTemplates } from '@/lib/viewbook/__fixtures__/instance-test-helpers'
+
+// F2 (Task 3): createViewbook snapshots from the template library — seed it
+// once per file (idempotent; an earlier file in this worker may have wiped it).
+beforeAll(async () => {
+  await ensureSeededTemplates()
+})
 
 vi.mock('@/lib/jobs/queue', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/lib/jobs/queue')>()

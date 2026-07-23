@@ -1,6 +1,6 @@
 import crypto from 'crypto'
 import { Prisma } from '@prisma/client'
-import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterAll, afterEach, beforeEach, describe, expect, it, vi, beforeAll } from 'vitest'
 import { createAuthCookieValue } from '@/lib/auth'
 import { prisma } from '@/lib/db'
 import { LAST_SEEN_TOUCH_MS } from './auth-config'
@@ -14,6 +14,13 @@ import {
   resolveViewbookPrincipalFromCookies,
   type ViewbookPrincipal,
 } from './principal'
+import { ensureSeededTemplates } from './__fixtures__/instance-test-helpers'
+
+// F2 (Task 3): createViewbook snapshots from the template library — seed it
+// once per file (idempotent; an earlier file in this worker may have wiped it).
+beforeAll(async () => {
+  await ensureSeededTemplates()
+})
 
 const PREFIX = 'vb-principal-u1-'
 const ORIGINAL_ENV = { ...process.env }

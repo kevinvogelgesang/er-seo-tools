@@ -1,4 +1,4 @@
-import { afterAll, beforeEach, describe, expect, it } from 'vitest'
+import { afterAll, beforeEach, describe, expect, it, beforeAll } from 'vitest'
 import crypto from 'crypto'
 import type { NextRequest } from 'next/server'
 import { prisma } from '@/lib/db'
@@ -8,6 +8,13 @@ import { resetWriteThrottleForTests } from '@/lib/viewbook/public-write-guard'
 import { POST as postFeedback } from './[token]/feedback/route'
 import { POST as postMaterial } from './[token]/materials/route'
 import { insertClientFeedback as insertClientFeedbackCore, insertClientMaterial as insertClientMaterialCore } from '@/lib/viewbook/public-writes'
+import { ensureSeededTemplates } from '@/lib/viewbook/__fixtures__/instance-test-helpers'
+
+// F2 (Task 3): createViewbook snapshots from the template library — seed it
+// once per file (idempotent; an earlier file in this worker may have wiped it).
+beforeAll(async () => {
+  await ensureSeededTemplates()
+})
 
 const LEGACY_TEST_AUTH = { principal: { kind: 'operator', email: 'client' } } as const
 function insertClientFeedback(...args: [Parameters<typeof insertClientFeedbackCore>[0], Parameters<typeof insertClientFeedbackCore>[1], Parameters<typeof insertClientFeedbackCore>[2], Parameters<typeof insertClientFeedbackCore>[4]?]) {

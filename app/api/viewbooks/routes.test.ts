@@ -19,6 +19,13 @@ import { addAssessmentImage } from '@/lib/viewbook/assessment-notes'
 import { GET as listViewbooks, POST as createViewbookRoute } from './route'
 import { GET as getViewbook, PATCH as patchViewbook, DELETE as deleteViewbookRoute } from './[id]/route'
 import { POST as attachAsset } from './[id]/assets/route'
+import { ensureSeededTemplates } from '@/lib/viewbook/__fixtures__/instance-test-helpers'
+
+// F2 (Task 3): createViewbook snapshots from the template library — seed it
+// once per file (idempotent; an earlier file in this worker may have wiped it).
+beforeAll(async () => {
+  await ensureSeededTemplates()
+})
 
 // Real tiny PNG — the assets route decodes every upload via sharp now, so the
 // old "PNG magic + zero bytes" fake is correctly rejected as invalid_image.
@@ -92,6 +99,57 @@ describe('viewbook admin routes', () => {
     expect(id).toBeGreaterThan(0)
     const list = await listViewbooks()
     expect(list.status).toBe(200)
+  })
+
+  it('POST /api/viewbooks: offerings validated + threaded; GET index carries availability (F2)', async () => {
+    // Non-boolean offering value → 400 before the service runs.
+    const nonBoolean = await createViewbookRoute(
+      req('/api/viewbooks', {
+        method: 'POST',
+        body: JSON.stringify({ clientId: 1, kind: 'upgrade', offerings: { website: 'yes' } }),
+      }),
+    )
+    expect(nonBoolean.status).toBe(400)
+    expect((await nonBoolean.json()).error).toBe('invalid_request')
+
+    const client = await prisma.client.create({ data: { name: `vb-test-route-${crypto.randomUUID()}` } })
+    // All-false → the service's 400 invalid_offerings.
+    const allFalse = await createViewbookRoute(
+      req('/api/viewbooks', {
+        method: 'POST',
+        body: JSON.stringify({ clientId: client.id, kind: 'upgrade', offerings: { website: false, va: false, ppc: false } }),
+      }),
+    )
+    expect(allFalse.status).toBe(400)
+    expect((await allFalse.json()).error).toBe('invalid_offerings')
+
+    // Seeded templates carry no va-tagged subsection → 409 offering_unavailable.
+    const vaOnly = await createViewbookRoute(
+      req('/api/viewbooks', {
+        method: 'POST',
+        body: JSON.stringify({ clientId: client.id, kind: 'upgrade', offerings: { website: false, va: true, ppc: false } }),
+      }),
+    )
+    expect(vaOnly.status).toBe(409)
+    expect((await vaOnly.json()).error).toBe('offering_unavailable')
+
+    // Partial offerings merge over the website-only default and create fine.
+    const ok = await createViewbookRoute(
+      req('/api/viewbooks', {
+        method: 'POST',
+        body: JSON.stringify({ clientId: client.id, kind: 'upgrade', offerings: { website: true } }),
+      }),
+    )
+    expect(ok.status).toBe(201)
+    const { viewbook } = await ok.json()
+    const row = await prisma.viewbook.findUniqueOrThrow({ where: { id: viewbook.id } })
+    expect(row).toMatchObject({ offeringWebsite: true, offeringVa: false, offeringPpc: false })
+
+    // GET index: template-derived availability rides along.
+    const list = await listViewbooks()
+    expect(list.status).toBe(200)
+    const body = await list.json()
+    expect(body.availability).toEqual({ website: true, va: false, ppc: false })
   })
 
   it('GET/PATCH /api/viewbooks/:id: non-numeric id 404, invalid theme 400', async () => {

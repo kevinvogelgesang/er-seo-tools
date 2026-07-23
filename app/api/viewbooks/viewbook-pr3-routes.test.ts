@@ -7,6 +7,13 @@ import { createViewbook } from '@/lib/viewbook/service'
 import { POST as lockRoute } from './[id]/lock/route'
 import { POST as createField } from './[id]/fields/route'
 import { DELETE as archiveField, PATCH as patchField } from './[id]/fields/[fieldId]/route'
+import { ensureSeededTemplates, dataSourceSubsectionId } from '@/lib/viewbook/__fixtures__/instance-test-helpers'
+
+// F2 (Task 3): createViewbook snapshots from the template library — seed it
+// once per file (idempotent; an earlier file in this worker may have wiped it).
+beforeAll(async () => {
+  await ensureSeededTemplates()
+})
 
 let cookie: string
 const savedEnv: Record<string, string | undefined> = {}
@@ -116,7 +123,10 @@ describe('viewbook PR3 operator routes', () => {
     expect(await syncVersion(ctx.id)).toBe(beforeCatalog)
 
     const custom = await prisma.viewbookField.create({
-      data: { viewbookId: ctx.id, category: 'school', label: 'Old label', fieldType: 'text', sortOrder: 999, createdBy: 'operator@example.com' },
+      data: {
+        viewbookId: ctx.id, subsectionId: await dataSourceSubsectionId(ctx.id, 'school'),
+        category: 'school', label: 'Old label', fieldType: 'text', sortOrder: 999, createdBy: 'operator@example.com',
+      },
     })
     const beforeRelabel = await syncVersion(ctx.id)
     const relabeled = await patchField(req(`/api/viewbooks/${ctx.id}/fields/${custom.id}`, {

@@ -1,4 +1,4 @@
-import { afterAll, beforeEach, describe, expect, it } from 'vitest'
+import { afterAll, beforeEach, describe, expect, it, beforeAll } from 'vitest'
 import crypto from 'crypto'
 import type { NextRequest } from 'next/server'
 import { prisma } from '@/lib/db'
@@ -6,6 +6,13 @@ import { createViewbook } from '@/lib/viewbook/service'
 import { resetWriteThrottleForTests } from '@/lib/viewbook/public-write-guard'
 import { GET } from './[token]/sync/route'
 import { PATCH as patchAnswers } from './[token]/answers/route'
+import { ensureSeededTemplates } from '@/lib/viewbook/__fixtures__/instance-test-helpers'
+
+// F2 (Task 3): createViewbook snapshots from the template library — seed it
+// once per file (idempotent; an earlier file in this worker may have wiped it).
+beforeAll(async () => {
+  await ensureSeededTemplates()
+})
 
 beforeEach(resetWriteThrottleForTests)
 afterAll(async () => {

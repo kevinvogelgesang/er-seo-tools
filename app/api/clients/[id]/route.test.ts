@@ -1,5 +1,5 @@
 // B5 client soft-archive semantics: PATCH {archived}, DELETE gate, GET filter.
-import { describe, it, expect, beforeEach, afterEach, afterAll } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, afterAll, beforeAll } from 'vitest'
 import { mkdtemp, rm } from 'fs/promises'
 import { tmpdir } from 'os'
 import path from 'path'
@@ -12,6 +12,13 @@ import { createViewbook, attachViewbookLogo } from '@/lib/viewbook/service'
 import { addAssessmentImage } from '@/lib/viewbook/assessment-notes'
 import { PATCH, DELETE } from './route'
 import { GET as LIST } from '../route'
+import { ensureSeededTemplates } from '@/lib/viewbook/__fixtures__/instance-test-helpers'
+
+// F2 (Task 3): createViewbook snapshots from the template library — seed it
+// once per file (idempotent; an earlier file in this worker may have wiped it).
+beforeAll(async () => {
+  await ensureSeededTemplates()
+})
 
 const PREFIX = '__clarch__'
 

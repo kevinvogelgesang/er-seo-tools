@@ -1,12 +1,19 @@
 import crypto from 'crypto'
 import path from 'path'
-import { afterAll, afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterAll, afterEach, beforeEach, describe, expect, it, beforeAll } from 'vitest'
 import { mkdtemp, readdir, rm } from 'fs/promises'
 import { tmpdir } from 'os'
 import { prisma } from '@/lib/db'
 import { readViewbookAsset } from './assets'
 import { createViewbook } from './service'
 import { createViewbookDoc, deleteViewbookDoc, listViewbookDocs } from './docs'
+import { ensureSeededTemplates } from './__fixtures__/instance-test-helpers'
+
+// F2 (Task 3): createViewbook snapshots from the template library — seed it
+// once per file (idempotent; an earlier file in this worker may have wiped it).
+beforeAll(async () => {
+  await ensureSeededTemplates()
+})
 
 const PDF = Buffer.from('%PDF-1.7\ntest document')
 const PREFIX = 'vb-docs-'

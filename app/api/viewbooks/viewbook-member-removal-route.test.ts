@@ -8,6 +8,13 @@ import { createViewbook, getViewbookAdmin } from '@/lib/viewbook/service'
 import { hashSecret, memberCookieName } from '@/lib/viewbook/auth-secrets'
 import { resolveViewbookPrincipalFromCookies } from '@/lib/viewbook/principal'
 import { DELETE } from './[id]/team-members/[memberId]/route'
+import { ensureSeededTemplates } from '@/lib/viewbook/__fixtures__/instance-test-helpers'
+
+// F2 (Task 3): createViewbook snapshots from the template library — seed it
+// once per file (idempotent; an earlier file in this worker may have wiped it).
+beforeAll(async () => {
+  await ensureSeededTemplates()
+})
 
 const PREFIX = 'vb-member-removal-route-'
 const SAVED_ENV: Record<string, string | undefined> = {}

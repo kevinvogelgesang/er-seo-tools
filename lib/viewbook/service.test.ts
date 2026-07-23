@@ -25,11 +25,12 @@ import {
   moveViewbookStage,
   assignViewbookCsm,
 } from './service'
-import { deleteViewbookAssets, readViewbookAsset } from './assets'
+import { deleteViewbookAssets, readViewbookAsset, saveViewbookAsset } from './assets'
 import { createViewbookDoc } from './docs'
 import { DEFAULT_THEME } from './theme'
-import { CATALOG } from './catalog'
+import { CATALOG, CATALOG_CATEGORIES } from './catalog'
 import { VIEWBOOK_EMAIL_JOB_TYPE } from '@/lib/jobs/types'
+import { ensureSeededTemplates, mkSectionInput, mkSubsectionInput, mkFieldInput } from './__fixtures__/instance-test-helpers'
 
 // Real tiny PNG — saveViewbookAsset now decodes every upload via sharp, so the
 // old "PNG magic + zero bytes" fake is correctly rejected as invalid_image.
@@ -38,6 +39,9 @@ beforeAll(async () => {
   PNG = await sharp({ create: { width: 4, height: 4, channels: 3, background: { r: 1, g: 2, b: 3 } } })
     .png()
     .toBuffer()
+  // F2: createViewbook snapshots from the template library — seed it once
+  // (idempotent; an earlier file in this worker may have wiped it).
+  await ensureSeededTemplates()
 })
 const OPERATOR = 'kevin@enrollmentresources.com'
 // Global ViewbookDoc rows (viewbookId: null) aren't reachable via the
@@ -124,6 +128,142 @@ describe('createViewbook', () => {
     const { id } = await createViewbook(client.id, 'upgrade', 'op@er.com')
     const rows = await listViewbooks()
     expect(rows.find((r) => r.id === id)?.stage).toBe('post-contract')
+  })
+})
+
+describe('createViewbook — F2 instance snapshot (Task 3)', () => {
+  const WELCOME_ROSTER = (photo: string) =>
+    JSON.stringify({
+      v: 1,
+      team: [
+        { name: 'Snap Member', role: 'Client Success Manager', photo, blurb: 'Guides you.', isCsm: true },
+        { name: 'Plain Member', role: 'SEO Strategist', photo: null, blurb: 'No photo.' },
+      ],
+      process: { blocks: [] },
+      why: { blocks: [] },
+    })
+
+  async function withWelcomeRoster<T>(contentJson: string, fn: () => Promise<T>): Promise<T> {
+    const main = await prisma.subsectionTemplate.findFirstOrThrow({
+      where: { subsectionKey: 'main', section: { templateKey: 'welcome' } },
+    })
+    await prisma.subsectionTemplate.update({ where: { id: main.id }, data: { contentJson } })
+    try {
+      return await fn()
+    } finally {
+      await prisma.subsectionTemplate.update({ where: { id: main.id }, data: { contentJson: main.contentJson } })
+    }
+  }
+
+  it('snapshots the full 13/20/35 instance tree for website offerings against the seeded templates', async () => {
+    const c = await mkClient()
+    const { id } = await createViewbook(c.id, 'new-build', OPERATOR)
+    const vb = await prisma.viewbook.findUniqueOrThrow({ where: { id } })
+    expect(vb).toMatchObject({ offeringWebsite: true, offeringVa: false, offeringPpc: false })
+    const sections = await prisma.viewbookSection.findMany({
+      where: { viewbookId: id },
+      include: { subsections: { include: { fields: true } } },
+    })
+    expect(sections).toHaveLength(13)
+    const subs = sections.flatMap((s) => s.subsections)
+    expect(subs).toHaveLength(12 + CATALOG_CATEGORIES.length) // 12 'main' + 8 data-source categories
+    const fields = subs.flatMap((s) => s.fields)
+    expect(fields).toHaveLength(CATALOG.length)
+    // Every field's category === its owning subsection instance's subsectionKey.
+    const subById = new Map(subs.map((s) => [s.id, s]))
+    expect(fields.every((f) => f.category === subById.get(f.subsectionId)?.subsectionKey)).toBe(true)
+    // Template links + snapshot scalars stamped.
+    expect(sections.every((s) => s.sectionTemplateId !== null && s.templateVersion >= 1)).toBe(true)
+    expect(subs.every((s) => s.subsectionTemplateId !== null)).toBe(true)
+    const welcome = sections.find((s) => s.sectionKey === 'welcome')!
+    expect(welcome.rendererType).toBe('welcome')
+    expect(welcome.title.length).toBeGreaterThan(0)
+    expect(JSON.parse(welcome.copyJson)).toMatchObject({ v: 1 })
+  })
+
+  it('copies roster photos into the viewbook scope, rewrites contentJson, and bumps syncVersion (phase 2)', async () => {
+    const { filename: globalPhoto } = await saveViewbookAsset('global', PNG)
+    await withWelcomeRoster(WELCOME_ROSTER(globalPhoto), async () => {
+      const c = await mkClient()
+      const { id } = await createViewbook(c.id, 'upgrade', OPERATOR)
+      const vb = await prisma.viewbook.findUniqueOrThrow({ where: { id } })
+      expect(vb.syncVersion).toBe(1) // phase-2 rewrite bumped the fresh row
+      const inst = await prisma.viewbookSubsection.findFirstOrThrow({
+        where: { viewbookId: id, subsectionKey: 'main', section: { sectionKey: 'welcome' } },
+        include: { section: true },
+      })
+      const content = JSON.parse(inst.contentJson as string) as { team: Array<{ name: string; photo: string | null }> }
+      const snap = content.team.find((m) => m.name === 'Snap Member')!
+      expect(snap.photo).not.toBeNull()
+      expect(snap.photo).not.toBe(globalPhoto) // NEW uuid file, never the global name
+      expect(content.team.find((m) => m.name === 'Plain Member')!.photo).toBeNull()
+      const copied = await readViewbookAsset(String(id), snap.photo as string)
+      expect(copied).not.toBeNull() // on disk in the viewbook's own scope
+      // The fenced rewrite bumped the subsection AND the owning section aggregate.
+      expect(inst.version).toBe(2)
+      expect(inst.section.version).toBe(2)
+    })
+  })
+
+  it('phase-2 failure (missing source file) leaves a photoless but working viewbook with no bump', async () => {
+    await withWelcomeRoster(WELCOME_ROSTER(`${crypto.randomUUID()}.webp`), async () => {
+      const c = await mkClient()
+      const { id } = await createViewbook(c.id, 'upgrade', OPERATOR)
+      const vb = await prisma.viewbook.findUniqueOrThrow({ where: { id } })
+      expect(vb.syncVersion).toBe(0) // the failed rewrite bumped nothing
+      const inst = await prisma.viewbookSubsection.findFirstOrThrow({
+        where: { viewbookId: id, subsectionKey: 'main', section: { sectionKey: 'welcome' } },
+      })
+      const content = JSON.parse(inst.contentJson as string) as { team: Array<{ photo: string | null }> }
+      expect(content.team.every((m) => m.photo === null)).toBe(true)
+      expect(inst.version).toBe(1)
+      expect(await prisma.viewbookSection.count({ where: { viewbookId: id } })).toBe(13)
+    })
+  })
+
+  it('rejects all-false offerings (400) and an unavailable enabled offering (409)', async () => {
+    const c = await mkClient()
+    await expect(
+      createViewbook(c.id, 'upgrade', OPERATOR, { website: false, va: false, ppc: false }),
+    ).rejects.toMatchObject({ status: 400, code: 'invalid_offerings' })
+    // Seeded templates carry no va-tagged subsection — enabling va alone 409s.
+    await expect(
+      createViewbook(c.id, 'upgrade', OPERATOR, { website: false, va: true, ppc: false }),
+    ).rejects.toMatchObject({ status: 409, code: 'offering_unavailable' })
+    expect(await prisma.viewbook.count({ where: { clientId: c.id } })).toBe(0)
+  })
+
+  it('nested create is atomic — a mid-create child uniqueness failure leaves zero rows', async () => {
+    const c = await mkClient()
+    await expect(
+      prisma.viewbook.create({
+        data: {
+          clientId: c.id,
+          kind: 'upgrade',
+          token: crypto.randomUUID(),
+          sections: {
+            create: [
+              mkSectionInput('welcome', {
+                subsections: {
+                  create: [
+                    mkSubsectionInput('main', {
+                      fields: {
+                        create: [
+                          mkFieldInput('vb-svc-dup-key', { category: 'main', sortOrder: 1 }),
+                          mkFieldInput('vb-svc-dup-key', { category: 'main', sortOrder: 2 }),
+                        ],
+                      },
+                    }),
+                  ],
+                },
+              } as never),
+            ],
+          },
+        },
+      }),
+    ).rejects.toThrow()
+    expect(await prisma.viewbook.count({ where: { clientId: c.id } })).toBe(0)
+    expect(await prisma.viewbookField.count({ where: { defKey: 'vb-svc-dup-key' } })).toBe(0)
   })
 })
 

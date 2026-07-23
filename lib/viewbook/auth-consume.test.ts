@@ -1,6 +1,6 @@
 import crypto from 'crypto'
 import { NextRequest } from 'next/server'
-import { afterAll, afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterAll, afterEach, beforeEach, describe, expect, it, beforeAll } from 'vitest'
 import { prisma } from '@/lib/db'
 import { POST as consumeRoute } from '@/app/api/viewbook/[token]/auth/consume/route'
 import { POST as logoutRoute } from '@/app/api/viewbook/[token]/auth/logout/route'
@@ -9,6 +9,13 @@ import { consumeGrant, revokeSessionByCookie } from './auth-consume'
 import { hashSecret, memberCookieName, mintSecret } from './auth-secrets'
 import { resolveViewbookPrincipalFromCookies } from './principal'
 import { createViewbook } from './service'
+import { ensureSeededTemplates } from './__fixtures__/instance-test-helpers'
+
+// F2 (Task 3): createViewbook snapshots from the template library — seed it
+// once per file (idempotent; an earlier file in this worker may have wiped it).
+beforeAll(async () => {
+  await ensureSeededTemplates()
+})
 
 const PREFIX = 'vb-auth-consume-u1-'
 const ORIGINAL_ENV = { ...process.env }

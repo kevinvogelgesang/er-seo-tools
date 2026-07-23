@@ -1,5 +1,5 @@
 import crypto from 'node:crypto'
-import { afterAll, describe, expect, it, vi } from 'vitest'
+import { afterAll, describe, expect, it, vi, beforeAll } from 'vitest'
 import { prisma } from '@/lib/db'
 import { createViewbook } from './service'
 import { requireViewbookToken } from './route-auth'
@@ -10,6 +10,13 @@ import { applyAnswerEdit, lockViewbook, proposeAmendment } from './answers'
 import { acknowledgeSection } from './ack'
 import { setNotifyEmails } from './setup'
 import { addTeamMember, resendInvite } from './team-members'
+import { ensureSeededTemplates } from './__fixtures__/instance-test-helpers'
+
+// F2 (Task 3): createViewbook snapshots from the template library — seed it
+// once per file (idempotent; an earlier file in this worker may have wiped it).
+beforeAll(async () => {
+  await ensureSeededTemplates()
+})
 
 vi.mock('@/lib/jobs/queue', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/lib/jobs/queue')>()

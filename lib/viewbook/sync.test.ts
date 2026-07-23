@@ -1,4 +1,4 @@
-import { describe, expect, it, afterAll } from 'vitest'
+import { describe, expect, it, afterAll, beforeAll } from 'vitest'
 import crypto from 'crypto'
 import { Prisma } from '@prisma/client'
 import { prisma } from '@/lib/db'
@@ -9,6 +9,13 @@ import {
   syncVersionBumpAllStatement,
   syncVersionBumpAllWhere,
 } from './sync'
+import { ensureSeededTemplates } from './__fixtures__/instance-test-helpers'
+
+// F2 (Task 3): createViewbook snapshots from the template library — seed it
+// once per file (idempotent; an earlier file in this worker may have wiped it).
+beforeAll(async () => {
+  await ensureSeededTemplates()
+})
 
 async function mkClient() {
   return prisma.client.create({

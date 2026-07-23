@@ -1,6 +1,6 @@
 import crypto from 'crypto'
 import { NextRequest } from 'next/server'
-import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterAll, afterEach, beforeEach, describe, expect, it, vi, beforeAll } from 'vitest'
 import { prisma } from '@/lib/db'
 import { createViewbook } from './service'
 
@@ -12,6 +12,13 @@ vi.mock('./email', async (importOriginal) => {
 import { enqueueViewbookEmail } from './email'
 import { requestMagicLink } from './auth-request'
 import { POST } from '@/app/api/viewbook/[token]/auth/request/route'
+import { ensureSeededTemplates } from './__fixtures__/instance-test-helpers'
+
+// F2 (Task 3): createViewbook snapshots from the template library — seed it
+// once per file (idempotent; an earlier file in this worker may have wiped it).
+beforeAll(async () => {
+  await ensureSeededTemplates()
+})
 
 const PREFIX = 'vb-auth-request-u1-'
 const ORIGINAL_ENV = { ...process.env }
