@@ -179,15 +179,54 @@ export async function getAllGlobalContent(): Promise<Record<GlobalContentKey, Te
   return out
 }
 
-// Test seam only: lets a test inject a concurrent roster write between load
-// and stamp to exercise the conflict path.
+// F1b seam (spec fix #4): the txn body attachTeamPhoto runs becomes
+// injectable so template-service can interleave template-tree statements
+// WITHOUT a second save/fence/delete-old flow. HARD conflicts (a lost roster
+// race, a stale template version token) throw INSIDE the txn as P2025/P2002 —
+// a post-commit verify(false) could not undo partial writes (Codex fix #3).
+// `inspect` runs AFTER a successful commit and is for SOFT drift-logging
+// ONLY — it must never throw for control flow (there is nothing left to roll
+// back by the time it runs).
+export interface TeamPhotoTxn {
+  statements: Prisma.PrismaPromise<unknown>[]
+  conflictCode: string // 409 code when the txn throws P2025/P2002
+  inspect?: (results: unknown[]) => void
+}
+
 export interface AttachTeamPhotoDeps {
+  // Test seam only: lets a test inject a concurrent roster write between load
+  // and stamp to exercise the conflict path.
   beforeStamp?: () => Promise<void>
+  // Test/caller seam: builds the txn statements from the loaded row + the
+  // derived next roster. Defaults to today's roster-only guard-write.
+  buildTxn?: (ctx: { row: { bodyJson: string }; next: TeamMember[]; filename: string; updatedBy: string }) => TeamPhotoTxn
+}
+
+// Default txn: the throwing roster guard-write fenced pair — bump first
+// (SAME loaded-bodyJson predicate as the guard-write), both hit or both miss.
+function defaultTeamPhotoTxn(ctx: {
+  row: { bodyJson: string }
+  next: TeamMember[]
+  updatedBy: string
+}): TeamPhotoTxn {
+  const fence = teamRosterFence(ctx.row.bodyJson)
+  return {
+    statements: [
+      syncVersionBumpAllWhere(fence),
+      prisma.viewbookGlobalContent.update({
+        where: { key: 'team', bodyJson: ctx.row.bodyJson },
+        data: { bodyJson: JSON.stringify(ctx.next), updatedBy: ctx.updatedBy },
+      }),
+    ],
+    conflictCode: 'roster_conflict',
+  }
 }
 
 // One atomic multipart flow (Kevin decision): save file → conditional stamp
-// fenced on the LOADED bodyJson (concurrent roster edit → 0 rows → delete the
-// new file, honest 409) → delete the replaced photo. Returns the new filename.
+// fenced on the LOADED bodyJson (concurrent roster edit → 409, honest) →
+// delete the replaced photo. Returns the new filename. The txn body itself is
+// injectable (F1b) — the load/validate/member-lookup/save-file/delete-old/
+// orphan-on-throw logic here is UNCHANGED from before that seam existed.
 export async function attachTeamPhoto(
   memberName: string,
   buf: Buffer,
@@ -216,27 +255,23 @@ export async function attachTeamPhoto(
 
   if (deps.beforeStamp) await deps.beforeStamp()
 
-  // Fenced pair: the bump carries the SAME loaded-bodyJson predicate as the
-  // updateMany below — bump first, both hit or both miss.
-  const fence = teamRosterFence(row.bodyJson)
+  const buildTxn = deps.buildTxn ?? defaultTeamPhotoTxn
+  const txn = buildTxn({ row, next, filename, updatedBy })
+
+  let results: unknown[]
   try {
-    const [, res] = await prisma.$transaction([
-      syncVersionBumpAllWhere(fence),
-      prisma.viewbookGlobalContent.updateMany({
-        where: { key: 'team', bodyJson: row.bodyJson },
-        data: { bodyJson: JSON.stringify(next), updatedBy },
-      }),
-    ])
-    if (res.count === 0) {
-      await deleteViewbookAssets('global', [filename])
-      throw new HttpError(409, 'roster_conflict')
-    }
+    results = await prisma.$transaction(txn.statements)
   } catch (err) {
+    if (err instanceof Prisma.PrismaClientKnownRequestError && (err.code === 'P2025' || err.code === 'P2002')) {
+      await deleteViewbookAssets('global', [filename])
+      throw new HttpError(409, txn.conflictCode)
+    }
     if (!(err instanceof HttpError)) await deleteViewbookAssets('global', [filename])
     throw err
   }
 
   if (oldPhoto && oldPhoto !== filename) await deleteViewbookAssets('global', [oldPhoto])
+  txn.inspect?.(results)
   return filename
 }
 

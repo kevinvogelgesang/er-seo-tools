@@ -27,12 +27,13 @@ import {
 } from './template-content'
 import { validateSectionCopy, type SectionCopyContent } from './section-copy-validator'
 import { putSectionCopyGlobalStatements } from './section-copy-content'
-import { putGlobalContentStatements, buildTeamRosterWrite } from './global-content'
+import { putGlobalContentStatements, buildTeamRosterWrite, attachTeamPhoto, teamRosterFence } from './global-content'
 import { deleteViewbookAssets } from './assets'
 import { validateTeam } from './content-validators'
 import { SECTION_KEYS, type SectionKey } from './theme'
 import { CATALOG_CATEGORIES } from './catalog'
-import { syncVersionBumpAllStatement } from './sync'
+import { syncVersionBumpAllStatement, syncVersionBumpAllWhere } from './sync'
+import { projectMainContentJson, type SeedSourceRow } from './template-seed'
 import type { GlobalContentKey, TeamMember } from './global-content-keys'
 
 // The four bridged (templateKey, 'main') content pairs and their legacy keys.
@@ -647,4 +648,187 @@ export async function patchField(
   })
 
   await runGuarded([guard, fieldUpdate])
+}
+
+// ---- Task 5: team-photo flows (F1b) ----------------------------------------
+//
+// Both photo entry points call global-content's attachTeamPhoto — the ONE
+// file-save/fence/delete-old authority — supplying a buildTxn that adds
+// welcome/main template-envelope statements alongside the roster guard-write.
+// Neither flow re-derives the roster: `ctx.next` (attachTeamPhoto's own
+// computed roster with the new filename stamped in) is the single source of
+// truth for what the template's `team` field becomes.
+
+type WelcomeSubsectionContent = Extract<SubsectionContentV1, { team: TeamMember[] }>
+
+// Corrupt/missing envelope rule (Codex fix #3, both photo paths): a valid
+// parsed envelope keeps its OWN process/why (never silently replaced by the
+// legacy projection); a corrupt/missing one self-heals by re-projecting the
+// whole envelope from the current legacy rows via projectMainContentJson,
+// with the derived roster substituted for 'team' — never a 4xx for
+// corruption.
+function buildWelcomeEnvelope(
+  parsedWelcome: WelcomeSubsectionContent | null,
+  legacyRows: SeedSourceRow[] | null,
+  next: TeamMember[],
+): string {
+  if (parsedWelcome) {
+    return JSON.stringify({ v: 1, team: next, process: parsedWelcome.process, why: parsedWelcome.why })
+  }
+  const rowsWithDerivedRoster: SeedSourceRow[] = [
+    ...(legacyRows ?? []),
+    { key: 'team', bodyJson: JSON.stringify(next) },
+  ]
+  // 'welcome' always returns a non-null string (projectMainContentJson's
+  // switch has a defined case for it) — the `| null` return type is shared
+  // with the other section keys' contentless default.
+  return projectMainContentJson('welcome', rowsWithDerivedRoster, []) as string
+}
+
+// process/why legacy rows are the ONLY thing the corrupt-envelope fallback
+// needs from the DB — 'team' is always overridden with the derived roster at
+// buildTxn time (buildWelcomeEnvelope), so it's never queried here.
+async function loadWelcomeLegacyRows(): Promise<SeedSourceRow[]> {
+  return prisma.viewbookGlobalContent.findMany({
+    where: { key: { in: ['process', 'why'] } },
+    select: { key: true, bodyJson: true },
+  })
+}
+
+function parseWelcome(contentJson: string | null): WelcomeSubsectionContent | null {
+  const parsed = parseSubsectionContent('welcome', contentJson)
+  return parsed && 'team' in parsed ? parsed : null
+}
+
+// Template route (HARD path — everything all-or-nothing in one txn): resolves
+// sectionId to the welcome template (404 if it's some other section), 409
+// template_missing only when the welcome tree row is genuinely absent (can't
+// guard what isn't there). conflictCode is 'version_conflict' UNIFORMLY for
+// both guards in the txn (the stale-template-version guard AND the roster
+// guard-write) — a lost roster race is indistinguishable from a stale
+// template token by design; the caller refetches either way.
+export async function attachTemplateTeamPhoto(
+  sectionId: number,
+  memberName: string,
+  buf: Buffer,
+  updatedBy: string,
+  expectedVersion: number,
+): Promise<string> {
+  const section = await prisma.sectionTemplate.findUnique({
+    where: { id: sectionId },
+    include: { subsections: { where: { subsectionKey: 'main' } } },
+  })
+  if (!section || section.templateKey !== 'welcome') throw new HttpError(404, 'not_found')
+  const sub = section.subsections[0]
+  if (!sub) throw new HttpError(409, 'template_missing')
+
+  const parsedWelcome = parseWelcome(sub.contentJson)
+  const legacyRows = parsedWelcome ? null : await loadWelcomeLegacyRows()
+
+  return attachTeamPhoto(memberName, buf, updatedBy, {
+    buildTxn: (ctx) => ({
+      statements: [
+        // GUARD 1: stale template version → P2025 → 409 version_conflict.
+        prisma.sectionTemplate.update({
+          where: { id: sectionId, version: expectedVersion },
+          data: { version: { increment: 1 } },
+        }),
+        // GUARD 2: the Task 2 throwing roster write — a lost roster race →
+        // P2025 → the SAME 409 version_conflict (module comment above).
+        prisma.viewbookGlobalContent.update({
+          where: { key: 'team', bodyJson: ctx.row.bodyJson },
+          data: { bodyJson: JSON.stringify(ctx.next), updatedBy: ctx.updatedBy },
+        }),
+        // Plain — both guards above already fenced the whole txn.
+        prisma.subsectionTemplate.update({
+          where: { id: sub.id },
+          data: {
+            contentJson: buildWelcomeEnvelope(parsedWelcome, legacyRows, ctx.next),
+            version: { increment: 1 },
+          },
+        }),
+        syncVersionBumpAllStatement(),
+      ],
+      conflictCode: 'version_conflict',
+    }),
+  })
+}
+
+// Legacy route (SOFT template companion): the roster guard-write is
+// default-shaped (same throwing shape attachTeamPhoto uses on its own) —
+// HARD, 409 roster_conflict on a lost race. The template forward-write is
+// non-throwing raw SQL fenced on the subsection's pre-state contentJson,
+// ordered bump-first (section statement BEFORE the sub statement whose
+// pre-state it reads — the same pattern syncVersionBumpAllWhere's callers
+// use). A miss (stale pre-state, or no welcome tree at all) is drift-logged
+// via `inspect`, never a throw — this route has no version token to guard
+// with in the first place.
+export async function attachTeamPhotoBridged(
+  memberName: string,
+  buf: Buffer,
+  updatedBy: string,
+): Promise<string> {
+  const section = await prisma.sectionTemplate.findUnique({
+    where: { templateKey: 'welcome' },
+    include: { subsections: { where: { subsectionKey: 'main' } } },
+  })
+  const sub = section?.subsections[0] ?? null
+  const hasTemplate = section !== null && sub !== null
+
+  const parsedWelcome = sub ? parseWelcome(sub.contentJson) : null
+  const legacyRows = hasTemplate && !parsedWelcome ? await loadWelcomeLegacyRows() : null
+
+  return attachTeamPhoto(memberName, buf, updatedBy, {
+    buildTxn: (ctx) => {
+      const fence = teamRosterFence(ctx.row.bodyJson)
+      const statements: Prisma.PrismaPromise<unknown>[] = [
+        syncVersionBumpAllWhere(fence),
+        prisma.viewbookGlobalContent.update({
+          where: { key: 'team', bodyJson: ctx.row.bodyJson },
+          data: { bodyJson: JSON.stringify(ctx.next), updatedBy: ctx.updatedBy },
+        }),
+      ]
+
+      if (hasTemplate && section && sub) {
+        const newEnvelope = buildWelcomeEnvelope(parsedWelcome, legacyRows, ctx.next)
+        // Prisma.sql branch: SQLite `= NULL` never matches — a null pre-state
+        // needs IS NULL, a non-null pre-state needs an exact value compare.
+        const contentPredicate = sub.contentJson === null
+          ? Prisma.sql`"contentJson" IS NULL`
+          : Prisma.sql`"contentJson" = ${sub.contentJson}`
+        statements.push(
+          // Bump-first: this predicate reads SubsectionTemplate's CURRENT
+          // contentJson, so it must run BEFORE the update below changes it.
+          prisma.$executeRaw`UPDATE "SectionTemplate" SET "version" = "version" + 1, "updatedAt" = ${Date.now()} WHERE "id" = ${section.id} AND EXISTS (
+            SELECT 1 FROM "SubsectionTemplate" WHERE "id" = ${sub.id} AND ${contentPredicate}
+          )`,
+          prisma.$executeRaw`UPDATE "SubsectionTemplate" SET "contentJson" = ${newEnvelope}, "version" = "version" + 1, "updatedAt" = ${Date.now()} WHERE "id" = ${sub.id} AND ${contentPredicate}`,
+        )
+      }
+
+      return {
+        statements,
+        conflictCode: 'roster_conflict',
+        // SOFT drift log only — the roster write already committed by the
+        // time this runs; there is nothing left to roll back.
+        inspect: (results) => {
+          if (!hasTemplate) {
+            logError(
+              { subsystem: 'viewbook', op: 'template-forward-write-miss', reason: 'no-welcome-tree' },
+              new Error('bridged team photo: welcome template tree absent'),
+            )
+            return
+          }
+          const sectionRows = results[2] as number
+          const subRows = results[3] as number
+          if (sectionRows === 0 || subRows === 0) {
+            logError(
+              { subsystem: 'viewbook', op: 'template-forward-write-miss' },
+              new Error('bridged team photo: template forward-write missed a stale pre-state'),
+            )
+          }
+        },
+      }
+    },
+  })
 }

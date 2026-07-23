@@ -1,8 +1,13 @@
-import { describe, it, expect, beforeEach, afterEach, afterAll } from 'vitest'
+import { describe, it, expect, beforeAll, beforeEach, afterEach, afterAll } from 'vitest'
 import crypto from 'crypto'
+import { mkdtemp, rm } from 'fs/promises'
+import { tmpdir } from 'os'
+import path from 'path'
+import sharp from 'sharp'
 import { prisma } from '@/lib/db'
 import { seedViewbookTemplates, CANONICAL_SECTION_ORDER } from './template-seed'
 import { GLOBAL_CONTENT_KEYS } from './global-content-keys'
+import type { TeamMember } from './global-content'
 import { SECTION_KEYS } from './theme'
 import { sectionCopyKey, putSectionCopyGlobal, resolveSectionCopy } from './section-copy-content'
 import { CATALOG } from './catalog'
@@ -17,6 +22,8 @@ import {
   createSubsection,
   createField,
   patchField,
+  attachTemplateTeamPhoto,
+  attachTeamPhotoBridged,
 } from './template-service'
 import { parseSubsectionContent, toLegacyGlobalBody } from './template-content'
 
@@ -282,5 +289,60 @@ describe('fields', () => {
     await expect(
       createField(sub.id, { version: ds.version + 1, fieldKey: 'archived-sub-field', label: 'X', fieldType: 'text' }, 'op@er.com'),
     ).rejects.toMatchObject({ status: 409, code: 'subsection_archived' })
+  })
+})
+
+describe('team photo flows', () => {
+  let PNG: Buffer
+  beforeAll(async () => {
+    PNG = await sharp({ create: { width: 4, height: 4, channels: 3, background: { r: 1, g: 2, b: 3 } } })
+      .png()
+      .toBuffer()
+  })
+  const png = () => PNG
+
+  let assetsDir: string
+  beforeEach(async () => {
+    assetsDir = await mkdtemp(path.join(tmpdir(), 'vb-tpl-photo-'))
+    process.env.VIEWBOOK_ASSETS_DIR = assetsDir
+    await prisma.viewbookGlobalContent.create({
+      data: { key: 'team', bodyJson: JSON.stringify([{ name: 'A', role: 'R', photo: null, blurb: '' }]), updatedBy: 'x' },
+    })
+  })
+  afterEach(async () => {
+    delete process.env.VIEWBOOK_ASSETS_DIR
+    await rm(assetsDir, { recursive: true, force: true })
+    await prisma.viewbookGlobalContent.deleteMany({ where: { key: 'team' } })
+  })
+
+  it('attachTemplateTeamPhoto updates roster + template envelope + versions atomically', async () => {
+    const { sections } = await getTemplateTree()
+    const s = sections.find(x => x.templateKey === 'welcome')!
+    const filename = await attachTemplateTeamPhoto(s.id, 'A', png(), 'op@er.com', s.version)
+    const row = await prisma.viewbookGlobalContent.findUnique({ where: { key: 'team' } })
+    expect(JSON.parse(row!.bodyJson)[0].photo).toBe(filename)
+    const after = await getTemplateTree()
+    const w = after.sections.find(x => x.templateKey === 'welcome')!
+    expect(w.version).toBe(s.version + 1)
+    expect((w.subsections[0].content as { team: TeamMember[] }).team[0].photo).toBe(filename)
+  })
+
+  it('stale version → 409, no roster change, new file deleted', async () => {
+    const { sections } = await getTemplateTree()
+    const s = sections.find(x => x.templateKey === 'welcome')!
+    await expect(attachTemplateTeamPhoto(s.id, 'A', png(), 'op@er.com', s.version + 3))
+      .rejects.toMatchObject({ status: 409 })
+    const row = await prisma.viewbookGlobalContent.findUnique({ where: { key: 'team' } })
+    expect(JSON.parse(row!.bodyJson)[0].photo).toBeNull()
+  })
+
+  it('attachTeamPhotoBridged (legacy route path) forward-writes the template without a version token', async () => {
+    const { sections } = await getTemplateTree()
+    const s = sections.find(x => x.templateKey === 'welcome')!
+    const filename = await attachTeamPhotoBridged('A', png(), 'op@er.com')
+    const after = await getTemplateTree()
+    const w = after.sections.find(x => x.templateKey === 'welcome')!
+    expect((w.subsections[0].content as { team: TeamMember[] }).team[0].photo).toBe(filename)
+    expect(w.version).toBe(s.version + 1)
   })
 })
