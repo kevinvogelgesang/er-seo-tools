@@ -9,7 +9,7 @@
 
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
-import { ViewbookEditor, SettingsTab, type SettingsTabViewbook } from './ViewbookEditor'
+import { TeamRoster, ViewbookEditor, SettingsTab, type SettingsTabViewbook } from './ViewbookEditor'
 import { publicViewbookUrl } from './viewbook-admin-shared'
 import { SECTION_COPY_FIXTURE } from '@/components/viewbook/public/test-support/section-copy-fixture'
 import { __resetSyncRegistry } from '@/components/viewbook/public/useViewbookSync'
@@ -169,6 +169,7 @@ describe('ViewbookEditor shell', () => {
       sections: [],
       milestones: [],
       contentOverrides: [],
+      teamMembers: [],
       sectionCopy: SECTION_COPY_FIXTURE,
       fields: [],
       ...overrides,
@@ -305,5 +306,26 @@ describe('ViewbookEditor shell', () => {
     expect(themeTab.getAttribute('aria-selected')).toBe('true')
     expect(screen.getAllByRole('tabpanel')).toHaveLength(1)
     expect(screen.getByRole('tabpanel').getAttribute('aria-labelledby')).toBe(themeTab.id)
+  })
+})
+
+describe('TeamRoster', () => {
+  it('lists member identity and confirms before removing through the admin route', async () => {
+    const confirm = vi.fn(() => true)
+    const fetchMock = vi.fn(async () => jsonResponse({ ok: true }))
+    vi.stubGlobal('confirm', confirm)
+    vi.stubGlobal('fetch', fetchMock)
+    const onChanged = vi.fn()
+    render(<TeamRoster
+      viewbookId={7}
+      members={[{ id: 12, name: 'Jamie Member', email: 'jamie@example.com' }]}
+      onChanged={onChanged}
+    />)
+    expect(screen.getByText('Jamie Member')).toBeTruthy()
+    expect(screen.getByText('jamie@example.com')).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Remove Jamie Member' }))
+    await waitFor(() => expect(onChanged).toHaveBeenCalled())
+    expect(confirm).toHaveBeenCalled()
+    expect(fetchMock).toHaveBeenCalledWith('/api/viewbooks/7/team-members/12', expect.objectContaining({ method: 'DELETE' }))
   })
 })

@@ -15,6 +15,12 @@ import { prisma } from '@/lib/db'
 import { HttpError } from '@/lib/api/errors'
 import { requireViewbookToken } from '@/lib/viewbook/route-auth'
 import { syncVersionBumpWhere } from '@/lib/viewbook/sync'
+import {
+  attributionOf,
+  memberWriteFence,
+  requireMemberStillAuthorized,
+  type PublicMutationAuth,
+} from '@/lib/viewbook/principal'
 
 const FEEDBACK_CAP = 200
 const MATERIAL_CAP = 100
@@ -52,10 +58,14 @@ export async function insertClientFeedback(
   viewbook: Viewbook,
   token: string,
   input: ClientFeedbackInput,
+  auth: PublicMutationAuth,
   hooks: MutationHooks = {},
 ): Promise<{ feedback: ViewbookFeedback; images: string[]; replayed: boolean }> {
   await hooks.beforeCommit?.()
   const now = Date.now()
+  const { actorEmail, authorName, actorKind } = attributionOf(auth.principal)
+  const memberFence = memberWriteFence(auth.principal, viewbook.id, now)
+  const feedbackAuthorKind = actorKind === 'member' ? 'client' : 'operator'
   const summary = `Client feedback: ${input.body.trim().slice(0, 120)}`
   // Same predicate the activity INSERT below uses (replay guard + full access
   // chain) — already self-contained (its own FROM/JOIN aliases, no dangling
@@ -64,6 +74,7 @@ export async function insertClientFeedback(
     NOT EXISTS (
       SELECT 1 FROM "ViewbookFeedback" f WHERE f."clientMutationId" = ${input.clientMutationId}
     )
+    AND ${memberFence}
     AND EXISTS (
       SELECT 1 FROM "Viewbook" v JOIN "Client" c ON c."id" = v."clientId"
       JOIN "ViewbookSection" s ON s."viewbookId" = v."id" AND s."sectionKey" = 'milestones'
@@ -79,25 +90,31 @@ export async function insertClientFeedback(
   // id via the clientMutationId subselect, so a fence-failed feedback insert
   // attaches nothing. The (feedbackId, sortOrder) unique + ON CONFLICT makes a
   // replayed request a no-op (the original attempt attached atomically).
+  // The predicate ALSO carries `memberFence` (codex review P1): without it, a
+  // replay of a previously-committed image-less feedback — matched by
+  // clientMutationId — would still attach image rows even after the member
+  // who's replaying was removed between route auth and commit, leaving
+  // broken image records once the route's post-txn
+  // `requireMemberStillAuthorized` throws and deletes the uploaded files.
   const imageFilenames = (input.images ?? []).slice(0, 3)
   const imageStatements = imageFilenames.map((filename, index) => prisma.$executeRaw`
     INSERT INTO "ViewbookFeedbackImage" ("feedbackId", "filename", "sortOrder", "createdAt")
     SELECT f."id", ${filename}, ${index}, ${now}
     FROM "ViewbookFeedback" f
-    WHERE f."clientMutationId" = ${input.clientMutationId}
+    WHERE f."clientMutationId" = ${input.clientMutationId} AND ${memberFence}
     ON CONFLICT("feedbackId", "sortOrder") DO NOTHING
   `)
   const [, activityCount, insertCount] = await prisma.$transaction([
     syncVersionBumpWhere(viewbook.id, activityPredicate),
     prisma.$executeRaw`
-      INSERT INTO "ViewbookActivity" ("viewbookId", "kind", "actor", "summary", "createdAt")
-      SELECT ${viewbook.id}, 'feedback', 'client', ${summary}, ${now}
+      INSERT INTO "ViewbookActivity" ("viewbookId", "kind", "actor", "actorKind", "summary", "createdAt")
+      SELECT ${viewbook.id}, 'feedback', ${actorEmail}, ${actorKind}, ${summary}, ${now}
       WHERE ${activityPredicate}
     `,
     prisma.$executeRaw`
       INSERT INTO "ViewbookFeedback"
         ("reviewLinkId", "body", "authorName", "authorKind", "clientMutationId", "createdAt")
-      SELECT ${input.reviewLinkId}, ${input.body}, ${input.authorName}, 'client', ${input.clientMutationId}, ${now}
+      SELECT ${input.reviewLinkId}, ${input.body}, ${authorName}, ${feedbackAuthorKind}, ${input.clientMutationId}, ${now}
       WHERE EXISTS (
         SELECT 1 FROM "Viewbook" v JOIN "Client" c ON c."id" = v."clientId"
         JOIN "ViewbookSection" s ON s."viewbookId" = v."id" AND s."sectionKey" = 'milestones'
@@ -106,7 +123,7 @@ export async function insertClientFeedback(
         WHERE v."id" = ${viewbook.id} AND v."token" = ${token} AND v."revokedAt" IS NULL
           AND c."archivedAt" IS NULL AND s."state" <> 'hidden' AND r."id" = ${input.reviewLinkId}
           AND (SELECT COUNT(*) FROM "ViewbookFeedback" f2 WHERE f2."reviewLinkId" = r."id") < ${FEEDBACK_CAP}
-      )
+      ) AND ${memberFence}
       ON CONFLICT("clientMutationId") DO NOTHING
     `,
     ...imageStatements,
@@ -128,8 +145,12 @@ export async function insertClientFeedback(
       },
     },
   })
-  if (replay) return { feedback: replay, images: await attachedImageFilenames(replay.id), replayed: true }
+  if (replay) {
+    await requireMemberStillAuthorized(auth, viewbook.id)
+    return { feedback: replay, images: await attachedImageFilenames(replay.id), replayed: true }
+  }
 
+  await requireMemberStillAuthorized(auth, viewbook.id)
   await requireViewbookToken(token)
   const target = await prisma.viewbookReviewLink.findFirst({
     where: {
@@ -147,16 +168,20 @@ export async function insertClientMaterial(
   viewbook: Viewbook,
   token: string,
   input: ClientMaterialInput,
+  auth: PublicMutationAuth,
   hooks: MutationHooks = {},
 ): Promise<{ material: ViewbookMaterialLink; replayed: boolean }> {
   await hooks.beforeCommit?.()
   const now = Date.now()
+  const { actorEmail, actorKind } = attributionOf(auth.principal)
+  const memberFence = memberWriteFence(auth.principal, viewbook.id, now)
   const summary = `Client shared material: ${input.label}`
   // Same predicate the activity INSERT below uses — self-contained already.
   const activityPredicate = Prisma.sql`
     NOT EXISTS (
       SELECT 1 FROM "ViewbookMaterialLink" ml WHERE ml."clientMutationId" = ${input.clientMutationId}
     )
+    AND ${memberFence}
     AND EXISTS (
       SELECT 1 FROM "Viewbook" v JOIN "Client" c ON c."id" = v."clientId"
       JOIN "ViewbookSection" s ON s."viewbookId" = v."id" AND s."sectionKey" = 'materials'
@@ -168,21 +193,21 @@ export async function insertClientMaterial(
   const [, activityCount, insertCount] = await prisma.$transaction([
     syncVersionBumpWhere(viewbook.id, activityPredicate),
     prisma.$executeRaw`
-      INSERT INTO "ViewbookActivity" ("viewbookId", "kind", "actor", "summary", "createdAt")
-      SELECT ${viewbook.id}, 'material-link', 'client', ${summary}, ${now}
+      INSERT INTO "ViewbookActivity" ("viewbookId", "kind", "actor", "actorKind", "summary", "createdAt")
+      SELECT ${viewbook.id}, 'material-link', ${actorEmail}, ${actorKind}, ${summary}, ${now}
       WHERE ${activityPredicate}
     `,
     prisma.$executeRaw`
       INSERT INTO "ViewbookMaterialLink"
-        ("viewbookId", "label", "status", "url", "clientMutationId", "addedBy", "providedAt", "createdAt")
-      SELECT ${viewbook.id}, ${input.label}, 'provided', ${input.url}, ${input.clientMutationId}, 'client', ${now}, ${now}
+        ("viewbookId", "label", "status", "url", "clientMutationId", "addedBy", "addedByKind", "providedAt", "createdAt")
+      SELECT ${viewbook.id}, ${input.label}, 'provided', ${input.url}, ${input.clientMutationId}, ${actorEmail}, ${actorKind}, ${now}, ${now}
       WHERE EXISTS (
         SELECT 1 FROM "Viewbook" v JOIN "Client" c ON c."id" = v."clientId"
         JOIN "ViewbookSection" s ON s."viewbookId" = v."id" AND s."sectionKey" = 'materials'
         WHERE v."id" = ${viewbook.id} AND v."token" = ${token} AND v."revokedAt" IS NULL
           AND c."archivedAt" IS NULL AND s."state" <> 'hidden'
           AND (SELECT COUNT(*) FROM "ViewbookMaterialLink" ml2 WHERE ml2."viewbookId" = v."id") < ${MATERIAL_CAP}
-      )
+      ) AND ${memberFence}
       ON CONFLICT("clientMutationId") DO NOTHING
     `,
   ])
@@ -198,7 +223,11 @@ export async function insertClientMaterial(
       viewbook: { token, revokedAt: null, client: { archivedAt: null } },
     },
   })
-  if (replay) return { material: replay, replayed: true }
+  if (replay) {
+    await requireMemberStillAuthorized(auth, viewbook.id)
+    return { material: replay, replayed: true }
+  }
+  await requireMemberStillAuthorized(auth, viewbook.id)
   await requireViewbookToken(token)
   const section = await prisma.viewbookSection.findFirst({
     where: { viewbookId: viewbook.id, sectionKey: 'materials', state: { not: 'hidden' } }, select: { id: true },

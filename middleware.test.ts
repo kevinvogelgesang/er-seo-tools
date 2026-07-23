@@ -196,3 +196,14 @@ describe('isPublicPath — client viewbook shared collapse (PR2)', () => {
     expect(isPublicPath('/api/viewbooks/3/ack')).toBe(false);
   });
 });
+
+describe('isPublicPath — viewbook magic-link auth (U1)', () => {
+  it('exposes exactly request, consume, and logout below a single auth segment', () => {
+    expect(isPublicPath('/api/viewbook/abc/auth/request')).toBe(true)
+    expect(isPublicPath('/api/viewbook/abc/auth/consume')).toBe(true)
+    expect(isPublicPath('/api/viewbook/abc/auth/logout')).toBe(true)
+    expect(isPublicPath('/api/viewbook/abc/auth/anything-else')).toBe(false)
+    expect(isPublicPath('/api/viewbook/abc/auth')).toBe(false)
+    expect(isPublicPath('/api/viewbook/abc/auth/request/extra')).toBe(false)
+  })
+})

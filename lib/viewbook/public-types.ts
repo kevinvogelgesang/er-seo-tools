@@ -23,6 +23,7 @@ export interface PublicFieldAmendment {
   id: number
   value: string
   author: string // 'client' | operator email — components display 'you' / 'our team'
+  authorKind: string // durable 'client' | 'member' | 'operator'
   createdAt: string
 }
 
@@ -35,6 +36,7 @@ export interface PublicField {
   version: number // PR3 optimistic-concurrency contract (expectedVersion)
   createdAt: string // PR3 derives "added after lock-in" vs dataLockedAt
   valueUpdatedBy: string | null
+  valueUpdatedByKind: string | null // durable 'client' | 'member' | 'operator'
   valueUpdatedAt: string | null
   isCustom: boolean
   amendments: PublicFieldAmendment[]
@@ -81,6 +83,7 @@ export interface PublicMaterialLink {
   status: string // 'requested' | 'provided'
   url: string | null
   addedBy: string // 'client' | operator email
+  addedByKind: string // durable 'client' | 'member' | 'operator'
   providedAt: string | null
 }
 

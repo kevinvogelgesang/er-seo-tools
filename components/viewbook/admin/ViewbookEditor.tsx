@@ -132,6 +132,8 @@ export function ViewbookEditor({ viewbookId }: { viewbookId: number }) {
         )}
       </header>
 
+      <TeamRoster viewbookId={vb.id} members={vb.teamMembers ?? []} onChanged={() => void load()} />
+
       <nav aria-label="Viewbook editor navigation" className="overflow-x-auto pb-1">
         <div role="tablist" aria-label="Viewbook editor sections" className="flex min-w-max items-center gap-1 rounded-xl bg-gray-100 p-1 dark:bg-navy-light">
           {TABS.map((t, index) => {
@@ -198,6 +200,58 @@ export function ViewbookEditor({ viewbookId }: { viewbookId: number }) {
         {tab === 'Settings' && <SettingsTab vb={vb} onChanged={() => void load()} />}
       </div>
     </div>
+  )
+}
+
+export function TeamRoster({
+  viewbookId,
+  members,
+  onChanged,
+}: {
+  viewbookId: number
+  members: { id: number; name: string; email: string }[]
+  onChanged: () => void
+}) {
+  const [removing, setRemoving] = useState<number | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  if (members.length === 0) return null
+
+  async function remove(member: { id: number; name: string }) {
+    if (!window.confirm(`Remove ${member.name} from this viewbook? Their sign-in links and sessions will stop working.`)) return
+    setRemoving(member.id)
+    setError(null)
+    try {
+      await jsonFetch(`/api/viewbooks/${viewbookId}/team-members/${member.id}`, { method: 'DELETE' })
+      onChanged()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'remove_failed')
+    } finally {
+      setRemoving(null)
+    }
+  }
+
+  return (
+    <section aria-label="Viewbook team" className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm dark:border-navy-border dark:bg-navy-card">
+      <h2 className="font-display text-base font-bold text-navy dark:text-white">Invited team</h2>
+      <ul className="mt-3 divide-y divide-gray-100 dark:divide-navy-border">
+        {members.map((member) => (
+          <li key={member.id} className="flex flex-wrap items-center gap-3 py-2 text-sm">
+            <span className="font-semibold text-gray-900 dark:text-white">{member.name}</span>
+            <span className="text-gray-500 dark:text-white/55">{member.email}</span>
+            <button
+              type="button"
+              aria-label={`Remove ${member.name}`}
+              disabled={removing === member.id}
+              onClick={() => void remove(member)}
+              className={`${editorDestructiveBtnClass} ml-auto`}
+            >
+              Remove
+            </button>
+          </li>
+        ))}
+      </ul>
+      {error ? <p className="mt-2 text-sm text-red-600 dark:text-red-400">{error}</p> : null}
+    </section>
   )
 }
 

@@ -99,6 +99,7 @@ export interface ViewbookDetail {
     }[]
   }[]
   contentOverrides: { contentKey: string; body: string }[]
+  teamMembers: { id: number; name: string; email: string }[]
   // Resolved ⓘ section-copy map (code default ← company-wide ← per-viewbook),
   // computed server-side in getViewbookAdmin — feeds ContentTab's per-viewbook
   // override editor (Task 11).

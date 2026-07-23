@@ -13,6 +13,7 @@ import { withRoute } from '@/lib/api/with-route'
 import { HttpError } from '@/lib/api/errors'
 import { requireJsonObject } from '@/lib/viewbook/route-utils'
 import { requireViewbookToken } from '@/lib/viewbook/route-auth'
+import { requireCanWrite } from '@/lib/viewbook/principal'
 import {
   checkWriteThrottle,
   readBoundedJson,
@@ -52,15 +53,16 @@ export const POST = withRoute(async (request: NextRequest, { params }: RoutePara
   requireJsonContentType(request)
   const token = (await params).token
   const viewbook = await requireViewbookToken(token)
+  const principal = await requireCanWrite(request, viewbook)
   checkWriteThrottle(token)
   const input = parseInput(await readBoundedJson(request, BODY_CAP_BYTES))
   if (input.mode === 'create') {
-    const result = await addTeamMember(viewbook, token, input)
+    const result = await addTeamMember(viewbook, token, input, { principal })
     return NextResponse.json(
       { member: result.member, delivered: result.delivered },
       { status: result.replayed ? 200 : 201, headers: { 'Cache-Control': 'no-store' } },
     )
   }
-  const result = await resendInvite(viewbook, token, input)
+  const result = await resendInvite(viewbook, token, input, { principal })
   return NextResponse.json(result, { headers: { 'Cache-Control': 'no-store' } })
 })

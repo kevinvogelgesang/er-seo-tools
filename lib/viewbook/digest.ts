@@ -40,13 +40,13 @@ export async function processViewbookDigest(
   const [range] = await prisma.$queryRaw<HighWaterRow[]>`
     SELECT MAX("id") AS "highWater", COUNT(*) AS "total"
     FROM "ViewbookActivity"
-    WHERE "viewbookId" = ${viewbook.id} AND "actor" = 'client' AND "id" > ${viewbook.digestCursorId}
+    WHERE "viewbookId" = ${viewbook.id} AND "actorKind" IN ('client', 'member') AND "id" > ${viewbook.digestCursorId}
   `
   if (!range?.highWater) return
   const highWater = Number(range.highWater)
   const total = Number(range.total)
   const items = await prisma.viewbookActivity.findMany({
-    where: { viewbookId: viewbook.id, actor: 'client', id: { gt: viewbook.digestCursorId, lte: highWater } },
+    where: { viewbookId: viewbook.id, actorKind: { in: ['client', 'member'] }, id: { gt: viewbook.digestCursorId, lte: highWater } },
     orderBy: { id: 'asc' },
     take: DIGEST_ROWS,
   })
@@ -83,7 +83,7 @@ export async function runViewbookDigests(deps: ViewbookDigestDeps = realDeps): P
     WHERE (v."digestSentAt" IS NULL OR v."digestSentAt" < ${cutoff})
       AND EXISTS (
         SELECT 1 FROM "ViewbookActivity" a
-        WHERE a."viewbookId" = v."id" AND a."actor" = 'client' AND a."id" > v."digestCursorId"
+        WHERE a."viewbookId" = v."id" AND a."actorKind" IN ('client', 'member') AND a."id" > v."digestCursorId"
       )
     ORDER BY v."id" ASC
   `

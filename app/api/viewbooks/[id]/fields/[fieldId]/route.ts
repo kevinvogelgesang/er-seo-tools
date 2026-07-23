@@ -52,7 +52,7 @@ export const PATCH = withRoute(async (request: NextRequest, { params }: RoutePar
         fieldId,
         value: body.value as Exclude<AnswerValueInput, null>,
         clientMutationId,
-      }, operatorEmail)
+      }, { principal: { kind: 'operator', email: operatorEmail } })
       return NextResponse.json(
         { amendment: result.amendment },
         { status: result.replayed ? 200 : 201 },
@@ -70,7 +70,7 @@ export const PATCH = withRoute(async (request: NextRequest, { params }: RoutePar
         fieldId,
         value: body.value as AnswerValueInput,
         expectedVersion: body.expectedVersion as number,
-      }, operatorEmail))
+      }, { principal: { kind: 'operator', email: operatorEmail } }))
     }
     if (hasLabel) {
       const label = labelValue(body.label)

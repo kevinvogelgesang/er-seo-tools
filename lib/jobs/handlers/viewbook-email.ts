@@ -2,12 +2,15 @@ import { prisma } from '@/lib/db'
 import { logError } from '@/lib/log'
 import { isNotifyEnabled } from '@/lib/notify/config'
 import {
+  buildMagicLinkEmail,
   buildPcCompleteEmail,
   buildStageChangeEmail,
   buildTeamInviteEmail,
 } from '@/lib/notify/viewbook-email-content'
 import { sendEmail } from '@/lib/notify/transport'
 import { isViewbookStage, STAGE_LABELS } from '@/lib/viewbook/stages'
+import { GRANT_TTL_MS } from '@/lib/viewbook/auth-config'
+import { mintSecret } from '@/lib/viewbook/auth-secrets'
 import type { JobExhaustedContext } from '../types'
 import { VIEWBOOK_EMAIL_JOB_TYPE } from '../types'
 import { registerJobHandler } from '../registry'
@@ -77,9 +80,20 @@ export async function runViewbookEmailJob(
       dedupKey: true,
       sentAt: true,
       suppressedAt: true,
+      memberId: true,
     },
   })
   if (!delivery || delivery.sentAt || delivery.suppressedAt) return
+
+  const kind = delivery.kind
+  if (kind !== 'team-invite' && kind !== 'magic-link' && kind !== 'pc-complete' && kind !== 'stage-change') {
+    await stampSuppressed(delivery.id)
+    logError(
+      { subsystem: 'jobs', job: VIEWBOOK_EMAIL_JOB_TYPE, deliveryId: delivery.id },
+      new Error(`unknown viewbook-email kind: ${kind}`),
+    )
+    return
+  }
 
   const baseUrl = appBaseUrl()
   if (!baseUrl) {
@@ -97,7 +111,7 @@ export async function runViewbookEmailJob(
   // a genuinely deleted viewbook (row absent, not an error) stays a no-op.
   // The stage label is a nicety — its own failure degrades to a generic
   // label rather than blocking the send.
-  const eventKey = delivery.kind === 'stage-change' ? eventKeyFromStageDedup(delivery.dedupKey) : null
+  const eventKey = kind === 'stage-change' ? eventKeyFromStageDedup(delivery.dedupKey) : null
   const [viewbookResult, stageLogResult] = await Promise.allSettled([
     withDeadline(
       prisma.viewbook.findUnique({
@@ -142,11 +156,37 @@ export async function runViewbookEmailJob(
     logError({ subsystem: 'jobs', job: VIEWBOOK_EMAIL_JOB_TYPE, deliveryId: delivery.id }, stageLogResult.reason)
   }
 
-  const content = delivery.kind === 'team-invite'
-    ? buildTeamInviteEmail({ clientName, viewbookTitle, inviteUrl: viewbookUrl })
-    : delivery.kind === 'pc-complete'
-      ? buildPcCompleteEmail({ clientName, viewbookTitle, viewbookUrl })
-      : buildStageChangeEmail({ clientName, viewbookTitle, viewbookUrl, stageLabel })
+  let content
+  if (kind === 'team-invite' || kind === 'magic-link') {
+    if (delivery.memberId == null) {
+      await stampSuppressed(delivery.id)
+      return
+    }
+    const member = await prisma.viewbookTeamMember.findUnique({
+      where: { id: delivery.memberId },
+      select: { id: true, viewbookId: true },
+    })
+    if (!member || member.viewbookId !== delivery.viewbookId) {
+      await stampSuppressed(delivery.id)
+      return
+    }
+    const { raw, hash } = mintSecret()
+    await prisma.viewbookAuthGrant.create({
+      data: {
+        memberId: member.id,
+        tokenHash: hash,
+        expiresAt: new Date(Date.now() + GRANT_TTL_MS),
+      },
+    })
+    const grantUrl = `${viewbookUrl}#g=${raw}`
+    content = kind === 'team-invite'
+      ? buildTeamInviteEmail({ clientName, viewbookTitle, inviteUrl: grantUrl })
+      : buildMagicLinkEmail({ clientName, viewbookTitle, grantUrl })
+  } else if (kind === 'pc-complete') {
+    content = buildPcCompleteEmail({ clientName, viewbookTitle, viewbookUrl })
+  } else {
+    content = buildStageChangeEmail({ clientName, viewbookTitle, viewbookUrl, stageLabel })
+  }
 
   await deps.sendEmail({ to: delivery.recipient, content })
   await prisma.viewbookEmailDelivery.updateMany({

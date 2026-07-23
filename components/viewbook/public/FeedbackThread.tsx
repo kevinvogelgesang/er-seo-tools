@@ -124,6 +124,9 @@ export function FeedbackThread({ token, reviewLinkId, initialFeedback = [] }: Pr
       {items.length === 0 && <p className="text-sm opacity-70">No feedback yet.</p>}
       {items.map((item) => <article key={item.id} className="rounded-lg border border-current/15 p-3">
         <div className="flex items-center justify-between gap-3 text-xs opacity-70">
+          {/* ViewbookFeedback intentionally retains its pre-U1 two-value
+              client/operator authorKind contract; authenticated members map
+              to client here while their exact identity lives in activity. */}
           <span>{item.authorName ? `${item.authorName} (as reported)` : item.authorKind === 'client' ? 'Client' : 'Project team'}</span>
           {item.resolvedAt && <span aria-label="Resolved">✓ Resolved</span>}
         </div>

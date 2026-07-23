@@ -13,6 +13,12 @@ import { HttpError } from '@/lib/api/errors'
 import { requireViewbookToken } from './route-auth'
 import { validateClientMutationId } from './public-write-guard'
 import { syncVersionBumpWhere } from './sync'
+import {
+  attributionOf,
+  memberWriteFence,
+  requireMemberStillAuthorized,
+  type PublicMutationAuth,
+} from './principal'
 
 const VALUE_CAP_BYTES = 8 * 1024
 const AMENDMENT_CAP = 20
@@ -139,7 +145,7 @@ function editableWhere(
   `
 }
 
-type FieldState = Pick<ViewbookField, 'id' | 'value' | 'version' | 'valueUpdatedBy' | 'valueUpdatedAt'>
+type FieldState = Pick<ViewbookField, 'id' | 'value' | 'version' | 'valueUpdatedBy' | 'valueUpdatedByKind' | 'valueUpdatedAt'>
 
 async function diagnoseField(
   viewbook: Viewbook,
@@ -164,6 +170,7 @@ async function diagnoseField(
       fieldType: true,
       createdAt: true,
       valueUpdatedBy: true,
+      valueUpdatedByKind: true,
       valueUpdatedAt: true,
       viewbook: { select: { dataLockedAt: true } },
       _count: { select: { amendments: true } },
@@ -187,7 +194,7 @@ export async function applyAnswerEdit(
   viewbook: Viewbook,
   token: string | null,
   input: AnswerEditInput,
-  actor: string,
+  auth: PublicMutationAuth,
   hooks: MutationHooks = {},
 ): Promise<{ field: FieldState }> {
   assertFieldId(input.fieldId)
@@ -195,12 +202,16 @@ export async function applyAnswerEdit(
   const value = normalizeValue(input.value, true)
   await hooks.beforeCommit?.()
   const now = Date.now()
-  const where = editableWhere(viewbook.id, token, input, value)
+  const { actorEmail, actorKind } = attributionOf(auth.principal)
+  const where = Prisma.sql`
+    ${editableWhere(viewbook.id, token, input, value)}
+    AND ${memberWriteFence(auth.principal, viewbook.id, now)}
+  `
   const [, activityCount, updateCount] = await prisma.$transaction([
     syncVersionBumpWhere(viewbook.id, fieldJoinExists(where)),
     prisma.$executeRaw`
-      INSERT INTO "ViewbookActivity" ("viewbookId", "kind", "actor", "summary", "createdAt")
-      SELECT v."id", 'answer', ${actor}, 'Updated Data Source answer', ${now}
+      INSERT INTO "ViewbookActivity" ("viewbookId", "kind", "actor", "actorKind", "summary", "createdAt")
+      SELECT v."id", 'answer', ${actorEmail}, ${actorKind}, 'Updated Data Source answer', ${now}
       FROM "ViewbookField" f
       JOIN "Viewbook" v ON v."id" = f."viewbookId"
       JOIN "Client" c ON c."id" = v."clientId"
@@ -210,7 +221,7 @@ export async function applyAnswerEdit(
     prisma.$executeRaw`
       UPDATE "ViewbookField" AS f
       SET "value" = ${value.stored}, "version" = "version" + 1,
-          "valueUpdatedBy" = ${actor}, "valueUpdatedAt" = ${now}
+          "valueUpdatedBy" = ${actorEmail}, "valueUpdatedByKind" = ${actorKind}, "valueUpdatedAt" = ${now}
       WHERE f."id" = ${input.fieldId}
         AND EXISTS (
           SELECT 1 FROM "Viewbook" v
@@ -225,12 +236,13 @@ export async function applyAnswerEdit(
     return {
       field: await prisma.viewbookField.findUniqueOrThrow({
         where: { id: input.fieldId },
-        select: { id: true, value: true, version: true, valueUpdatedBy: true, valueUpdatedAt: true },
+        select: { id: true, value: true, version: true, valueUpdatedBy: true, valueUpdatedByKind: true, valueUpdatedAt: true },
       }),
     }
   }
   if (updateCount !== activityCount) throw new Error('viewbook_answer_activity_mismatch')
 
+  await requireMemberStillAuthorized(auth, viewbook.id)
   const current = await diagnoseField(viewbook, token, input.fieldId)
   if (current.version !== input.expectedVersion) {
     throw new AnswerConflictError('stale_version', { value: current.value, version: current.version })
@@ -243,6 +255,7 @@ export async function applyAnswerEdit(
         value: current.value,
         version: current.version,
         valueUpdatedBy: current.valueUpdatedBy,
+        valueUpdatedByKind: current.valueUpdatedByKind,
         valueUpdatedAt: current.valueUpdatedAt,
       },
     }
@@ -271,7 +284,7 @@ export async function proposeAmendment(
   viewbook: Viewbook,
   token: string | null,
   input: AmendmentInput,
-  actor: string,
+  auth: PublicMutationAuth,
   hooks: MutationHooks = {},
 ): Promise<{ amendment: ViewbookFieldAmendment; replayed: boolean }> {
   assertFieldId(input.fieldId)
@@ -280,15 +293,19 @@ export async function proposeAmendment(
   if (!clientMutationId) throw new HttpError(400, 'invalid_client_mutation_id')
   await hooks.beforeCommit?.()
   const now = Date.now()
-  const where = amendmentWhere(viewbook.id, token, input, value)
+  const { actorEmail, authorName, actorKind } = attributionOf(auth.principal)
+  const where = Prisma.sql`
+    ${amendmentWhere(viewbook.id, token, input, value)}
+    AND ${memberWriteFence(auth.principal, viewbook.id, now)}
+  `
   const replayGuard = Prisma.sql`NOT EXISTS (
     SELECT 1 FROM "ViewbookFieldAmendment" a WHERE a."clientMutationId" = ${clientMutationId}
   )`
   const [, activityCount, insertCount] = await prisma.$transaction([
     syncVersionBumpWhere(viewbook.id, Prisma.sql`${replayGuard} AND ${fieldJoinExists(where)}`),
     prisma.$executeRaw`
-      INSERT INTO "ViewbookActivity" ("viewbookId", "kind", "actor", "summary", "createdAt")
-      SELECT v."id", 'amendment', ${actor}, 'Proposed a Data Source amendment', ${now}
+      INSERT INTO "ViewbookActivity" ("viewbookId", "kind", "actor", "actorKind", "summary", "createdAt")
+      SELECT v."id", 'amendment', ${actorEmail}, ${actorKind}, 'Proposed a Data Source amendment', ${now}
       FROM "ViewbookField" f
       JOIN "Viewbook" v ON v."id" = f."viewbookId"
       JOIN "Client" c ON c."id" = v."clientId"
@@ -297,8 +314,8 @@ export async function proposeAmendment(
     `,
     prisma.$executeRaw`
       INSERT INTO "ViewbookFieldAmendment"
-        ("fieldId", "value", "author", "clientMutationId", "createdAt")
-      SELECT f."id", ${value.stored}, ${actor}, ${clientMutationId}, ${now}
+        ("fieldId", "value", "author", "authorKind", "clientMutationId", "createdAt")
+      SELECT f."id", ${value.stored}, ${authorName}, ${actorKind}, ${clientMutationId}, ${now}
       FROM "ViewbookField" f
       JOIN "Viewbook" v ON v."id" = f."viewbookId"
       JOIN "Client" c ON c."id" = v."clientId"
@@ -324,8 +341,12 @@ export async function proposeAmendment(
       },
     },
   })
-  if (replay) return { amendment: replay, replayed: insertCount === 0 }
+  if (replay) {
+    await requireMemberStillAuthorized(auth, viewbook.id)
+    return { amendment: replay, replayed: insertCount === 0 }
+  }
 
+  await requireMemberStillAuthorized(auth, viewbook.id)
   const current = await diagnoseField(viewbook, token, input.fieldId)
   if (!valueMatchesFieldType(current.fieldType, value)) throw new HttpError(400, 'invalid_answer')
   if (!isLockedBaseline(current.createdAt, current.viewbook.dataLockedAt)) {
@@ -349,8 +370,8 @@ export async function lockViewbook(
   const [, activityCount, updated] = await prisma.$transaction([
     syncVersionBumpWhere(viewbookId, notYetLocked),
     prisma.$executeRaw`
-      INSERT INTO "ViewbookActivity" ("viewbookId", "kind", "actor", "summary", "createdAt")
-      SELECT v."id", 'lock', ${operatorEmail}, 'Locked in Data Source answers', ${nowMs}
+      INSERT INTO "ViewbookActivity" ("viewbookId", "kind", "actor", "actorKind", "summary", "createdAt")
+      SELECT v."id", 'lock', ${operatorEmail}, 'operator', 'Locked in Data Source answers', ${nowMs}
       FROM "Viewbook" v WHERE v."id" = ${viewbookId} AND v."dataLockedAt" IS NULL
     `,
     prisma.viewbook.updateMany({

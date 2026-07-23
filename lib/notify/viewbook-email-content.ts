@@ -40,8 +40,31 @@ export function buildTeamInviteEmail(input: TeamInviteInput): EmailContent {
   const subject = `You've been invited to ${input.clientName}'s onboarding viewbook`
   const html = shellHtml(`<h1 style="margin:0 0 12px;font-size:22px;">${esc(input.viewbookTitle)}</h1>
     <p style="margin:0 0 20px;font-size:14px;color:${COLOR.sub};">Join ${esc(input.clientName)} in their onboarding viewbook.</p>
-    ${buttonHtml(input.inviteUrl, 'Open the viewbook')}`)
-  const text = [subject, '', input.viewbookTitle, `Join ${input.clientName} in their onboarding viewbook.`, '', `Open the viewbook: ${input.inviteUrl}`].join('\n')
+    ${buttonHtml(input.inviteUrl, 'Open your onboarding viewbook')}
+    <p style="margin:16px 0 0;font-size:12px;color:${COLOR.sub};">This link expires in 7 days — you can always request a fresh one from the viewbook page.</p>`)
+  const text = [subject, '', input.viewbookTitle, `Join ${input.clientName} in their onboarding viewbook.`, 'This link expires in 7 days — you can always request a fresh one from the viewbook page.', '', `Open your onboarding viewbook: ${input.inviteUrl}`].join('\n')
+  return { subject, html, text }
+}
+
+interface MagicLinkInput {
+  viewbookTitle: string
+  grantUrl: string
+  clientName: string
+}
+
+export function buildMagicLinkEmail(input: MagicLinkInput): EmailContent {
+  const subject = `Here's your sign-in link for ${input.clientName}'s onboarding viewbook`
+  const html = shellHtml(`<h1 style="margin:0 0 12px;font-size:22px;">${esc(input.viewbookTitle)}</h1>
+    <p style="margin:0 0 20px;font-size:14px;color:${COLOR.sub};">Use the button below to sign in. The link expires in 7 days — you can always request a fresh one from the viewbook page.</p>
+    ${buttonHtml(input.grantUrl, 'Open your onboarding viewbook')}`)
+  const text = [
+    subject,
+    '',
+    input.viewbookTitle,
+    'The link expires in 7 days — request a fresh one from the viewbook page any time.',
+    '',
+    `Sign in: ${input.grantUrl}`,
+  ].join('\n')
   return { subject, html, text }
 }
 

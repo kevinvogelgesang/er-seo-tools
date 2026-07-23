@@ -146,6 +146,7 @@ export async function getViewbookAdmin(id: number) {
       },
       contentOverrides: true,
       materialLinks: { orderBy: { id: 'asc' } },
+      teamMembers: { orderBy: { id: 'asc' } },
     },
   })
   if (!vb) throw new HttpError(404, 'not_found')
@@ -258,7 +259,7 @@ export async function setSectionState(
     // Unconditional bump joins the array (mechanism a) — the compound-where
     // update throws P2025 on an unknown section key, rolling the bump back.
     const statements = state === 'done'
-      ? [syncVersionBumpStatement(id), update, ...appendActivityStatements(id, 'section-done', actor, `Completed ${sectionKey}`)]
+      ? [syncVersionBumpStatement(id), update, ...appendActivityStatements(id, 'section-done', actor, 'operator', `Completed ${sectionKey}`)]
       : [syncVersionBumpStatement(id), update]
     await prisma.$transaction(statements)
   } catch (err) {
@@ -396,7 +397,7 @@ export async function moveViewbookStage(
       prisma.viewbook.update({ where: { id, stage: expectedStage }, data: { stage: target } }),
       prisma.viewbookStageLog.create({ data: { viewbookId: id, eventKey, stage: target, direction, actor } }),
       ...deliveryStatements,
-      ...appendActivityStatements(id, 'stage-change', actor, `Moved to stage: ${target}`),
+      ...appendActivityStatements(id, 'stage-change', actor, 'operator', `Moved to stage: ${target}`),
     ])
   } catch (err) {
     if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2025') {
@@ -484,8 +485,8 @@ export async function assignViewbookCsm(
   await prisma.$transaction([
     syncVersionBumpWhere(id, predicate),
     prisma.$executeRaw`
-      INSERT INTO "ViewbookActivity" ("viewbookId", "kind", "actor", "summary", "createdAt")
-      SELECT ${id}, 'csm-assigned', ${actor}, ${summary}, ${now}
+      INSERT INTO "ViewbookActivity" ("viewbookId", "kind", "actor", "actorKind", "summary", "createdAt")
+      SELECT ${id}, 'csm-assigned', ${actor}, 'operator', ${summary}, ${now}
       WHERE (${predicate})
     `,
     prisma.$executeRaw`

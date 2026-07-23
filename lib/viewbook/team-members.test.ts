@@ -3,7 +3,7 @@ import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vites
 import { prisma } from '@/lib/db'
 import { createViewbook } from './service'
 import { requireViewbookToken } from './route-auth'
-import { addTeamMember, resendInvite } from './team-members'
+import { addTeamMember as addTeamMemberCore, resendInvite as resendInviteCore } from './team-members'
 import { runViewbookEmailJob } from '@/lib/jobs/handlers/viewbook-email'
 
 vi.mock('@/lib/jobs/queue', async (importOriginal) => {
@@ -16,6 +16,15 @@ const PREFIX = 'vb-test-team-'
 const OPERATOR = 'operator@example.com'
 const OLD_ENV = process.env
 const DAY_MS = 24 * 60 * 60 * 1000
+const LEGACY_TEST_AUTH = { principal: { kind: 'operator', email: 'client' } } as const
+
+function addTeamMember(...args: [Parameters<typeof addTeamMemberCore>[0], Parameters<typeof addTeamMemberCore>[1], Parameters<typeof addTeamMemberCore>[2], Parameters<typeof addTeamMemberCore>[4]?]) {
+  return addTeamMemberCore(args[0], args[1], args[2], LEGACY_TEST_AUTH, args[3])
+}
+
+function resendInvite(...args: [Parameters<typeof resendInviteCore>[0], Parameters<typeof resendInviteCore>[1], Parameters<typeof resendInviteCore>[2], Parameters<typeof resendInviteCore>[4]?]) {
+  return resendInviteCore(args[0], args[1], args[2], LEGACY_TEST_AUTH, args[3])
+}
 
 async function mkViewbook() {
   const client = await prisma.client.create({ data: { name: `${PREFIX}${crypto.randomUUID()}` } })
@@ -96,6 +105,7 @@ describe('addTeamMember', () => {
     const deliveries = await prisma.viewbookEmailDelivery.findMany({ where: { dedupKey: `vb-invite:${result.member.memberKey}:1` } })
     expect(deliveries).toHaveLength(1)
     expect(deliveries[0].recipient).toBe('jamie@example.com')
+    expect(deliveries[0].memberId).toBe(result.member.id)
     expect(deliveries[0].sentAt).toBeNull()
     expect(enqueueJob).toHaveBeenCalledWith(expect.objectContaining({ payload: { deliveryId: deliveries[0].id } }))
 
@@ -271,6 +281,7 @@ describe('resendInvite', () => {
 
     const delivery = await prisma.viewbookEmailDelivery.findFirstOrThrow({ where: { dedupKey: `vb-invite:${member.memberKey}:2` } })
     expect(delivery.recipient).toBe('resend@example.com')
+    expect(delivery.memberId).toBe(member.id)
     expect(enqueueJob).toHaveBeenCalledWith(expect.objectContaining({ payload: { deliveryId: delivery.id } }))
   })
 

@@ -246,8 +246,8 @@ describe('MaterialsSection', () => {
   it('renders provided links with noopener and requested placeholders without an anchor', () => {
     const data = base({
       materials: [
-        { id: 1, label: 'Brand book', status: 'provided', url: 'https://x.com/b', addedBy: 'client', providedAt: '2026-07-01T00:00:00.000Z' },
-        { id: 2, label: 'Logo files', status: 'requested', url: null, addedBy: 'kevin@er.com', providedAt: null },
+        { id: 1, label: 'Brand book', status: 'provided', url: 'https://x.com/b', addedBy: 'removed-member@example.com', addedByKind: 'member', providedAt: '2026-07-01T00:00:00.000Z' },
+        { id: 2, label: 'Logo files', status: 'requested', url: null, addedBy: 'kevin@er.com', addedByKind: 'operator', providedAt: null },
       ],
     })
     render(<MaterialsSection meta={meta()} section={sec('materials')} data={data} token="tok" />)
@@ -256,13 +256,15 @@ describe('MaterialsSection', () => {
     expect(a.getAttribute('target')).toBe('_blank')
     expect(screen.getByText('Logo files')).toBeDefined()
     expect(screen.queryByRole('link', { name: /logo files/i })).toBeNull()
+    expect(screen.getByText(/added by you/i)).toBeDefined()
+    expect(screen.getByText(/added by our team/i)).toBeDefined()
     expect(screen.getByRole('button', { name: 'Add link' })).toBeDefined()
   })
 
   it('renders a non-https material URL as plain text, never an anchor (security-review)', () => {
     const data = base({
       materials: [
-        { id: 1, label: 'Sneaky', status: 'provided', url: 'javascript:alert(1)', addedBy: 'client', providedAt: null },
+        { id: 1, label: 'Sneaky', status: 'provided', url: 'javascript:alert(1)', addedBy: 'client', addedByKind: 'client', providedAt: null },
       ],
     })
     render(<MaterialsSection meta={meta()} section={sec('materials')} data={data} token="tok" />)

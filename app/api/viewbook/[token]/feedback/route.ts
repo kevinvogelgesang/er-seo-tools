@@ -3,6 +3,7 @@ import { withRoute } from '@/lib/api/with-route'
 import { HttpError } from '@/lib/api/errors'
 import { requireJsonObject } from '@/lib/viewbook/route-utils'
 import { requireViewbookToken } from '@/lib/viewbook/route-auth'
+import { requireCanWrite } from '@/lib/viewbook/principal'
 import {
   checkWriteThrottle,
   readBoundedJson,
@@ -113,6 +114,7 @@ export const POST = withRoute(async (request: NextRequest, { params }: RoutePara
 
   const token = (await params).token
   const viewbook = await requireViewbookToken(token)
+  const principal = await requireCanWrite(request, viewbook)
   checkWriteThrottle(token)
 
   let input: ClientFeedbackInput
@@ -133,7 +135,7 @@ export const POST = withRoute(async (request: NextRequest, { params }: RoutePara
 
   let result: Awaited<ReturnType<typeof insertClientFeedback>>
   try {
-    result = await insertClientFeedback(viewbook, token, input)
+    result = await insertClientFeedback(viewbook, token, input, { principal })
   } catch (err) {
     if (saved.length > 0) await deleteViewbookAssets(String(viewbook.id), saved)
     throw err

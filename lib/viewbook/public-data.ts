@@ -234,12 +234,14 @@ async function loadFieldCategories(viewbookId: number): Promise<PublicFieldCateg
       version: r.version,
       createdAt: r.createdAt.toISOString(),
       valueUpdatedBy: r.valueUpdatedBy,
+      valueUpdatedByKind: r.valueUpdatedByKind,
       valueUpdatedAt: iso(r.valueUpdatedAt),
       isCustom: r.defKey == null,
       amendments: r.amendments.map((a) => ({
         id: a.id,
         value: a.value,
         author: a.author,
+        authorKind: a.authorKind,
         createdAt: a.createdAt.toISOString(),
       })),
     })
@@ -300,6 +302,7 @@ async function loadMaterials(viewbookId: number): Promise<PublicMaterialLink[]> 
     status: r.status,
     url: r.url,
     addedBy: r.addedBy,
+    addedByKind: r.addedByKind,
     providedAt: iso(r.providedAt),
   }))
 }

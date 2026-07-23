@@ -917,6 +917,7 @@ model Viewbook {
   teamMembers     ViewbookTeamMember[]
   stageLogs       ViewbookStageLog[]
   emailDeliveries ViewbookEmailDelivery[]
+  authRequests    ViewbookAuthRequest[]
   docs            ViewbookDoc[]
   assessmentContent ViewbookAssessmentContent?
 }
@@ -949,6 +950,7 @@ model ViewbookField {
   value          String? // canonical answer (list = JSON array of strings)
   version        Int       @default(0) // optimistic concurrency: every value write bumps
   valueUpdatedBy String? // 'client' | operator email
+  valueUpdatedByKind String? // 'client' | 'member' | 'operator'
   valueUpdatedAt DateTime?
   archivedAt     DateTime? // soft archive — pre-lock/amended fields are never hard-deleted
   createdBy      String // 'seed' | operator email
@@ -964,6 +966,7 @@ model ViewbookFieldAmendment {
   field            ViewbookField @relation(fields: [fieldId], references: [id], onDelete: Cascade)
   value            String
   author           String // 'client' | operator email
+  authorKind       String         @default("client") // 'client' | 'member' | 'operator'
   clientMutationId String?       @unique // retry idempotency
   createdAt        DateTime      @default(now())
 
@@ -1054,6 +1057,7 @@ model ViewbookMaterialLink {
   url              String? // https-only, validated; null while 'requested'
   clientMutationId String?   @unique // retry idempotency
   addedBy          String // 'client' | operator email
+  addedByKind      String    @default("client") // 'client' | 'member' | 'operator'
   providedAt       DateTime?
   createdAt        DateTime  @default(now())
 
@@ -1066,6 +1070,7 @@ model ViewbookActivity {
   viewbook   Viewbook @relation(fields: [viewbookId], references: [id], onDelete: Cascade)
   kind       String // 'answer' | 'amendment' | 'feedback' | 'material-link' | 'lock' | 'section-done' | ...
   actor      String // 'client' | operator email
+  actorKind  String   @default("client") // 'client' | 'member' | 'operator' | 'system'
   summary    String // pre-rendered one-line description (plain text)
   createdAt  DateTime @default(now())
 
@@ -1082,8 +1087,49 @@ model ViewbookTeamMember {
   addedBy          String
   clientMutationId String?  @unique
   createdAt        DateTime @default(now())
+  authGrants       ViewbookAuthGrant[]
+  sessions         ViewbookMemberSession[]
   @@unique([viewbookId, email])
   @@index([viewbookId, id])
+}
+
+model ViewbookAuthGrant {
+  id         Int                @id @default(autoincrement())
+  memberId   Int
+  member     ViewbookTeamMember @relation(fields: [memberId], references: [id], onDelete: Cascade)
+  tokenHash  String             @unique
+  expiresAt  DateTime
+  consumedAt DateTime?
+  createdAt  DateTime           @default(now())
+
+  @@index([memberId])
+  @@index([expiresAt])
+}
+
+model ViewbookMemberSession {
+  id         Int                @id @default(autoincrement())
+  memberId   Int
+  member     ViewbookTeamMember @relation(fields: [memberId], references: [id], onDelete: Cascade)
+  tokenHash  String             @unique
+  expiresAt  DateTime
+  revokedAt  DateTime?
+  createdAt  DateTime           @default(now())
+  lastSeenAt DateTime?
+
+  @@index([memberId])
+  @@index([expiresAt])
+}
+
+model ViewbookAuthRequest {
+  id         String   @id
+  viewbookId Int
+  viewbook   Viewbook @relation(fields: [viewbookId], references: [id], onDelete: Cascade)
+  email      String
+  createdAt  DateTime @default(now())
+
+  @@index([viewbookId, email, createdAt])
+  @@index([email, createdAt])
+  @@index([createdAt])
 }
 
 model ViewbookStageLog {

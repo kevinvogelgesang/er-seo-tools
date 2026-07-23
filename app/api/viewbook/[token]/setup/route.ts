@@ -8,6 +8,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { withRoute } from '@/lib/api/with-route'
 import { requireJsonObject } from '@/lib/viewbook/route-utils'
 import { requireViewbookToken } from '@/lib/viewbook/route-auth'
+import { requireCanWrite } from '@/lib/viewbook/principal'
 import {
   checkWriteThrottle,
   readBoundedJson,
@@ -34,8 +35,9 @@ export const PATCH = withRoute(async (request: NextRequest, { params }: RoutePar
   requireJsonContentType(request)
   const token = (await params).token
   const viewbook = await requireViewbookToken(token)
+  const principal = await requireCanWrite(request, viewbook)
   checkWriteThrottle(token)
   const input = parseInput(await readBoundedJson(request, BODY_CAP_BYTES))
-  const result = await setNotifyEmails(viewbook, token, input)
+  const result = await setNotifyEmails(viewbook, token, input, { principal })
   return NextResponse.json(result, { headers: { 'Cache-Control': 'no-store' } })
 })
