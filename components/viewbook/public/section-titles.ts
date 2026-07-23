@@ -10,7 +10,7 @@ export const SECTION_TITLES: Record<SectionKey, string> = {
   milestones: 'Process & Milestones',
   'pc-intro': 'Welcome',
   'pc-invite': 'Invite Your Team',
-  'pc-setup': 'Set Up Your Viewbook',
+  'pc-setup': 'Set Up Your Onboarding Viewbook',
   'pc-thanks': 'Thank You',
   strategy: 'SEO, GEO & E-E-A-T Strategy',
   welcome: 'Welcome & Team',

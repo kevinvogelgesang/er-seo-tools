@@ -145,7 +145,7 @@ describe('SectionOutline', () => {
 
     expect(screen.getByRole('navigation', { name: 'Section outline' })).toBeTruthy()
     expect(screen.getByRole('button', { name: 'Welcome & Team' })).toBeTruthy()
-    expect(screen.getByRole('button', { name: 'Set Up Your Viewbook' })).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Set Up Your Onboarding Viewbook' })).toBeTruthy()
     expect(screen.getByRole('button', { name: 'Next Steps' })).toBeTruthy()
     expect(screen.getByRole('button', { name: 'Website Specifics' })).toBeTruthy()
     expect(screen.getAllByText('Visible')).toHaveLength(2)

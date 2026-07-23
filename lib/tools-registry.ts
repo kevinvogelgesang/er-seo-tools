@@ -65,13 +65,13 @@ export const TOOLS: ToolDef[] = [
   },
   {
     id: 'viewbooks',
-    name: 'Client Viewbooks',
+    name: 'Onboarding Viewbooks',
     href: '/viewbooks',
     group: 'plan',
     icon: IconViewbook,
     description: 'Themed client hubs for website builds',
     children: [
-      { name: 'Viewbooks', href: '/viewbooks' },
+      { name: 'Onboarding Viewbooks', href: '/viewbooks' },
       { name: 'Company content', href: '/viewbooks/settings' },
     ],
   },
