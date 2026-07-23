@@ -27,6 +27,8 @@ import {
   putGlobalContentBridged,
   putSectionCopyGlobalBridged,
   deleteSectionCopyGlobalBridged,
+  reconcileSeededTemplates,
+  RECONCILE_MARKER_KEY,
 } from './template-service'
 import { parseSubsectionContent, toLegacyGlobalBody } from './template-content'
 
@@ -41,7 +43,7 @@ async function cleanTemplates() {
   await prisma.fieldTemplate.deleteMany({})
   await prisma.subsectionTemplate.deleteMany({})
   await prisma.sectionTemplate.deleteMany({})
-  await prisma.viewbookGlobalContent.deleteMany({ where: { key: { in: SEED_KEYS } } })
+  await prisma.viewbookGlobalContent.deleteMany({ where: { key: { in: [...SEED_KEYS, RECONCILE_MARKER_KEY] } } })
 }
 
 beforeEach(async () => {
@@ -422,5 +424,47 @@ describe('legacy bridged writes (forward-write)', () => {
     await putGlobalContentBridged('process', { blocks: [{ heading: 'P', body: 'b' }] }, 'op@er.com')
     const after = await prisma.viewbook.findMany({ orderBy: { id: 'asc' }, select: { syncVersion: true } })
     expect(after.map((v, i) => v.syncVersion - before[i].syncVersion)).toEqual([1, 1])
+  })
+})
+
+describe('reconcileSeededTemplates', () => {
+  it('re-projects legacy edits into version-1 trees exactly once (marker)', async () => {
+    // seed happened in beforeEach with empty legacy rows; simulate an F1a-window legacy edit:
+    await prisma.viewbookGlobalContent.create({ data: { key: 'process', bodyJson: JSON.stringify({ blocks: [{ heading: 'Window edit', body: 'b' }] }), updatedBy: 'x' } })
+    await reconcileSeededTemplates()
+    const { sections } = await getTemplateTree()
+    const w = sections.find(x => x.templateKey === 'welcome')!
+    expect((w.subsections[0].content as { process: ContentBlocks }).process.blocks[0].heading).toBe('Window edit')
+    expect(await prisma.viewbookGlobalContent.findUnique({ where: { key: RECONCILE_MARKER_KEY } })).not.toBeNull()
+    // second window edit + second call → NOT absorbed (marker)
+    await prisma.viewbookGlobalContent.update({ where: { key: 'process' }, data: { bodyJson: JSON.stringify({ blocks: [{ heading: 'Later', body: 'b' }] }) } })
+    await reconcileSeededTemplates()
+    const after = await getTemplateTree()
+    expect((after.sections.find(x => x.templateKey === 'welcome')!.subsections[0].content as { process: ContentBlocks }).process.blocks[0].heading).toBe('Window edit')
+  })
+  it('skips operator-edited trees (any version > 1 anywhere in the subtree)', async () => {
+    await prisma.viewbookGlobalContent.create({ data: { key: 'process', bodyJson: JSON.stringify({ blocks: [{ heading: 'Window edit', body: 'b' }] }), updatedBy: 'x' } })
+    const { sections } = await getTemplateTree()
+    const w = sections.find(x => x.templateKey === 'welcome')!
+    await prisma.subsectionTemplate.update({ where: { id: w.subsections[0].id }, data: { version: 2 } })  // simulated operator edit
+    await reconcileSeededTemplates()
+    const after = await getTemplateTree()
+    expect((after.sections.find(x => x.templateKey === 'welcome')!.subsections[0].content as { process: ContentBlocks }).process.blocks).toEqual([])
+  })
+  it('crash before the marker → full re-run converges, marker written second time (Codex fix #8)', async () => {
+    await prisma.viewbookGlobalContent.create({ data: { key: 'process', bodyJson: JSON.stringify({ blocks: [{ heading: 'Window edit', body: 'b' }] }), updatedBy: 'x' } })
+    await expect(reconcileSeededTemplates({ beforeMarker: async () => { throw new Error('boom') } })).rejects.toThrow('boom')
+    expect(await prisma.viewbookGlobalContent.findUnique({ where: { key: RECONCILE_MARKER_KEY } })).toBeNull()
+    await reconcileSeededTemplates()   // re-run: version-1 trees converge, marker lands
+    expect(await prisma.viewbookGlobalContent.findUnique({ where: { key: RECONCILE_MARKER_KEY } })).not.toBeNull()
+    const { sections } = await getTemplateTree()
+    expect((sections.find(x => x.templateKey === 'welcome')!.subsections[0].content as { process: ContentBlocks }).process.blocks[0].heading).toBe('Window edit')
+  })
+  it('a concurrent boot winning the marker race (P2002) is tolerated', async () => {
+    await reconcileSeededTemplates({ beforeMarker: async () => {
+      await prisma.viewbookGlobalContent.create({ data: { key: RECONCILE_MARKER_KEY, bodyJson: JSON.stringify({ v: 1, reconciledAt: 'rival' }), updatedBy: 'system' } })
+    } })  // resolves without throwing; rival marker survives
+    const marker = await prisma.viewbookGlobalContent.findUnique({ where: { key: RECONCILE_MARKER_KEY } })
+    expect(JSON.parse(marker!.bodyJson).reconciledAt).toBe('rival')
   })
 })

@@ -26,7 +26,7 @@ import {
   type SubsectionContentV1,
 } from './template-content'
 import { validateSectionCopy, type SectionCopyContent } from './section-copy-validator'
-import { putSectionCopyGlobalStatements, deleteSectionCopyGlobalStatements } from './section-copy-content'
+import { putSectionCopyGlobalStatements, deleteSectionCopyGlobalStatements, sectionCopyKey } from './section-copy-content'
 import {
   putGlobalContentStatements,
   buildTeamRosterWrite,
@@ -40,7 +40,14 @@ import { SECTION_KEYS, type SectionKey } from './theme'
 import { SECTION_COPY } from './section-copy'
 import { CATALOG_CATEGORIES } from './catalog'
 import { syncVersionBumpAllStatement, syncVersionBumpAllWhere } from './sync'
-import { projectMainContentJson, type SeedSourceRow } from './template-seed'
+import {
+  projectMainContentJson,
+  projectTemplateSeedWithIssues,
+  seedTreeCreateData,
+  createSeedTree,
+  type SeedSourceRow,
+} from './template-seed'
+import { GLOBAL_CONTENT_KEYS } from './global-content-keys'
 import type { GlobalContentKey, TeamMember, ContentBlocks } from './global-content-keys'
 
 // The four bridged (templateKey, 'main') content pairs and their legacy keys.
@@ -1052,5 +1059,94 @@ export async function deleteSectionCopyGlobalBridged(sectionKey: string): Promis
       { subsystem: 'viewbook', op: 'template-forward-write-miss', templateKey: sectionKey },
       new Error(`bridged section copy delete: template reset missed for ${sectionKey}`),
     )
+  }
+}
+
+// ---- Task 7: one-time F1b activation reconciliation (spec fix #1) ---------
+//
+// The F1a seeder (template-seed.ts) only creates a tree when its templateKey
+// row is ABSENT — it never touches a tree that already exists. That's correct
+// steady-state behavior (operator edits win), but it leaves a gap for the
+// F1a→F1b activation window: a legacy edit landing via the un-bridged routes
+// (putGlobalContentBridged etc. didn't exist yet) is invisible to a tree
+// that was already seeded from the OLD (pre-edit) legacy rows. This function
+// runs ONCE at boot (marker-guarded) to re-project every still-untouched
+// (version===1 everywhere) tree from the CURRENT legacy rows, so any
+// window edit is absorbed exactly once. Trees an operator has since touched
+// (any version > 1 anywhere in the subtree) are left alone — this is
+// defensive, not expected to fire in practice.
+export const RECONCILE_MARKER_KEY = 'template-library:reconciled'
+
+export interface ReconcileSeededTemplatesDeps {
+  // Test-only crash-window seam (Codex fix #8): awaited AFTER all tree
+  // reprojection and BEFORE the marker row is created, so a test can force a
+  // failure there and prove the whole pass safely re-runs (converges) on the
+  // next boot.
+  beforeMarker?: () => Promise<void>
+}
+
+export async function reconcileSeededTemplates(deps: ReconcileSeededTemplatesDeps = {}): Promise<void> {
+  const marker = await prisma.viewbookGlobalContent.findUnique({ where: { key: RECONCILE_MARKER_KEY } })
+  if (marker) return // already reconciled — never again
+
+  const [globalRows, sectionCopyRows] = await Promise.all([
+    prisma.viewbookGlobalContent.findMany({
+      where: { key: { in: [...GLOBAL_CONTENT_KEYS] } },
+      select: { key: true, bodyJson: true },
+    }),
+    prisma.viewbookGlobalContent.findMany({
+      where: { key: { in: SECTION_KEYS.map(sectionCopyKey) } },
+      select: { key: true, bodyJson: true },
+    }),
+  ])
+
+  const { trees, issues } = projectTemplateSeedWithIssues(globalRows, sectionCopyRows)
+  for (const issue of issues) {
+    logError(
+      { subsystem: 'viewbook', op: 'template-reconcile', key: issue.key, reason: issue.reason },
+      new Error(`viewbook reconcile source ${issue.reason}: ${issue.key}`),
+    )
+  }
+
+  for (const tree of trees) {
+    const existing = await prisma.sectionTemplate.findUnique({
+      where: { templateKey: tree.templateKey },
+      include: { subsections: { include: { fields: true } } },
+    })
+
+    if (!existing) {
+      // The boot seeder runs before this — a missing row only happens after a
+      // manual deletion. Still correct to create it fresh.
+      await createSeedTree(tree)
+      continue
+    }
+
+    const untouched =
+      existing.version === 1 &&
+      existing.subsections.every((sub) => sub.version === 1 && sub.fields.every((f) => f.version === 1))
+    if (!untouched) continue // operator-edited (or partially so) — skip, defensive
+
+    // Overwrite: delete THEN create in one array-form txn (never interactive)
+    // so the global fieldKey uniques (CATALOG defKeys) can't collide with the
+    // about-to-be-recreated row's own fields.
+    await prisma.$transaction([
+      prisma.sectionTemplate.delete({ where: { templateKey: tree.templateKey } }),
+      prisma.sectionTemplate.create({ data: seedTreeCreateData(tree) }),
+    ])
+  }
+
+  await deps.beforeMarker?.()
+
+  try {
+    await prisma.viewbookGlobalContent.create({
+      data: {
+        key: RECONCILE_MARKER_KEY,
+        bodyJson: JSON.stringify({ v: 1, reconciledAt: new Date().toISOString() }),
+        updatedBy: 'system',
+      },
+    })
+  } catch (err) {
+    // A concurrent boot won the marker race — fine, tolerate it.
+    if (!(err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002')) throw err
   }
 }

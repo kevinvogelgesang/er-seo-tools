@@ -142,6 +142,19 @@ export async function register() {
       logError({ subsystem: 'viewbook', op: 'template-seed-boot' }, err)
     }
 
+    // F1b: one-time activation reconciliation (spec fix #1) — re-projects
+    // legacy edits made in the F1a→F1b window into still-untouched trees,
+    // marker-guarded so it never runs twice. MUST follow the seeder. Own
+    // failure isolation + own op so seed vs reconcile failures are
+    // distinguishable in PM2 stderr.
+    try {
+      const { reconcileSeededTemplates } = await import('@/lib/viewbook/template-service')
+      await reconcileSeededTemplates()
+    } catch (err) {
+      const { logError } = await import('@/lib/log')
+      logError({ subsystem: 'viewbook', op: 'template-reconcile-boot' }, err)
+    }
+
     const { startJobWorker, stopJobWorker } = await import('@/lib/jobs/worker')
     await startJobWorker()
 
