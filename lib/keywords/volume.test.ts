@@ -275,7 +275,8 @@ describe('getKeywordVolumes', () => {
     expect(result.volumes.map((v) => v.keyword)).toEqual(keywords)
   })
 
-  it('3001 keywords → 3 transport calls, overflow skipped over_cap, output in first-seen order', async () => {
+  // 3001 per-key upserts run ~4.4s alone — the 5s default flakes under full-suite load
+  it('3001 keywords → 3 transport calls, overflow skipped over_cap, output in first-seen order', { timeout: 20_000 }, async () => {
     const keywords = Array.from({ length: 3001 }, (_, i) => `${PREFIX}c3001-${i}`)
     mockFetchSearchVolume.mockImplementation(async (chunkKeywords: string[]) =>
       okResult(notReturnedOutcomes(chunkKeywords)),
