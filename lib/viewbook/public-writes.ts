@@ -90,12 +90,18 @@ export async function insertClientFeedback(
   // id via the clientMutationId subselect, so a fence-failed feedback insert
   // attaches nothing. The (feedbackId, sortOrder) unique + ON CONFLICT makes a
   // replayed request a no-op (the original attempt attached atomically).
+  // The predicate ALSO carries `memberFence` (codex review P1): without it, a
+  // replay of a previously-committed image-less feedback — matched by
+  // clientMutationId — would still attach image rows even after the member
+  // who's replaying was removed between route auth and commit, leaving
+  // broken image records once the route's post-txn
+  // `requireMemberStillAuthorized` throws and deletes the uploaded files.
   const imageFilenames = (input.images ?? []).slice(0, 3)
   const imageStatements = imageFilenames.map((filename, index) => prisma.$executeRaw`
     INSERT INTO "ViewbookFeedbackImage" ("feedbackId", "filename", "sortOrder", "createdAt")
     SELECT f."id", ${filename}, ${index}, ${now}
     FROM "ViewbookFeedback" f
-    WHERE f."clientMutationId" = ${input.clientMutationId}
+    WHERE f."clientMutationId" = ${input.clientMutationId} AND ${memberFence}
     ON CONFLICT("feedbackId", "sortOrder") DO NOTHING
   `)
   const [, activityCount, insertCount] = await prisma.$transaction([

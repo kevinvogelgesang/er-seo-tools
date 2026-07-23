@@ -7,6 +7,8 @@ import crypto from 'crypto'
 import { prisma } from '@/lib/db'
 import { createViewbook } from '@/lib/viewbook/service'
 import { requireViewbookToken } from '@/lib/viewbook/route-auth'
+import { mintSecret } from '@/lib/viewbook/auth-secrets'
+import type { PublicMutationAuth } from '@/lib/viewbook/principal'
 import { insertClientFeedback as insertClientFeedbackCore, insertClientMaterial as insertClientMaterialCore } from './public-writes'
 
 const LEGACY_TEST_AUTH = { principal: { kind: 'operator', email: 'client' } } as const
@@ -36,6 +38,31 @@ function mutationId() { return crypto.randomUUID() }
 
 async function syncVersion(viewbookId: number): Promise<number> {
   return (await prisma.viewbook.findUniqueOrThrow({ where: { id: viewbookId } })).syncVersion
+}
+
+async function mkMemberAuth(viewbookId: number): Promise<{ auth: PublicMutationAuth; memberId: number }> {
+  const member = await prisma.viewbookTeamMember.create({
+    data: {
+      viewbookId,
+      memberKey: crypto.randomUUID(),
+      name: 'Jamie Client',
+      email: `${crypto.randomUUID()}@example.com`,
+      addedBy: 'operator@example.com',
+    },
+  })
+  const session = await prisma.viewbookMemberSession.create({
+    data: { memberId: member.id, tokenHash: mintSecret().hash, expiresAt: new Date(Date.now() + 60_000) },
+  })
+  return {
+    auth: {
+      principal: {
+        kind: 'member',
+        member: { id: member.id, memberKey: member.memberKey, name: member.name, email: member.email },
+        sessionId: session.id,
+      },
+    },
+    memberId: member.id,
+  }
 }
 
 describe('insertClientFeedback syncVersion bump', () => {
@@ -94,6 +121,40 @@ describe('insertClientFeedback syncVersion bump', () => {
     expect(await prisma.viewbookFeedbackImage.count({
       where: { filename: '33333333-3333-4333-8333-333333333333.webp' },
     })).toBe(0)
+  })
+
+  it('attaches no image rows on a replay-with-images race after the member is removed (codex review P1)', async () => {
+    const ctx = await mkViewbook()
+    const { auth, memberId } = await mkMemberAuth(ctx.viewbook.id)
+    const id = mutationId()
+
+    // First request: the member submits image-less feedback while their
+    // session is still live. This commits normally.
+    const first = await insertClientFeedbackCore(ctx.viewbook, ctx.token, {
+      reviewLinkId: ctx.reviewLink.id, body: 'Please revise this', authorName: null, clientMutationId: id,
+    }, auth)
+    expect(first.replayed).toBe(false)
+    expect(first.images).toEqual([])
+
+    // The member is removed (route auth already resolved `auth` above,
+    // mirroring the TOCTOU window between route-level auth and commit).
+    await prisma.viewbookTeamMember.delete({ where: { id: memberId } })
+
+    // Replay of the SAME clientMutationId, now WITH images, using the
+    // stale member auth captured before removal. The feedback row already
+    // exists (matched by clientMutationId) — the fix must stop the image
+    // INSERTs from riding along unfenced.
+    await expect(insertClientFeedbackCore(ctx.viewbook, ctx.token, {
+      reviewLinkId: ctx.reviewLink.id,
+      body: 'Please revise this',
+      authorName: null,
+      clientMutationId: id,
+      images: ['44444444-4444-4444-8444-444444444444.webp'],
+    }, auth)).rejects.toMatchObject({ status: 404, code: 'not_found' })
+
+    expect(await prisma.viewbookFeedbackImage.count({ where: { feedbackId: first.feedback.id } })).toBe(0)
+    const stored = await prisma.viewbookFeedback.findUniqueOrThrow({ where: { id: first.feedback.id } })
+    expect(stored.body).toBe('Please revise this')
   })
 
   it('does not bump on a fenced failure (feedback on a hidden milestones section)', async () => {
