@@ -82,7 +82,7 @@ function data(over: Partial<ViewbookPublicData> = {}): ViewbookPublicData {
 describe('PcSetupSection', () => {
   it('renders the pc-setup title in post-contract', () => {
     const { container } = render(<PcSetupSection meta={meta()} section={section} data={data()} token="t" />)
-    expect(container.textContent).toContain('Set Up Your Viewbook')
+    expect(container.textContent).toContain('Set Up Your Onboarding Viewbook')
   })
 
   it('surfaces the PC_SETUP_DEF_KEYS labels, in order, and excludes non-designated fields', () => {
@@ -104,7 +104,7 @@ describe('PcSetupSection', () => {
 
   it('renders in a carried stage (kickoff) without hard-gating to post-contract', () => {
     const { container } = render(<PcSetupSection meta={meta()} section={section} data={data({ stage: 'kickoff' })} token="t" />)
-    expect(container.textContent).toContain('Set Up Your Viewbook')
+    expect(container.textContent).toContain('Set Up Your Onboarding Viewbook')
     expect(screen.getByText('School name')).toBeDefined()
   })
 

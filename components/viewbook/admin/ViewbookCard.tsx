@@ -50,7 +50,7 @@ export function ViewbookCard({ clientId, clientName }: { clientId: number; clien
   return (
     <section className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm dark:border-navy-border dark:bg-navy-card">
       <div>
-        <h2 className="font-display text-base font-bold text-navy dark:text-white">Client Viewbook</h2>
+        <h2 className="font-display text-base font-bold text-navy dark:text-white">Onboarding Viewbook</h2>
         <p className="mt-1 text-xs text-gray-500 dark:text-white/55">Manage the client-facing project workspace and public link.</p>
       </div>
       {error && <p role="alert" className="mt-3 rounded-lg bg-red-50 p-3 text-sm text-red-700 dark:bg-red-500/10 dark:text-red-300">{error}</p>}

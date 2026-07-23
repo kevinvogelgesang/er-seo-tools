@@ -37,11 +37,11 @@ interface TeamInviteInput {
 }
 
 export function buildTeamInviteEmail(input: TeamInviteInput): EmailContent {
-  const subject = `You've been invited to ${input.clientName}'s viewbook`
+  const subject = `You've been invited to ${input.clientName}'s onboarding viewbook`
   const html = shellHtml(`<h1 style="margin:0 0 12px;font-size:22px;">${esc(input.viewbookTitle)}</h1>
-    <p style="margin:0 0 20px;font-size:14px;color:${COLOR.sub};">Join ${esc(input.clientName)} in their project viewbook.</p>
+    <p style="margin:0 0 20px;font-size:14px;color:${COLOR.sub};">Join ${esc(input.clientName)} in their onboarding viewbook.</p>
     ${buttonHtml(input.inviteUrl, 'Open the viewbook')}`)
-  const text = [subject, '', input.viewbookTitle, `Join ${input.clientName} in their project viewbook.`, '', `Open the viewbook: ${input.inviteUrl}`].join('\n')
+  const text = [subject, '', input.viewbookTitle, `Join ${input.clientName} in their onboarding viewbook.`, '', `Open the viewbook: ${input.inviteUrl}`].join('\n')
   return { subject, html, text }
 }
 

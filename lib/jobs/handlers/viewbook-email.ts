@@ -131,7 +131,7 @@ export async function runViewbookEmailJob(
   }
 
   const clientName = viewbook.client.name
-  const viewbookTitle = `${clientName} Project Viewbook`
+  const viewbookTitle = `${clientName} Onboarding Viewbook`
   const viewbookUrl = `${baseUrl}/viewbook/${viewbook.token}`
 
   let stageLabel = 'the next stage'

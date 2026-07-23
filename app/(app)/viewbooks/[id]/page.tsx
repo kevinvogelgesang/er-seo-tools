@@ -3,7 +3,7 @@ import type { Metadata } from 'next'
 import { ViewbookEditor } from '@/components/viewbook/admin/ViewbookEditor'
 
 export const dynamic = 'force-dynamic'
-export const metadata: Metadata = { title: 'Viewbook Editor' }
+export const metadata: Metadata = { title: 'Onboarding Viewbook Editor' }
 
 export default async function ViewbookEditorPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params

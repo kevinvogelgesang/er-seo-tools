@@ -85,7 +85,7 @@ describe('SectionQuickControls', () => {
     )
     const rail = container.querySelector('[data-operator-section-controls]')
     expect(screen.getByText('Editing section')).toBeTruthy()
-    expect(screen.getByText('Set Up Your Viewbook')).toBeTruthy()
+    expect(screen.getByText('Set Up Your Onboarding Viewbook')).toBeTruthy()
     expect(screen.queryByText('pc-setup')).toBeNull()
     expect(screen.getByText('Visible')).toBeTruthy()
     expect(screen.getByText('Acknowledged')).toBeTruthy()

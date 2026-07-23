@@ -12,7 +12,7 @@ describe('viewbook email content', () => {
       inviteUrl: 'https://app.example.com/viewbook/invite-token',
       clientName: 'Acme College',
     })
-    expect(content.subject).toContain("You've been invited to Acme College's viewbook")
+    expect(content.subject).toContain("You've been invited to Acme College's onboarding viewbook")
     expect(content.html).toContain('https://app.example.com/viewbook/invite-token')
     expect(content.text).toContain('https://app.example.com/viewbook/invite-token')
     expect(content.html).toContain('Acme Project Viewbook')

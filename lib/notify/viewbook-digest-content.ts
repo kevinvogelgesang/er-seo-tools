@@ -26,7 +26,7 @@ function capSummary(summary: string): string {
 export function buildViewbookDigestEmail(input: ViewbookDigestInput): EmailContent {
   const summaries = input.items.map((item) => capSummary(item.summary))
   const overflow = input.overflowCount > 0 ? `+${input.overflowCount} more in the activity feed` : null
-  const subject = `Viewbook activity — ${input.clientName} (${input.items.length + input.overflowCount} updates)`
+  const subject = `Onboarding Viewbook activity — ${input.clientName} (${input.items.length + input.overflowCount} updates)`
   const textLines = [
     `${input.clientName} has new viewbook activity.`,
     '',
