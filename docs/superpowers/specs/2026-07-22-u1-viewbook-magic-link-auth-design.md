@@ -211,7 +211,7 @@ Attribution has THREE verified consumers that break under a naive "replace `'cli
 - `operator`/`dev` principals on the public routes attribute with their email (dev = `dev@localhost`); operators normally write via `/api/viewbooks/[id]/*` (unchanged).
 - U1 does NOT restructure history rows — U4 owns that. U1 replaces the hardcoded `'client'` literals at call sites, adds `actorKind`, and audits every `=== 'client'` / `!== 'client'` comparison in `lib/viewbook/` + `components/viewbook/` (the three above are the known ones; the audit is an acceptance item).
 
-## 11. §9 Q6 — break-glass (RECOMMENDATION; Kevin to confirm BEFORE the U1 plan is written — it shapes `canWrite`)
+## 11. §9 Q6 — break-glass (**CONFIRMED by Kevin 2026-07-22: read-only member-equivalent**, as recommended below)
 
 Break-glass sessions (valid `er_auth`, `email: null` — the `APP_AUTH_PASSWORD` path) get **read-only member-equivalent access**: they can VIEW any viewbook (they hold the ER app password; locking them out of viewing is theater) but get NO operator layer and NO public-route writes (a write needs an attributable identity; break-glass has none). This matches today's behavior where break-glass is already not an operator on viewbook surfaces, and it keeps the U1 attribution contract total ("every write has a name"). If Kevin wants full exemption instead, the change is `canWrite` including `break-glass` + a fixed `'er-staff'` attribution string — one file. Acceptance criterion 10 tests the RECOMMENDED behavior; flip it with the decision if Kevin overrides.
 
