@@ -1149,3 +1149,55 @@ model ViewbookAssessmentImage {
 
   @@index([contentId, sortOrder])
 }
+
+model SectionTemplate {
+  id           Int       @id @default(autoincrement())
+  templateKey  String    @unique      // durable identity; seeded = today's SectionKey strings
+  rendererType String                 // code-owned registry id (§4); NEVER identity (Codex fix #4)
+  title        String                 // default section title
+  copyJson     String                 // versioned envelope {v:1, copy:{purpose,whatThis,whatWeNeed}} (§4 parsers)
+  contentJson  String?                // versioned renderer-level CONFIG (rare; most content lives on subsections)
+  sortOrder    Int                    // ONE total order; separators join this sequence in F5b (single-sequence contract)
+  version      Int       @default(1)  // AGGREGATE version: bumped on every mutation of the section OR its subtree (fix #12)
+  archivedAt   DateTime?              // archive, never delete, once F2 instances exist
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  subsections  SubsectionTemplate[]
+}
+
+model SubsectionTemplate {
+  id                Int             @id @default(autoincrement())
+  sectionTemplateId Int
+  section           SectionTemplate @relation(fields: [sectionTemplateId], references: [id], onDelete: Cascade)
+  subsectionKey     String          // durable identity within the section
+  title             String
+  offeringWebsite   Boolean         @default(false)  // explicit booleans — no scalar-list
+  offeringVa        Boolean         @default(false)
+  offeringPpc       Boolean         @default(false)
+  copyJson          String?         // versioned {v:1, copy:{intro?, whatWeNeed?}} — D6: a subsection has its own heading+copy
+  contentJson       String?         // versioned per-renderer subsection content (§4); generic blocks live HERE, not on the section
+  sortOrder         Int
+  version           Int             @default(1)
+  archivedAt        DateTime?
+  createdAt         DateTime        @default(now())
+  updatedAt         DateTime        @updatedAt
+  fields            FieldTemplate[]
+
+  @@unique([sectionTemplateId, subsectionKey])
+}
+
+model FieldTemplate {
+  id                   Int                @id @default(autoincrement())
+  subsectionTemplateId Int
+  subsection           SubsectionTemplate @relation(fields: [subsectionTemplateId], references: [id], onDelete: Cascade)
+  fieldKey             String             @unique  // LIBRARY-GLOBAL durable identity (fix #8) — F2 preserves answers by this key,
+                                                   // mirroring ViewbookField @@unique([viewbookId, defKey]); seeded = catalog defKey.
+                                                   // IMMUTABLE after create (no PATCH surface); format ^[a-z0-9][a-z0-9-]{1,63}$
+  label                String
+  fieldType            String             // 'text' | 'textarea' | 'list' (catalog contract)
+  sortOrder            Int
+  version              Int                @default(1)
+  archivedAt           DateTime?
+  createdAt            DateTime           @default(now())
+  updatedAt            DateTime           @updatedAt
+}

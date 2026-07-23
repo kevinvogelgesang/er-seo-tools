@@ -13,15 +13,16 @@ import {
   syncVersionBumpAllStatement, syncVersionBumpAllWhere,
   syncVersionBumpStatement, syncVersionBumpWhere,
 } from './sync'
+import {
+  type SectionCopyContent,
+  type ResolvedSectionCopy,
+  CAPS,
+  validateSectionCopy,
+} from './section-copy-validator'
 
-export interface SectionCopyContent {
-  purpose: string
-  whatThis: string
-  whatWeNeed: string | null
-}
-export type ResolvedSectionCopy = SectionCopyContent
+export type { SectionCopyContent, ResolvedSectionCopy }
+export { CAPS, validateSectionCopy }
 
-const CAPS = { purpose: 240, whatThis: 600, whatWeNeed: 600 }
 const NS = 'section-copy:'
 
 export function sectionCopyKey(sectionKey: SectionKey): string {
@@ -37,25 +38,6 @@ function sectionKeyFromStored(key: string): SectionKey | null {
   if (!key.startsWith(NS)) return null
   const suffix = key.slice(NS.length)
   return isSectionKey(suffix) ? suffix : null
-}
-
-function isPlainObject(v: unknown): v is Record<string, unknown> {
-  if (v === null || typeof v !== 'object' || Array.isArray(v)) return false
-  const proto = Object.getPrototypeOf(v)
-  return proto === Object.prototype || proto === null
-}
-
-export function validateSectionCopy(raw: unknown): SectionCopyContent | null {
-  if (!isPlainObject(raw)) return null
-  const keys = Object.keys(raw)
-  if (keys.length !== 3) return null
-  const { purpose, whatThis, whatWeNeed } = raw
-  if (typeof purpose !== 'string' || purpose.trim().length === 0 || purpose.length > CAPS.purpose) return null
-  if (typeof whatThis !== 'string' || whatThis.trim().length === 0 || whatThis.length > CAPS.whatThis) return null
-  if (whatWeNeed !== null && typeof whatWeNeed !== 'string') return null
-  if (typeof whatWeNeed === 'string' && whatWeNeed.length > CAPS.whatWeNeed) return null
-  const normalizedNeed = typeof whatWeNeed === 'string' && whatWeNeed.trim().length > 0 ? whatWeNeed : null
-  return { purpose, whatThis, whatWeNeed: normalizedNeed }
 }
 
 // Whole-object per layer: per-viewbook override ← company-wide ← code default.

@@ -82,7 +82,7 @@ import type { CollapseAffordanceKind, ViewerMode } from '@/lib/viewbook/presenta
 import type { SectionRenderMeta } from '@/lib/viewbook/section-status'
 import { sectionDisplayMode, sectionInitiallyOpen } from '@/lib/viewbook/section-display'
 import { sectionSupportsCollapse } from '@/lib/viewbook/theme'
-import { SECTION_COPY } from '@/lib/viewbook/section-copy'
+import { RENDERER_TYPES } from '@/lib/viewbook/renderer-types'
 import type { ResolvedSectionCopy } from '@/lib/viewbook/section-copy-content'
 import { SectionReveal } from './SectionReveal'
 import { Tooltip } from './Tooltip'
@@ -422,7 +422,7 @@ export function SectionShell({
 
   // The chapter-header CTA still comes from the code catalog (not part of the
   // per-viewbook-overridable copy); the rest of the copy is the resolved value.
-  const cta = SECTION_COPY[section.sectionKey]?.cta ?? null
+  const cta = RENDERER_TYPES[section.sectionKey]?.cta ?? null
 
   // The ⓘ tooltip body shared by both viewer modes (continuous hero + collapse
   // headerStrip) — the What-this-is / What-we-need guidance the SectionSummaryPanel

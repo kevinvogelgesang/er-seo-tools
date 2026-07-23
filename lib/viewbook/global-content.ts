@@ -6,14 +6,13 @@
 import { Prisma } from '@prisma/client'
 import { prisma } from '@/lib/db'
 import { HttpError } from '@/lib/api/errors'
-import { ASSET_FILENAME_RE } from './theme'
 import { deleteViewbookAssets, saveViewbookAsset } from './assets'
 import { syncVersionBumpAllStatement, syncVersionBumpAllWhere, syncVersionBumpStatement, syncVersionBumpWhere } from './sync'
+import { validateTeam, validateBlocks, validatePcIntro } from './content-validators'
 
 import {
   GLOBAL_CONTENT_KEYS,
   OVERRIDE_ELIGIBLE_KEYS,
-  canonicalMailbox,
   type ContentBlocks,
   type GlobalContentKey,
   type TeamMember,
@@ -22,16 +21,7 @@ import {
 export { GLOBAL_CONTENT_KEYS }
 export type { ContentBlocks, GlobalContentKey, TeamMember }
 
-const TEAM_CAPS = { members: 20, name: 120, role: 160, blurb: 2048 }
-const BLOCK_CAPS = { blocks: 20, heading: 200, body: 4096 }
 const OVERRIDE_BODY_CAP = 4096
-const PC_INTRO_CAP = 2000
-
-function isPlainObject(v: unknown): v is Record<string, unknown> {
-  if (v === null || typeof v !== 'object' || Array.isArray(v)) return false
-  const proto = Object.getPrototypeOf(v)
-  return proto === Object.prototype || proto === null
-}
 
 function isKnownKey(key: string): key is GlobalContentKey {
   return (GLOBAL_CONTENT_KEYS as readonly string[]).includes(key)
@@ -56,61 +46,6 @@ function teamRosterFence(bodyJson: string): Prisma.Sql {
   return Prisma.sql`EXISTS (
     SELECT 1 FROM "ViewbookGlobalContent" WHERE "key" = 'team' AND "bodyJson" = ${bodyJson}
   )`
-}
-
-function validateTeam(raw: unknown): TeamMember[] | null {
-  if (!Array.isArray(raw) || raw.length > TEAM_CAPS.members) return null
-  const out: TeamMember[] = []
-  const seen = new Set<string>()
-  for (const m of raw) {
-    if (!isPlainObject(m)) return null
-    const keys = Object.keys(m)
-    if (keys.length < 4 || keys.length > 6) return null
-    const known = new Set(['name', 'role', 'photo', 'blurb', 'isCsm', 'email'])
-    if (keys.some((key) => !known.has(key))) return null
-    const { name, role, photo, blurb, isCsm, email } = m
-    if (typeof name !== 'string' || name.length === 0 || name.length > TEAM_CAPS.name) return null
-    if (typeof role !== 'string' || role.length === 0 || role.length > TEAM_CAPS.role) return null
-    if (photo !== null && (typeof photo !== 'string' || !ASSET_FILENAME_RE.test(photo))) return null
-    if (typeof blurb !== 'string' || blurb.length > TEAM_CAPS.blurb) return null
-    if ('isCsm' in m && typeof isCsm !== 'boolean') return null
-    const canonicalEmail = 'email' in m ? canonicalMailbox(email) : null
-    if ('email' in m && canonicalEmail === null) return null
-    // Unique names — the stable selector for photo attachment.
-    if (seen.has(name)) return null
-    seen.add(name)
-    out.push({
-      name,
-      role,
-      photo: photo as string | null,
-      blurb,
-      ...('isCsm' in m ? { isCsm: isCsm as boolean } : {}),
-      ...('email' in m ? { email: canonicalEmail as string } : {}),
-    })
-  }
-  return out
-}
-
-function validateBlocks(raw: unknown): ContentBlocks | null {
-  if (!isPlainObject(raw) || Object.keys(raw).length !== 1 || !Array.isArray(raw.blocks)) return null
-  if (raw.blocks.length > BLOCK_CAPS.blocks) return null
-  const blocks: ContentBlocks['blocks'] = []
-  for (const b of raw.blocks) {
-    if (!isPlainObject(b) || Object.keys(b).length !== 2) return null
-    const { heading, body } = b
-    if (typeof heading !== 'string' || heading.length > BLOCK_CAPS.heading) return null
-    if (typeof body !== 'string' || body.length > BLOCK_CAPS.body) return null
-    blocks.push({ heading, body })
-  }
-  return { blocks }
-}
-
-// PR5: pc-intro is a single bounded plain-text string (the post-contract
-// welcome hero), not a heading/body block list — read exactly as strict as
-// write, same as every other key here.
-function validatePcIntro(raw: unknown): string | null {
-  if (typeof raw !== 'string' || raw.length === 0 || raw.length > PC_INTRO_CAP) return null
-  return raw
 }
 
 export function validateGlobalContent(key: string, raw: unknown): TeamMember[] | ContentBlocks | string | null {

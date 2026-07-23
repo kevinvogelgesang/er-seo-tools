@@ -4,7 +4,7 @@ import type { SectionKey } from '@/lib/viewbook/theme'
 export const SECTION_TITLES: Record<SectionKey, string> = {
   assessment: 'Current-Site Assessment',
   brand: 'Brand Guidelines',
-  'data-source': 'Data Source',
+  'data-source': 'What we need from you',
   'kickoff-next': 'Next Steps',
   materials: 'Materials & Links',
   milestones: 'Process & Milestones',

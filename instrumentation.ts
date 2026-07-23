@@ -130,6 +130,18 @@ export async function register() {
     const { seedSystemSchedules } = await import('@/lib/jobs/system-schedules')
     await seedSystemSchedules()
 
+    // F1a: seed the viewbook template library. NEW failure isolation (Codex
+    // plan-fix #7 — instrumentation.ts has no logError binding today and does not
+    // independently catch seedSystemSchedules): a seed failure is logged and boot
+    // continues; it must never crash-loop the app.
+    try {
+      const { seedViewbookTemplates } = await import('@/lib/viewbook/template-seed')
+      await seedViewbookTemplates()
+    } catch (err) {
+      const { logError } = await import('@/lib/log')
+      logError({ subsystem: 'viewbook', op: 'template-seed-boot' }, err)
+    }
+
     const { startJobWorker, stopJobWorker } = await import('@/lib/jobs/worker')
     await startJobWorker()
 
