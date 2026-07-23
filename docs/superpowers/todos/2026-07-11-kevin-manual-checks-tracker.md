@@ -102,6 +102,16 @@ Prod: https://tools.enrollmentresources.com (paths below are relative).
   findings back → the card's poll surfaces the findings (grouped by type) without
   a reload. Confirms the whole bridge + the v2.3.0 skill routing.
 
+## 7. Onboarding Viewbook (U1 auth)
+
+- [ ] **7.1 U1 post-deploy Mailgun smoke** — on a test viewbook (all viewbooks
+  are test-only per D4): admin roster → invite (or resend) a member → the
+  Mailgun email arrives → click the emailed `#g=` magic link → the interstitial
+  consumes the grant and the cookie session renders the viewbook. Then log out
+  and confirm the `vb_s_<id>` cookie is cleared. This is the only unverified
+  leg of U1 (PR #266, deployed 2026-07-22) — everything else was prod-verified;
+  sessions can't do it because the email lands in a human inbox.
+
 ---
 
 ## Completed log
