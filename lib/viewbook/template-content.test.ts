@@ -7,6 +7,7 @@ import {
   parseTemplateCopy,
   parseSubsectionContent,
   parseTemplateContent,
+  parseSubsectionCopy,
   toLegacySectionCopy,
   toLegacyGlobalBody,
   type SubsectionContentV1,
@@ -258,5 +259,25 @@ describe('toLegacyGlobalBody', () => {
     for (const key of GLOBAL_CONTENT_KEYS) {
       expect(toLegacyGlobalBody(key, genericContent)).toBeNull()
     }
+  })
+})
+
+describe('parseSubsectionCopy', () => {
+  const enc = (v: unknown) => JSON.stringify(v)
+  it('accepts the exact envelope and normalizes blank strings to null', () => {
+    expect(parseSubsectionCopy(enc({ v: 1, copy: { intro: 'Hi', whatWeNeed: '  ' } })))
+      .toEqual({ v: 1, copy: { intro: 'Hi', whatWeNeed: null } })
+    expect(parseSubsectionCopy(enc({ v: 1, copy: { intro: null, whatWeNeed: 'Logo files' } })))
+      .toEqual({ v: 1, copy: { intro: null, whatWeNeed: 'Logo files' } })
+  })
+  it('whole-doc-rejects deviations', () => {
+    expect(parseSubsectionCopy(null)).toBeNull()
+    expect(parseSubsectionCopy('not json')).toBeNull()
+    expect(parseSubsectionCopy(enc({ v: 2, copy: { intro: null, whatWeNeed: null } }))).toBeNull()
+    expect(parseSubsectionCopy(enc({ v: 1, copy: { intro: null } }))).toBeNull()               // missing key
+    expect(parseSubsectionCopy(enc({ v: 1, copy: { intro: null, whatWeNeed: null, x: 1 } }))).toBeNull() // extra key
+    expect(parseSubsectionCopy(enc({ v: 1, copy: { intro: 7, whatWeNeed: null } }))).toBeNull()
+    expect(parseSubsectionCopy(enc({ v: 1, copy: { intro: 'a'.repeat(601), whatWeNeed: null } }))).toBeNull()
+    expect(parseSubsectionCopy(enc({ v: 1, copy: { intro: null, whatWeNeed: null }, extra: 1 }))).toBeNull()
   })
 })
