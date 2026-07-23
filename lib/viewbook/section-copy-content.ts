@@ -88,30 +88,47 @@ export async function getSectionCopyOverrideMap(viewbookId: number): Promise<Par
 }
 
 // ---- writes (bump inside the same txn; delete = EXISTS-fenced, 404 on 0) ---
-export async function putSectionCopyGlobal(sectionKey: string, raw: unknown, updatedBy: string): Promise<void> {
-  if (!isSectionKey(sectionKey)) throw new HttpError(400, 'invalid_content')
-  const validated = validateSectionCopy(raw)
-  if (!validated) throw new HttpError(400, 'invalid_content')
+
+// Named composable pieces (Codex plan-fix #1: F1b's template-service caller
+// interleaves template statements between these; an opaque array can't be
+// re-ordered). Callers compose `[legacyWrite, syncBump]` (write) or
+// `[syncBump, ...templateStatements, deleteStmt]` (delete, fence-shared) in
+// their own $transaction.
+export function putSectionCopyGlobalStatements(sectionKey: SectionKey, validated: SectionCopyContent, updatedBy: string) {
   const key = sectionCopyKey(sectionKey)
   const bodyJson = JSON.stringify(validated)
-  await prisma.$transaction([
-    prisma.viewbookGlobalContent.upsert({
+  return {
+    legacyWrite: prisma.viewbookGlobalContent.upsert({
       where: { key },
       update: { bodyJson, updatedBy },
       create: { key, bodyJson, updatedBy },
     }),
-    syncVersionBumpAllStatement(),
-  ])
+    syncBump: syncVersionBumpAllStatement(),
+  }
+}
+
+export function deleteSectionCopyGlobalStatements(sectionKey: SectionKey) {
+  const key = sectionCopyKey(sectionKey)
+  const fence = Prisma.sql`EXISTS (SELECT 1 FROM "ViewbookGlobalContent" WHERE "key" = ${key})`
+  return {
+    fence,
+    syncBump: syncVersionBumpAllWhere(fence),
+    deleteStmt: prisma.viewbookGlobalContent.deleteMany({ where: { key } }),
+  }
+}
+
+export async function putSectionCopyGlobal(sectionKey: string, raw: unknown, updatedBy: string): Promise<void> {
+  if (!isSectionKey(sectionKey)) throw new HttpError(400, 'invalid_content')
+  const validated = validateSectionCopy(raw)
+  if (!validated) throw new HttpError(400, 'invalid_content')
+  const { legacyWrite, syncBump } = putSectionCopyGlobalStatements(sectionKey, validated, updatedBy)
+  await prisma.$transaction([legacyWrite, syncBump])
 }
 
 export async function deleteSectionCopyGlobal(sectionKey: string): Promise<void> {
   if (!isSectionKey(sectionKey)) throw new HttpError(400, 'invalid_content')
-  const key = sectionCopyKey(sectionKey)
-  const fence = Prisma.sql`EXISTS (SELECT 1 FROM "ViewbookGlobalContent" WHERE "key" = ${key})`
-  const [, res] = await prisma.$transaction([
-    syncVersionBumpAllWhere(fence),
-    prisma.viewbookGlobalContent.deleteMany({ where: { key } }),
-  ])
+  const { syncBump, deleteStmt } = deleteSectionCopyGlobalStatements(sectionKey)
+  const [, res] = await prisma.$transaction([syncBump, deleteStmt])
   if (res.count === 0) throw new HttpError(404, 'not_found')
 }
 
