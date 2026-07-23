@@ -201,13 +201,13 @@ describe('DataSourceSection', () => {
             {
               id: 1, label: 'School name', fieldType: 'text', value: 'Pro Way',
               version: 1, createdAt: '2026-06-01T00:00:00.000Z',
-              valueUpdatedBy: 'client', valueUpdatedAt: '2026-07-01T00:00:00.000Z', isCustom: false,
-              amendments: [{ id: 1, value: 'Pro Way Hair School', author: 'client', createdAt: '2026-07-11T00:00:00.000Z' }],
+              valueUpdatedBy: 'former-member@example.com', valueUpdatedByKind: 'member', valueUpdatedAt: '2026-07-01T00:00:00.000Z', isCustom: false,
+              amendments: [{ id: 1, value: 'Pro Way Hair School', author: 'Former Member', authorKind: 'member', createdAt: '2026-07-11T00:00:00.000Z' }],
             },
             {
               id: 2, label: 'Services in your subscription', fieldType: 'list',
               value: '["SEO","ADA"]', version: 0, createdAt: '2026-06-01T00:00:00.000Z',
-              valueUpdatedBy: null, valueUpdatedAt: null, isCustom: false, amendments: [],
+              valueUpdatedBy: null, valueUpdatedByKind: null, valueUpdatedAt: null, isCustom: false, amendments: [],
             },
           ],
         },
@@ -231,7 +231,7 @@ describe('DataSourceSection', () => {
         fields: [{
           id: 1, label: 'Services in your subscription', fieldType: 'list', value: 'not-json[',
           version: 0, createdAt: '2026-06-01T00:00:00.000Z',
-          valueUpdatedBy: null, valueUpdatedAt: null, isCustom: false, amendments: [],
+          valueUpdatedBy: null, valueUpdatedByKind: null, valueUpdatedAt: null, isCustom: false, amendments: [],
         }],
       }],
     })
@@ -248,12 +248,12 @@ describe('DataSourceSection', () => {
           {
             id: 1, label: 'School name', fieldType: 'text', value: 'Pro Way',
             version: 1, createdAt: '2026-06-01T00:00:00.000Z',
-            valueUpdatedBy: null, valueUpdatedAt: null, isCustom: false, amendments: [],
+            valueUpdatedBy: null, valueUpdatedByKind: null, valueUpdatedAt: null, isCustom: false, amendments: [],
           },
           {
             id: 2, label: 'Post-lock custom', fieldType: 'text', value: 'Still editable',
             version: 1, createdAt: '2026-07-11T00:00:00.000Z',
-            valueUpdatedBy: null, valueUpdatedAt: null, isCustom: true, amendments: [],
+            valueUpdatedBy: null, valueUpdatedByKind: null, valueUpdatedAt: null, isCustom: true, amendments: [],
           },
         ],
       }],
@@ -295,7 +295,7 @@ describe('DataSourceSection', () => {
           id: 1, label: 'School name', fieldType: 'text',
           value: '<script>window.__pwned = true</script><img src=x onerror=alert(1)>',
           version: 0, createdAt: '2026-06-01T00:00:00.000Z',
-          valueUpdatedBy: null, valueUpdatedAt: null, isCustom: false, amendments: [],
+          valueUpdatedBy: null, valueUpdatedByKind: null, valueUpdatedAt: null, isCustom: false, amendments: [],
         }],
       }],
     })

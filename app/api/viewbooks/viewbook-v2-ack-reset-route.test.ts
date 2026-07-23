@@ -5,7 +5,7 @@ import { prisma } from '@/lib/db'
 import { AUTH_COOKIE_NAME, createAuthCookieValue } from '@/lib/auth'
 import { createViewbook } from '@/lib/viewbook/service'
 import { requireViewbookToken } from '@/lib/viewbook/route-auth'
-import { acknowledgeSection } from '@/lib/viewbook/ack'
+import { acknowledgeSection as acknowledgeSectionCore } from '@/lib/viewbook/ack'
 import { DELETE as deleteAck } from './[id]/ack/[sectionKey]/route'
 
 // acknowledgeSection (test setup) enqueues pc-complete/team-invite emails via
@@ -19,6 +19,11 @@ vi.mock('@/lib/jobs/queue', async (importOriginal) => {
 let cookie: string
 const savedEnv: Record<string, string | undefined> = {}
 const PREFIX = 'vb-test-ack-reset-route-'
+const LEGACY_TEST_AUTH = { principal: { kind: 'operator', email: 'client' } } as const
+
+function acknowledgeSection(...args: [Parameters<typeof acknowledgeSectionCore>[0], Parameters<typeof acknowledgeSectionCore>[1], Parameters<typeof acknowledgeSectionCore>[2]]) {
+  return acknowledgeSectionCore(args[0], args[1], args[2], LEGACY_TEST_AUTH)
+}
 
 beforeAll(async () => {
   for (const key of ['APP_AUTH_PASSWORD', 'APP_AUTH_SECRET']) savedEnv[key] = process.env[key]

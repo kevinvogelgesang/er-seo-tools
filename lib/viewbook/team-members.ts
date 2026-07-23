@@ -40,6 +40,12 @@ import { validateClientMutationId } from './public-write-guard'
 import { canonicalMailbox } from './global-content-keys'
 import { syncVersionBumpWhere } from './sync'
 import { enqueueViewbookEmail } from './email'
+import {
+  attributionOf,
+  memberWriteFence,
+  requireMemberStillAuthorized,
+  type PublicMutationAuth,
+} from './principal'
 
 const MEMBER_CAP = 15
 const RESEND_CAP = 3
@@ -119,6 +125,7 @@ export async function addTeamMember(
   viewbook: Viewbook,
   token: string,
   input: AddTeamMemberInput,
+  auth: PublicMutationAuth,
   hooks: MutationHooks = {},
 ): Promise<AddTeamMemberResult> {
   const name = validateName(input.name)
@@ -129,6 +136,8 @@ export async function addTeamMember(
 
   await hooks.beforeCommit?.()
   const now = Date.now()
+  const { actorEmail, actorKind } = attributionOf(auth.principal)
+  const memberFence = memberWriteFence(auth.principal, viewbook.id, now)
   const memberKey = crypto.randomUUID()
   const windowStart = now - INVITE_WINDOW_MS
   const summary = `Invited team member: ${name}`
@@ -143,6 +152,7 @@ export async function addTeamMember(
     AND (SELECT COUNT(*) FROM "ViewbookTeamMember" WHERE "viewbookId" = ${viewbook.id}) < ${MEMBER_CAP}
     AND NOT EXISTS (SELECT 1 FROM "ViewbookTeamMember" WHERE "viewbookId" = ${viewbook.id} AND "email" = ${email})
     AND ${windowCap}
+    AND ${memberFence}
   `
   // NOT `A` (Codex fix 4): after the member INSERT runs, A's replay clause is
   // false (the row now exists) — reusing A would block the delivery this add
@@ -151,19 +161,20 @@ export async function addTeamMember(
   const A2 = Prisma.sql`
     EXISTS (SELECT 1 FROM "ViewbookTeamMember" WHERE "viewbookId" = ${viewbook.id} AND "memberKey" = ${memberKey})
     AND ${windowCap}
+    AND ${memberFence}
   `
 
   const [, activityCount, memberRows, deliveryRows] = await prisma.$transaction([
     syncVersionBumpWhere(viewbook.id, A),
     prisma.$executeRaw`
-      INSERT INTO "ViewbookActivity" ("viewbookId", "kind", "actor", "summary", "createdAt")
-      SELECT ${viewbook.id}, 'team-invite-add', 'client', ${summary}, ${now}
+      INSERT INTO "ViewbookActivity" ("viewbookId", "kind", "actor", "actorKind", "summary", "createdAt")
+      SELECT ${viewbook.id}, 'team-invite-add', ${actorEmail}, ${actorKind}, ${summary}, ${now}
       WHERE (${A})
     `,
     prisma.$queryRaw<Array<{ id: number }>>`
       INSERT INTO "ViewbookTeamMember"
         ("viewbookId", "memberKey", "name", "email", "addedBy", "clientMutationId", "createdAt")
-      SELECT ${viewbook.id}, ${memberKey}, ${name}, ${email}, 'client', ${clientMutationId}, ${now}
+      SELECT ${viewbook.id}, ${memberKey}, ${name}, ${email}, ${actorEmail}, ${clientMutationId}, ${now}
       WHERE (${A})
       ON CONFLICT("clientMutationId") DO NOTHING
       RETURNING "id"
@@ -171,7 +182,8 @@ export async function addTeamMember(
     prisma.$queryRaw<Array<{ id: number }>>`
       INSERT INTO "ViewbookEmailDelivery"
         ("viewbookId", "kind", "recipient", "dedupKey", "memberId", "stageLogId", "createdAt")
-      SELECT ${viewbook.id}, 'team-invite', ${email}, ${`vb-invite:${memberKey}:1`}, NULL, NULL, ${now}
+      SELECT ${viewbook.id}, 'team-invite', ${email}, ${`vb-invite:${memberKey}:1`},
+        (SELECT "id" FROM "ViewbookTeamMember" WHERE "memberKey" = ${memberKey}), NULL, ${now}
       WHERE (${A2})
       ON CONFLICT("dedupKey") DO NOTHING
       RETURNING "id"
@@ -205,8 +217,12 @@ export async function addTeamMember(
       },
     },
   })
-  if (replay) return { member: replay, replayed: true, delivered: true }
+  if (replay) {
+    await requireMemberStillAuthorized(auth, viewbook.id)
+    return { member: replay, replayed: true, delivered: true }
+  }
 
+  await requireMemberStillAuthorized(auth, viewbook.id)
   await requireViewbookToken(token)
   await requirePcInviteSectionVisible(viewbook.id)
   const memberTotal = await prisma.viewbookTeamMember.count({ where: { viewbookId: viewbook.id } })
@@ -226,6 +242,7 @@ export async function resendInvite(
   viewbook: Viewbook,
   token: string,
   input: ResendInviteInput,
+  auth: PublicMutationAuth,
   hooks: MutationHooks = {},
 ): Promise<ResendInviteResult> {
   const memberId = input.memberId
@@ -241,11 +258,13 @@ export async function resendInvite(
     select: { memberKey: true, email: true },
   })
   if (!existing) {
+    await requireMemberStillAuthorized(auth, viewbook.id)
     await requireViewbookToken(token)
     throw new HttpError(404, 'not_found')
   }
   const { memberKey, email } = existing
   const now = Date.now()
+  const memberFence = memberWriteFence(auth.principal, viewbook.id, now)
   const windowStart = now - INVITE_WINDOW_MS
   const likePrefix = `vb-invite:${memberKey}:`
 
@@ -267,6 +286,7 @@ export async function resendInvite(
     ${accessChain}
     AND ${sendCountExpr} < ${RESEND_CAP}
     AND ${inviteWindowCapPredicate(viewbook.id, windowStart)}
+    AND ${memberFence}
   `
 
   const [, deliveryRows] = await prisma.$transaction([
@@ -275,7 +295,7 @@ export async function resendInvite(
       INSERT INTO "ViewbookEmailDelivery"
         ("viewbookId", "kind", "recipient", "dedupKey", "memberId", "stageLogId", "createdAt")
       SELECT ${viewbook.id}, 'team-invite', ${email},
-        ${likePrefix} || CAST((${sendCountExpr} + 1) AS TEXT), NULL, NULL, ${now}
+        ${likePrefix} || CAST((${sendCountExpr} + 1) AS TEXT), ${memberId}, NULL, ${now}
       WHERE (${R})
       ON CONFLICT("dedupKey") DO NOTHING
       RETURNING "id"
@@ -291,6 +311,7 @@ export async function resendInvite(
   }
 
   // Blocked diagnosis.
+  await requireMemberStillAuthorized(auth, viewbook.id)
   await requireViewbookToken(token)
   await requirePcInviteSectionVisible(viewbook.id)
   const sendCount = await prisma.viewbookEmailDelivery.count({

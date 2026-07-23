@@ -26,6 +26,12 @@ import { requireViewbookToken } from './route-auth'
 import { validateClientMutationId } from './public-write-guard'
 import { syncVersionBumpWhere } from './sync'
 import { enqueueViewbookEmail, pcCompleteDeliveryInsert, resolvePcCompleteRecipient } from './email'
+import {
+  attributionOf,
+  memberWriteFence,
+  requireMemberStillAuthorized,
+  type PublicMutationAuth,
+} from './principal'
 
 export const ACKABLE_SECTION_KEYS = ['pc-setup', 'pc-invite', 'data-source'] as const
 export type AckableSectionKey = (typeof ACKABLE_SECTION_KEYS)[number]
@@ -126,6 +132,7 @@ export async function acknowledgeSection(
   viewbook: Viewbook,
   token: string,
   input: AcknowledgeSectionInput,
+  auth: PublicMutationAuth,
   hooks: MutationHooks = {},
 ): Promise<AcknowledgeSectionResult> {
   if (!isAckableSectionKey(input.sectionKey)) throw new HttpError(400, 'invalid_section')
@@ -135,7 +142,11 @@ export async function acknowledgeSection(
 
   await hooks.beforeCommit?.()
   const now = Date.now()
-  const P = ackPredicate(viewbook.id, token, sectionKey)
+  const { actorEmail, actorKind } = attributionOf(auth.principal)
+  const P = Prisma.sql`
+    ${ackPredicate(viewbook.id, token, sectionKey)}
+    AND ${memberWriteFence(auth.principal, viewbook.id, now)}
+  `
   const recipient = await resolvePcCompleteRecipient(viewbook.id)
   const completion = buildPcCompletion({
     viewbookId: viewbook.id,
@@ -154,8 +165,8 @@ export async function acknowledgeSection(
   const results = await prisma.$transaction([
     syncVersionBumpWhere(viewbook.id, P),
     prisma.$executeRaw`
-      INSERT INTO "ViewbookActivity" ("viewbookId", "kind", "actor", "summary", "createdAt")
-      SELECT ${viewbook.id}, 'section-ack', 'client', ${`Acknowledged: ${sectionKey}`}, ${now}
+      INSERT INTO "ViewbookActivity" ("viewbookId", "kind", "actor", "actorKind", "summary", "createdAt")
+      SELECT ${viewbook.id}, 'section-ack', ${actorEmail}, ${actorKind}, ${`Acknowledged: ${sectionKey}`}, ${now}
       WHERE (${P})
     `,
     prisma.$executeRaw`
@@ -179,6 +190,7 @@ export async function acknowledgeSection(
   // 404 oracle (unknown/revoked token, archived client), then distinguish
   // "already acked" (replay) from "hidden" (404) — a hidden ackable section
   // is never a valid ack target regardless of its prior acknowledgedAt.
+  await requireMemberStillAuthorized(auth, viewbook.id)
   await requireViewbookToken(token)
   const section = await prisma.viewbookSection.findFirst({
     where: { viewbookId: viewbook.id, sectionKey },
@@ -206,8 +218,8 @@ export async function resetSectionAck(viewbookId: number, sectionKey: string, ac
   const [, activityCount, updateCount] = await prisma.$transaction([
     syncVersionBumpWhere(viewbookId, R),
     prisma.$executeRaw`
-      INSERT INTO "ViewbookActivity" ("viewbookId", "kind", "actor", "summary", "createdAt")
-      SELECT ${viewbookId}, 'section-ack-reset', ${actor}, ${`Reset acknowledgment: ${sectionKey}`}, ${now}
+      INSERT INTO "ViewbookActivity" ("viewbookId", "kind", "actor", "actorKind", "summary", "createdAt")
+      SELECT ${viewbookId}, 'section-ack-reset', ${actor}, 'operator', ${`Reset acknowledgment: ${sectionKey}`}, ${now}
       WHERE (${R})
     `,
     prisma.$executeRaw`

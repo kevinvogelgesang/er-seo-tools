@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react'
 import { notFound } from 'next/navigation'
 import type { Metadata } from 'next'
+import { prisma } from '@/lib/db'
 import type { PublicSection } from '@/lib/viewbook/public-types'
 import type { SectionRenderMeta } from '@/lib/viewbook/section-status'
 import { loadViewbookPublicData } from '@/lib/viewbook/public-data'
@@ -18,10 +19,13 @@ import { PcIntroSection } from '@/components/viewbook/public/PcIntroSection'
 import { PcSetupSection } from '@/components/viewbook/public/PcSetupSection'
 import { PcInviteSection } from '@/components/viewbook/public/PcInviteSection'
 import { PcThanksSection } from '@/components/viewbook/public/PcThanksSection'
-import { getOperatorEmailForPublicPage } from '@/lib/viewbook/public-session'
 import { loadOperatorViewbookData } from '@/lib/viewbook/operator-data'
 import { resolveThemeFonts } from '@/lib/viewbook/theme-server'
+import { resolveViewbookPrincipalRSC } from '@/lib/viewbook/principal'
 import { OperatorViewbookLayer, OperatorSectionWrapper } from '@/components/viewbook/public/OperatorLayer'
+import { AuthLanding } from '@/components/viewbook/public/AuthLanding'
+import { FragmentScrubber } from '@/components/viewbook/public/FragmentScrubber'
+import { MemberSessionBar } from '@/components/viewbook/public/MemberSessionBar'
 
 export const dynamic = 'force-dynamic'
 
@@ -35,15 +39,23 @@ export const metadata: Metadata = {
 
 export default async function ViewbookPage({ params }: { params: Promise<{ token: string }> }) {
   const { token } = await params
-  const [data, operatorEmail] = await Promise.all([
-    loadViewbookPublicData(token),
-    getOperatorEmailForPublicPage(),
-  ])
+  if (!token || token.length > 128) notFound()
+  const viewbook = await prisma.viewbook.findUnique({
+    where: { token },
+    select: { id: true, revokedAt: true, client: { select: { archivedAt: true } } },
+  })
+  if (!viewbook || viewbook.revokedAt || viewbook.client.archivedAt) notFound()
+
+  const principal = await resolveViewbookPrincipalRSC({ id: viewbook.id })
+  if (principal == null) return <AuthLanding token={token} />
+
+  const data = await loadViewbookPublicData(token)
   if (!data) notFound()
   const resolvedFonts = resolveThemeFonts(data.theme)
+  const isOperator = principal.kind === 'operator' || principal.kind === 'dev'
 
   const baseRenderSection = (section: PublicSection, meta: SectionRenderMeta): ReactNode => {
-    const props = { section, data, token, isOperator: operatorEmail != null, meta }
+    const props = { section, data, token, isOperator, meta }
     switch (section.sectionKey) {
       case 'welcome':
         return <WelcomeSection {...props} />
@@ -76,17 +88,25 @@ export default async function ViewbookPage({ params }: { params: Promise<{ token
     }
   }
 
-  // Anonymous branch: the existing public shell, byte-shape unchanged — no
-  // operator loader call, no presentation provider/bar/wrapper, and no operator
-  // email or operator read model serialized into the payload (PR8 spec §10/§12).
-  if (operatorEmail == null) {
-    return (
+  if (!isOperator) {
+    const shell = (
       <ViewbookShell
         token={token}
         data={data}
         renderSection={baseRenderSection}
         resolvedFonts={resolvedFonts}
       />
+    )
+    return (
+      <>
+        <FragmentScrubber />
+        {principal.kind === 'member' ? (
+          <>
+            <MemberSessionBar token={token} name={principal.member.name} />
+            {shell}
+          </>
+        ) : shell}
+      </>
     )
   }
 
@@ -114,19 +134,22 @@ export default async function ViewbookPage({ params }: { params: Promise<{ token
   }
 
   return (
-    <OperatorViewbookLayer
-      viewbookId={data.viewbookId}
-      operatorEmail={operatorEmail}
-      stage={data.stage}
-      pcCompletedAt={operatorData.pcCompletedAt}
-      operatorData={operatorData}
-    >
-      <ViewbookShell
-        token={token}
-        data={data}
-        renderSection={wrappedRenderSection}
-        resolvedFonts={resolvedFonts}
-      />
-    </OperatorViewbookLayer>
+    <>
+      <FragmentScrubber />
+      <OperatorViewbookLayer
+        viewbookId={data.viewbookId}
+        operatorEmail={principal.email}
+        stage={data.stage}
+        pcCompletedAt={operatorData.pcCompletedAt}
+        operatorData={operatorData}
+      >
+        <ViewbookShell
+          token={token}
+          data={data}
+          renderSection={wrappedRenderSection}
+          resolvedFonts={resolvedFonts}
+        />
+      </OperatorViewbookLayer>
+    </>
   )
 }

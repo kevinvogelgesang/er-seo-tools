@@ -22,8 +22,8 @@ function fmtDate(iso: string): string {
   })
 }
 
-function who(author: string | null): string {
-  return author === 'client' ? 'you' : 'our team'
+export function who(kind: string | null): string {
+  return kind === 'client' || kind === 'member' ? 'you' : 'our team'
 }
 
 function ListValue({ value }: { value: string }) {
@@ -77,14 +77,14 @@ function FieldRow({ field, token, dataLockedAt }: { field: PublicField; token: s
         )}
         {field.valueUpdatedAt && (
           <p className="mt-1 text-xs text-black/40">
-            Last updated by {who(field.valueUpdatedBy)} on {fmtDate(field.valueUpdatedAt)}
+            Last updated by {who(field.valueUpdatedByKind)} on {fmtDate(field.valueUpdatedAt)}
           </p>
         )}
         {field.amendments.map((a) => (
           <div key={a.id} className="mt-2 border-l-4 pl-3" style={{ borderColor: 'var(--vb-tertiary)' }}>
             {field.fieldType === 'list' ? <ListValue value={a.value} /> : <p className="whitespace-pre-line">{a.value}</p>}
             <p className="text-xs text-black/40">
-              changed on {fmtDate(a.createdAt)} by {who(a.author)}
+              changed on {fmtDate(a.createdAt)} by {who(a.authorKind)}
             </p>
           </div>
         ))}

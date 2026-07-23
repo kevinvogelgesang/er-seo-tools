@@ -36,14 +36,14 @@ describe('viewbook digest high-water core', () => {
   it('leaves a concurrent client insertion above the captured high-water pending', async () => {
     const vb = await mkViewbook()
     const first = await prisma.viewbookActivity.create({
-      data: { viewbookId: vb.id, kind: 'feedback', actor: 'client', summary: 'first' },
+      data: { viewbookId: vb.id, kind: 'feedback', actor: 'client', actorKind: 'client', summary: 'first' },
     })
     let concurrentId = 0
     const d = deps({
       beforeSend: async (viewbookId, highWater) => {
         expect(highWater).toBe(first.id)
         concurrentId = (await prisma.viewbookActivity.create({
-          data: { viewbookId, kind: 'material-link', actor: 'client', summary: 'concurrent' },
+          data: { viewbookId, kind: 'material-link', actor: 'client', actorKind: 'client', summary: 'concurrent' },
         })).id
       },
     })
@@ -60,7 +60,7 @@ describe('viewbook digest high-water core', () => {
     delete process.env.MAILGUN_API_KEY
     const vb = await mkViewbook()
     const activity = await prisma.viewbookActivity.create({
-      data: { viewbookId: vb.id, kind: 'feedback', actor: 'client', summary: 'suppressed' },
+      data: { viewbookId: vb.id, kind: 'feedback', actor: 'client', actorKind: 'client', summary: 'suppressed' },
     })
     const d = deps()
     await processViewbookDigest(vb.id, d.value)
@@ -73,7 +73,7 @@ describe('viewbook digest high-water core', () => {
   it('includes at most 30 rows and advances through the honest overflow', async () => {
     const vb = await mkViewbook()
     await prisma.viewbookActivity.createMany({
-      data: Array.from({ length: 35 }, (_, i) => ({ viewbookId: vb.id, kind: 'feedback', actor: 'client', summary: `item ${i}` })),
+      data: Array.from({ length: 35 }, (_, i) => ({ viewbookId: vb.id, kind: 'feedback', actor: 'client', actorKind: 'client', summary: `item ${i}` })),
     })
     const d = deps()
     await processViewbookDigest(vb.id, d.value)
@@ -85,7 +85,7 @@ describe('viewbook digest high-water core', () => {
   it('operator activity never triggers the digest sweep', async () => {
     const vb = await mkViewbook()
     await prisma.viewbookActivity.create({
-      data: { viewbookId: vb.id, kind: 'section-done', actor: 'operator@example.com', summary: 'operator only' },
+      data: { viewbookId: vb.id, kind: 'section-done', actor: 'operator@example.com', actorKind: 'operator', summary: 'operator only' },
     })
     const d = deps()
     await runViewbookDigests(d.value)
@@ -96,12 +96,25 @@ describe('viewbook digest high-water core', () => {
   it('a transport failure leaves both cursor and sent marker unchanged for retry', async () => {
     const vb = await mkViewbook()
     await prisma.viewbookActivity.create({
-      data: { viewbookId: vb.id, kind: 'feedback', actor: 'client', summary: 'retry me' },
+      data: { viewbookId: vb.id, kind: 'feedback', actor: 'client', actorKind: 'client', summary: 'retry me' },
     })
     const d = deps({ send: async () => { throw new Error('mail down') } })
     await expect(processViewbookDigest(vb.id, d.value)).rejects.toThrow('mail down')
     const row = await prisma.viewbook.findUniqueOrThrow({ where: { id: vb.id } })
     expect(row.digestCursorId).toBe(0)
     expect(row.digestSentAt).toBeNull()
+  })
+
+  it('includes member activity but excludes operator activity from the same range', async () => {
+    const vb = await mkViewbook()
+    await prisma.viewbookActivity.createMany({ data: [
+      { viewbookId: vb.id, kind: 'answer', actor: 'member@example.com', actorKind: 'member', summary: 'member update' },
+      { viewbookId: vb.id, kind: 'section-done', actor: 'operator@example.com', actorKind: 'operator', summary: 'operator update' },
+    ] })
+    const d = deps()
+    await processViewbookDigest(vb.id, d.value)
+    expect(d.calls).toHaveLength(1)
+    expect(d.calls[0].content.text).toContain('member update')
+    expect(d.calls[0].content.text).not.toContain('operator update')
   })
 })

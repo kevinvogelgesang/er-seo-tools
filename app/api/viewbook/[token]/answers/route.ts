@@ -3,6 +3,7 @@ import { withRoute } from '@/lib/api/with-route'
 import { HttpError } from '@/lib/api/errors'
 import { requireJsonObject } from '@/lib/viewbook/route-utils'
 import { requireViewbookToken } from '@/lib/viewbook/route-auth'
+import { requireCanWrite } from '@/lib/viewbook/principal'
 import {
   checkWriteThrottle,
   readBoundedJson,
@@ -68,14 +69,15 @@ const patchWithRoute = withRoute(async (request: NextRequest, { params }: RouteP
   requireJsonContentType(request)
   const token = (await params).token
   const viewbook = await requireViewbookToken(token)
+  const principal = await requireCanWrite(request, viewbook)
   checkWriteThrottle(token)
   const input = parseInput(await readBoundedJson(request, BODY_CAP_BYTES))
   try {
     if (input.mode === 'edit') {
-      const result = await applyAnswerEdit(viewbook, token, input, 'client')
+      const result = await applyAnswerEdit(viewbook, token, input, { principal })
       return NextResponse.json(result, { headers: { 'Cache-Control': 'no-store' } })
     }
-    const result = await proposeAmendment(viewbook, token, input, 'client')
+    const result = await proposeAmendment(viewbook, token, input, { principal })
     return NextResponse.json(
       { amendment: result.amendment },
       { status: result.replayed ? 200 : 201, headers: { 'Cache-Control': 'no-store' } },

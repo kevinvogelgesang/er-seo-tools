@@ -7,6 +7,8 @@ import { NextRequest } from 'next/server'
 import { prisma } from '@/lib/db'
 import { createViewbook } from '@/lib/viewbook/service'
 import { GET } from './[filename]/route'
+import { createAuthCookieValue } from '@/lib/auth'
+import { hashSecret, memberCookieName } from '@/lib/viewbook/auth-secrets'
 
 // 1x1 PNG (magic bytes are all the route cares about — files are read raw)
 const PNG = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3])
@@ -19,8 +21,10 @@ let assetsDir: string
 // rows this file created from the shared worker DB.
 const GLOBAL_DOC_CREATED_BY = 'vb-assets-route-test'
 
-function call(token: string, filename: string) {
-  const req = new NextRequest(`http://localhost/api/viewbook/${token}/assets/${filename}`)
+function call(token: string, filename: string, cookie?: string) {
+  const req = new NextRequest(`http://localhost/api/viewbook/${token}/assets/${filename}`, {
+    headers: cookie ? { cookie } : undefined,
+  })
   return GET(req, { params: Promise.resolve({ token, filename }) })
 }
 
@@ -75,6 +79,53 @@ async function seedViewbookWithLogo() {
 }
 
 describe('GET /api/viewbook/[token]/assets/[filename]', () => {
+  it('requires a readable principal and admits member, operator, break-glass, and dev identities', async () => {
+    const originalEnv = { ...process.env }
+    try {
+      process.env.APP_AUTH_PASSWORD = 'asset-route-test-password'
+      process.env.APP_AUTH_SECRET = 'asset-route-test-secret'
+      const { id, token, logo } = await seedViewbookWithLogo()
+
+      const noPrincipal = await call(token, logo)
+      expect(noPrincipal.status).toBe(404)
+      expect(await noPrincipal.json()).toEqual({ error: 'not_found' })
+
+      const member = await prisma.viewbookTeamMember.create({
+        data: {
+          viewbookId: id,
+          memberKey: crypto.randomUUID(),
+          name: 'Asset Member',
+          email: `${crypto.randomUUID()}@example.com`,
+          addedBy: 'operator@example.com',
+        },
+      })
+      const rawSession = crypto.randomBytes(32).toString('base64url')
+      await prisma.viewbookMemberSession.create({
+        data: {
+          memberId: member.id,
+          tokenHash: hashSecret(rawSession),
+          expiresAt: new Date(Date.now() + 60_000),
+        },
+      })
+      const memberHeader = `${memberCookieName(id)}=${rawSession}`
+
+      const operator = await createAuthCookieValue({
+        sub: 'google:asset-test', email: 'operator@example.com', hd: 'example.com', name: 'Operator',
+      })
+      const breakGlass = await createAuthCookieValue({
+        sub: 'password:break-glass', email: null, hd: null, name: 'Break-glass',
+      })
+      for (const cookie of [memberHeader, `er_auth=${operator}`, `er_auth=${breakGlass}`]) {
+        expect((await call(token, logo, cookie)).status).toBe(200)
+      }
+
+      delete process.env.APP_AUTH_PASSWORD
+      expect((await call(token, logo)).status).toBe(200)
+    } finally {
+      process.env = originalEnv
+    }
+  })
+
   it('serves an allowlisted theme asset with mime + nosniff', async () => {
     const { id, token, logo } = await seedViewbookWithLogo()
     const row = await prisma.viewbook.findUniqueOrThrow({ where: { id }, select: { themeJson: true } })
@@ -86,7 +137,7 @@ describe('GET /api/viewbook/[token]/assets/[filename]', () => {
     expect(res.status).toBe(200)
     expect(res.headers.get('Content-Type')).toBe('image/png')
     expect(res.headers.get('X-Content-Type-Options')).toBe('nosniff')
-    expect(res.headers.get('Cache-Control')).toBe('private, max-age=3600')
+    expect(res.headers.get('Cache-Control')).toBe('private, no-store')
   })
 
   it('404s a file that exists on disk but is NOT in the themeJson allowlist', async () => {
@@ -255,7 +306,7 @@ describe('GET /api/viewbook/[token]/assets/[filename] — assessment images', ()
     expect(res.status).toBe(200)
     expect(res.headers.get('Content-Type')).toBe('image/webp')
     expect(res.headers.get('X-Content-Type-Options')).toBe('nosniff')
-    expect(res.headers.get('Cache-Control')).toBe('private, max-age=3600')
+    expect(res.headers.get('Cache-Control')).toBe('private, no-store')
   })
 
   it(

@@ -9,9 +9,10 @@ export function appendActivityStatements(
   viewbookId: number,
   kind: string,
   actor: string,
+  actorKind: string,
   summary: string,
 ): Prisma.PrismaPromise<unknown>[] {
-  return [prisma.viewbookActivity.create({ data: { viewbookId, kind, actor, summary } })]
+  return [prisma.viewbookActivity.create({ data: { viewbookId, kind, actor, actorKind, summary } })]
 }
 
 export async function listActivity(viewbookId: number, cursor?: number, limit = DEFAULT_LIMIT) {

@@ -3,11 +3,16 @@ import { afterAll, afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { prisma } from '@/lib/db'
 import { createViewbook, moveViewbookStage } from './service'
 import { requireViewbookToken } from './route-auth'
-import { setNotifyEmails } from './setup'
+import { setNotifyEmails as setNotifyEmailsCore } from './setup'
 import { resolveAllowedNotifyRecipients } from './notify-recipients'
 
 const PREFIX = 'vb-test-setup-'
 const OPERATOR = 'operator@example.com'
+const LEGACY_TEST_AUTH = { principal: { kind: 'operator', email: 'client' } } as const
+
+function setNotifyEmails(...args: [Parameters<typeof setNotifyEmailsCore>[0], Parameters<typeof setNotifyEmailsCore>[1], Parameters<typeof setNotifyEmailsCore>[2], Parameters<typeof setNotifyEmailsCore>[4]?]) {
+  return setNotifyEmailsCore(args[0], args[1], args[2], LEGACY_TEST_AUTH, args[3])
+}
 
 async function mkViewbook() {
   const client = await prisma.client.create({ data: { name: `${PREFIX}${crypto.randomUUID()}` } })

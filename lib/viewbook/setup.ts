@@ -29,6 +29,12 @@ import { validateClientMutationId } from './public-write-guard'
 import { syncVersionBumpWhere } from './sync'
 import { canonicalMailbox, PRIMARY_CONTACT_EMAIL_DEFKEY } from './global-content-keys'
 import { resolveAllowedNotifyRecipients } from './notify-recipients'
+import {
+  attributionOf,
+  memberWriteFence,
+  requireMemberStillAuthorized,
+  type PublicMutationAuth,
+} from './principal'
 
 const MAX_NOTIFY_EMAILS = 5
 
@@ -118,6 +124,7 @@ export async function setNotifyEmails(
   viewbook: Viewbook,
   token: string,
   input: SetNotifyEmailsInput,
+  auth: PublicMutationAuth,
   hooks: MutationHooks = {},
 ): Promise<SetNotifyEmailsResult> {
   // Advisory only (no durable column) — validated for shape, never a fence.
@@ -129,17 +136,19 @@ export async function setNotifyEmails(
 
   await hooks.beforeCommit?.()
   const now = Date.now()
+  const { actorEmail, actorKind } = attributionOf(auth.principal)
   const S = Prisma.sql`
     ${accessChainPredicate(viewbook.id, token)}
     AND (SELECT "clientNotifyJson" FROM "Viewbook" WHERE "id" = ${viewbook.id}) IS NOT ${serialized}
     AND ${recipientsStillAllowedPredicate(viewbook.id, canonical)}
+    AND ${memberWriteFence(auth.principal, viewbook.id, now)}
   `
 
   const [, activityCount, updateCount] = await prisma.$transaction([
     syncVersionBumpWhere(viewbook.id, S),
     prisma.$executeRaw`
-      INSERT INTO "ViewbookActivity" ("viewbookId", "kind", "actor", "summary", "createdAt")
-      SELECT ${viewbook.id}, 'notify-emails-set', 'client', 'Updated notify emails', ${now}
+      INSERT INTO "ViewbookActivity" ("viewbookId", "kind", "actor", "actorKind", "summary", "createdAt")
+      SELECT ${viewbook.id}, 'notify-emails-set', ${actorEmail}, ${actorKind}, 'Updated notify emails', ${now}
       WHERE (${S})
     `,
     prisma.$executeRaw`
@@ -160,6 +169,7 @@ export async function setNotifyEmails(
   // between resolveAllowedNotifyRecipients() and this commit (TOCTOU fix).
   // Both preflights must pass before either explanation is assumed, or a
   // hidden section would leak through as a false "success".
+  await requireMemberStillAuthorized(auth, viewbook.id)
   await requireViewbookToken(token)
   await requirePcSetupSectionVisible(viewbook.id)
   const allowedNow = await resolveAllowedNotifyRecipients(viewbook.id)

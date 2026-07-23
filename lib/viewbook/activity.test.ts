@@ -17,8 +17,8 @@ describe('viewbook activity', () => {
   it('composes activity writes into an array-form transaction', async () => {
     const vb = await mkViewbook()
     await prisma.$transaction([
-      ...appendActivityStatements(vb.id, 'feedback', 'client', 'Client added feedback'),
-      ...appendActivityStatements(vb.id, 'section-done', 'operator@example.com', 'Completed Brand Guidelines'),
+      ...appendActivityStatements(vb.id, 'feedback', 'client', 'client', 'Client added feedback'),
+      ...appendActivityStatements(vb.id, 'section-done', 'operator@example.com', 'operator', 'Completed Brand Guidelines'),
     ])
     const feed = await listActivity(vb.id)
     expect(feed.items.map((row) => row.summary)).toEqual([

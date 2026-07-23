@@ -14,18 +14,20 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { withRoute } from '@/lib/api/with-route'
 import { requireViewbookToken } from '@/lib/viewbook/route-auth'
+import { requireCanRead } from '@/lib/viewbook/principal'
 import { readViewbookAsset } from '@/lib/viewbook/assets'
 import { parseStoredThemeWide } from '@/lib/viewbook/theme-server'
 import { getGlobalContent } from '@/lib/viewbook/global-content'
 import { prisma } from '@/lib/db'
 
 export const GET = withRoute(
-  async (_request: NextRequest, { params }: { params: Promise<{ token: string; filename: string }> }) => {
+  async (request: NextRequest, { params }: { params: Promise<{ token: string; filename: string }> }) => {
     const { token, filename } = await params
     const notFoundRes = () => NextResponse.json({ error: 'not_found' }, { status: 404 })
 
     // Throws HttpError(404) on invalid/revoked/archived — withRoute maps it.
     const vb = await requireViewbookToken(token)
+    await requireCanRead(request, vb)
 
     const theme = parseStoredThemeWide(vb.themeJson)
     const themeFiles = new Set(
@@ -76,7 +78,7 @@ export const GET = withRoute(
     const headers: Record<string, string> = {
       'Content-Type': asset.mime,
       'X-Content-Type-Options': 'nosniff',
-      'Cache-Control': 'private, max-age=3600',
+      'Cache-Control': 'private, no-store',
     }
     if (asset.mime === 'application/pdf') headers['Content-Disposition'] = 'inline'
     return new Response(new Uint8Array(asset.buf), { headers })

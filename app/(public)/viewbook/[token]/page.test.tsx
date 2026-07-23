@@ -9,8 +9,9 @@ import { renderToStaticMarkup } from 'react-dom/server'
 // ViewbookShell — not the OperatorViewbookLayer.
 
 const loadViewbookPublicData = vi.fn()
-const getOperatorEmailForPublicPage = vi.fn()
+const resolveViewbookPrincipalRSC = vi.fn()
 const loadOperatorViewbookData = vi.fn()
+const findViewbook = vi.fn()
 const notFound = vi.fn(() => {
   throw new Error('NEXT_NOT_FOUND')
 })
@@ -18,8 +19,11 @@ const notFound = vi.fn(() => {
 vi.mock('@/lib/viewbook/public-data', () => ({
   loadViewbookPublicData: (...a: unknown[]) => loadViewbookPublicData(...a),
 }))
-vi.mock('@/lib/viewbook/public-session', () => ({
-  getOperatorEmailForPublicPage: (...a: unknown[]) => getOperatorEmailForPublicPage(...a),
+vi.mock('@/lib/viewbook/principal', () => ({
+  resolveViewbookPrincipalRSC: (...a: unknown[]) => resolveViewbookPrincipalRSC(...a),
+}))
+vi.mock('@/lib/db', () => ({
+  prisma: { viewbook: { findUnique: (...a: unknown[]) => findViewbook(...a) } },
 }))
 vi.mock('@/lib/viewbook/operator-data', () => ({
   loadOperatorViewbookData: (...a: unknown[]) => loadOperatorViewbookData(...a),
@@ -34,6 +38,7 @@ vi.mock('next/navigation', () => ({
 import ViewbookPage from './page'
 import { ViewbookShell } from '@/components/viewbook/public/ViewbookShell'
 import { OperatorViewbookLayer } from '@/components/viewbook/public/OperatorLayer'
+import { AuthLanding } from '@/components/viewbook/public/AuthLanding'
 
 const OPERATOR_MARKERS = [
   'data-operator-viewbook-layer',
@@ -73,30 +78,30 @@ function publicData() {
     docs: [],
     overrides: {},
     global: {},
-    theme: { primary: '#122033', secondary: '#334155', tertiary: '#c99334', headingFont: 'abril-fatface', bodyFont: 'inter', logo: null, sectionHeroes: {} },
+    theme: { primary: '#abcdef', secondary: '#334155', tertiary: '#c99334', headingFont: 'abril-fatface', bodyFont: 'inter', logo: null, sectionHeroes: {} },
   } as unknown as Awaited<ReturnType<typeof loadViewbookPublicData>>
 }
 
 afterEach(() => {
   vi.clearAllMocks()
+  findViewbook.mockResolvedValue({ id: 7, revokedAt: null, client: { archivedAt: null } })
 })
 
 describe('ViewbookPage anonymous vs operator branch (spec §13)', () => {
-  it('anonymous session renders ViewbookShell and NEVER loads the operator read model', async () => {
-    loadViewbookPublicData.mockResolvedValue(publicData())
-    getOperatorEmailForPublicPage.mockResolvedValue(null)
+  it('anonymous session renders only AuthLanding and NEVER loads any viewbook payload', async () => {
+    findViewbook.mockResolvedValue({ id: 7, revokedAt: null, client: { archivedAt: null } })
+    resolveViewbookPrincipalRSC.mockResolvedValue(null)
 
     const el = await ViewbookPage({ params: Promise.resolve({ token: 'tok' }) })
 
     expect(isValidElement(el)).toBe(true)
-    // The plain shell, not the operator layer.
-    expect((el as { type: unknown }).type).toBe(ViewbookShell)
-    expect((el as { props: { resolvedFonts: { heading: { family: string } } } }).props.resolvedFonts.heading.family).toBe('Abril Fatface')
-    // The load-bearing no-leak guarantee: operator data is never even fetched.
+    expect((el as { type: unknown }).type).toBe(AuthLanding)
+    expect((el as { props: Record<string, unknown> }).props).toEqual({ token: 'tok' })
+    expect(loadViewbookPublicData).not.toHaveBeenCalled()
     expect(loadOperatorViewbookData).not.toHaveBeenCalled()
-
-    // And no operator markers / operator email appear in the rendered markup.
     const html = renderToStaticMarkup(el)
+    expect(html).not.toContain('Acme')
+    expect(html).not.toContain('#abcdef')
     for (const marker of OPERATOR_MARKERS) {
       expect(html.includes(marker)).toBe(false)
     }
@@ -104,15 +109,17 @@ describe('ViewbookPage anonymous vs operator branch (spec §13)', () => {
 
   it('verified-operator session renders OperatorViewbookLayer with the read model', async () => {
     loadViewbookPublicData.mockResolvedValue(publicData())
-    getOperatorEmailForPublicPage.mockResolvedValue('op@example.com')
+    findViewbook.mockResolvedValue({ id: 7, revokedAt: null, client: { archivedAt: null } })
+    resolveViewbookPrincipalRSC.mockResolvedValue({ kind: 'operator', email: 'op@example.com' })
     loadOperatorViewbookData.mockResolvedValue({ pcCompletedAt: null, sections: [] })
 
     const el = await ViewbookPage({ params: Promise.resolve({ token: 'tok' }) })
 
     expect(isValidElement(el)).toBe(true)
-    expect((el as { type: unknown }).type).toBe(OperatorViewbookLayer)
+    const operatorLayer = (el as { props: { children: unknown[] } }).props.children[1] as { type: unknown; props: Record<string, unknown> }
+    expect(operatorLayer.type).toBe(OperatorViewbookLayer)
     expect(loadOperatorViewbookData).toHaveBeenCalledWith(7)
-    const props = (el as { props: Record<string, unknown> }).props
+    const props = operatorLayer.props
     expect(props.operatorEmail).toBe('op@example.com')
     expect(props.viewbookId).toBe(7)
 
@@ -127,5 +134,33 @@ describe('ViewbookPage anonymous vs operator branch (spec §13)', () => {
     }
     expect(isValidElement(props.children)).toBe(true)
     expect((props.children as { props: { resolvedFonts: { heading: { family: string } } } }).props.resolvedFonts.heading.family).toBe('Abril Fatface')
+  })
+
+  it('member and break-glass principals render the full read view without the operator model', async () => {
+    loadViewbookPublicData.mockResolvedValue(publicData())
+    findViewbook.mockResolvedValue({ id: 7, revokedAt: null, client: { archivedAt: null } })
+    resolveViewbookPrincipalRSC.mockResolvedValue({
+      kind: 'member',
+      member: { id: 1, memberKey: 'm', name: 'Jamie', email: 'jamie@example.com' },
+      sessionId: 2,
+    })
+    const member = await ViewbookPage({ params: Promise.resolve({ token: 'tok' }) })
+    expect(renderToStaticMarkup(member)).toContain('Signed in as')
+    expect(loadOperatorViewbookData).not.toHaveBeenCalled()
+
+    resolveViewbookPrincipalRSC.mockResolvedValue({ kind: 'break-glass' })
+    const breakGlass = await ViewbookPage({ params: Promise.resolve({ token: 'tok' }) })
+    expect(renderToStaticMarkup(breakGlass)).not.toContain('Signed in as')
+    expect(loadOperatorViewbookData).not.toHaveBeenCalled()
+  })
+
+  it('unknown, revoked, and archived tokens 404 before principal or payload resolution', async () => {
+    for (const row of [null, { id: 7, revokedAt: new Date(), client: { archivedAt: null } }, { id: 7, revokedAt: null, client: { archivedAt: new Date() } }]) {
+      vi.clearAllMocks()
+      findViewbook.mockResolvedValue(row)
+      await expect(ViewbookPage({ params: Promise.resolve({ token: 'tok' }) })).rejects.toThrow('NEXT_NOT_FOUND')
+      expect(resolveViewbookPrincipalRSC).not.toHaveBeenCalled()
+      expect(loadViewbookPublicData).not.toHaveBeenCalled()
+    }
   })
 })

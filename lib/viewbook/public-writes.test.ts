@@ -7,7 +7,15 @@ import crypto from 'crypto'
 import { prisma } from '@/lib/db'
 import { createViewbook } from '@/lib/viewbook/service'
 import { requireViewbookToken } from '@/lib/viewbook/route-auth'
-import { insertClientFeedback, insertClientMaterial } from './public-writes'
+import { insertClientFeedback as insertClientFeedbackCore, insertClientMaterial as insertClientMaterialCore } from './public-writes'
+
+const LEGACY_TEST_AUTH = { principal: { kind: 'operator', email: 'client' } } as const
+function insertClientFeedback(...args: [Parameters<typeof insertClientFeedbackCore>[0], Parameters<typeof insertClientFeedbackCore>[1], Parameters<typeof insertClientFeedbackCore>[2], Parameters<typeof insertClientFeedbackCore>[4]?]) {
+  return insertClientFeedbackCore(args[0], args[1], args[2], LEGACY_TEST_AUTH, args[3])
+}
+function insertClientMaterial(...args: [Parameters<typeof insertClientMaterialCore>[0], Parameters<typeof insertClientMaterialCore>[1], Parameters<typeof insertClientMaterialCore>[2], Parameters<typeof insertClientMaterialCore>[4]?]) {
+  return insertClientMaterialCore(args[0], args[1], args[2], LEGACY_TEST_AUTH, args[3])
+}
 
 afterAll(async () => {
   await prisma.client.deleteMany({ where: { name: { startsWith: 'vb-test-pw-' } } })

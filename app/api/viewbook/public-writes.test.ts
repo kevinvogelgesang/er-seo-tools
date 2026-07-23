@@ -7,7 +7,15 @@ import { requireViewbookToken } from '@/lib/viewbook/route-auth'
 import { resetWriteThrottleForTests } from '@/lib/viewbook/public-write-guard'
 import { POST as postFeedback } from './[token]/feedback/route'
 import { POST as postMaterial } from './[token]/materials/route'
-import { insertClientFeedback, insertClientMaterial } from '@/lib/viewbook/public-writes'
+import { insertClientFeedback as insertClientFeedbackCore, insertClientMaterial as insertClientMaterialCore } from '@/lib/viewbook/public-writes'
+
+const LEGACY_TEST_AUTH = { principal: { kind: 'operator', email: 'client' } } as const
+function insertClientFeedback(...args: [Parameters<typeof insertClientFeedbackCore>[0], Parameters<typeof insertClientFeedbackCore>[1], Parameters<typeof insertClientFeedbackCore>[2], Parameters<typeof insertClientFeedbackCore>[4]?]) {
+  return insertClientFeedbackCore(args[0], args[1], args[2], LEGACY_TEST_AUTH, args[3])
+}
+function insertClientMaterial(...args: [Parameters<typeof insertClientMaterialCore>[0], Parameters<typeof insertClientMaterialCore>[1], Parameters<typeof insertClientMaterialCore>[2], Parameters<typeof insertClientMaterialCore>[4]?]) {
+  return insertClientMaterialCore(args[0], args[1], args[2], LEGACY_TEST_AUTH, args[3])
+}
 
 beforeEach(resetWriteThrottleForTests)
 afterAll(async () => {

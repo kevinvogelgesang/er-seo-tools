@@ -4,10 +4,17 @@ import { prisma } from '@/lib/db'
 import { createViewbook } from '@/lib/viewbook/service'
 import { requireViewbookToken } from '@/lib/viewbook/route-auth'
 import {
-  applyAnswerEdit,
+  applyAnswerEdit as applyAnswerEditCore,
   lockViewbook,
-  proposeAmendment,
+  proposeAmendment as proposeAmendmentCore,
 } from './answers'
+
+function applyAnswerEdit(...args: [Parameters<typeof applyAnswerEditCore>[0], Parameters<typeof applyAnswerEditCore>[1], Parameters<typeof applyAnswerEditCore>[2], string, Parameters<typeof applyAnswerEditCore>[4]?]) {
+  return applyAnswerEditCore(args[0], args[1], args[2], { principal: { kind: 'operator', email: args[3] } }, args[4])
+}
+function proposeAmendment(...args: [Parameters<typeof proposeAmendmentCore>[0], Parameters<typeof proposeAmendmentCore>[1], Parameters<typeof proposeAmendmentCore>[2], string, Parameters<typeof proposeAmendmentCore>[4]?]) {
+  return proposeAmendmentCore(args[0], args[1], args[2], { principal: { kind: 'operator', email: args[3] } }, args[4])
+}
 
 afterAll(async () => {
   await prisma.client.deleteMany({ where: { name: { startsWith: 'vb-test-pr3-' } } })

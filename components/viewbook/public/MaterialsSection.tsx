@@ -92,7 +92,7 @@ export function MaterialsSection({
                 </span>
               )}
               <span className="ml-auto text-xs text-black/40">
-                {m.addedBy === 'client' ? 'added by you' : 'added by our team'}
+                {m.addedByKind === 'client' || m.addedByKind === 'member' ? 'added by you' : 'added by our team'}
                 {m.providedAt ? ` · ${fmtDate(m.providedAt)}` : ''}
               </span>
             </li>

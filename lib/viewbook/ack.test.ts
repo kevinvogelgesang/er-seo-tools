@@ -4,7 +4,7 @@ import { prisma } from '@/lib/db'
 import { createViewbook, setSectionState } from './service'
 import { requireViewbookToken } from './route-auth'
 import { notifyAdminEmail } from '@/lib/notify/config'
-import { ACKABLE_SECTION_KEYS, acknowledgeSection, resetSectionAck } from './ack'
+import { ACKABLE_SECTION_KEYS, acknowledgeSection as acknowledgeSectionCore, resetSectionAck } from './ack'
 import { runViewbookEmailJob } from '@/lib/jobs/handlers/viewbook-email'
 
 vi.mock('@/lib/jobs/queue', async (importOriginal) => {
@@ -16,6 +16,11 @@ const { enqueueJob } = await import('@/lib/jobs/queue')
 const PREFIX = 'vb-test-ack-'
 const OPERATOR = 'operator@example.com'
 const OLD_ENV = process.env
+const LEGACY_TEST_AUTH = { principal: { kind: 'operator', email: 'client' } } as const
+
+function acknowledgeSection(...args: [Parameters<typeof acknowledgeSectionCore>[0], Parameters<typeof acknowledgeSectionCore>[1], Parameters<typeof acknowledgeSectionCore>[2], Parameters<typeof acknowledgeSectionCore>[4]?]) {
+  return acknowledgeSectionCore(args[0], args[1], args[2], LEGACY_TEST_AUTH, args[3])
+}
 
 async function mkViewbook(opts: { csmName?: string | null } = {}) {
   const client = await prisma.client.create({ data: { name: `${PREFIX}${crypto.randomUUID()}` } })

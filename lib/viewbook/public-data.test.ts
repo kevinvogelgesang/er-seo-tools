@@ -173,10 +173,10 @@ describe('loadViewbookPublicData', () => {
     })
     await prisma.viewbookField.update({
       where: { id: field.id },
-      data: { value: 'Pro Way', valueUpdatedBy: 'client', valueUpdatedAt: new Date(), version: 2 },
+      data: { value: 'Pro Way', valueUpdatedBy: 'former@example.com', valueUpdatedByKind: 'member', valueUpdatedAt: new Date(), version: 2 },
     })
     await prisma.viewbookFieldAmendment.create({
-      data: { fieldId: field.id, value: 'Pro Way Hair School', author: 'client' },
+      data: { fieldId: field.id, value: 'Pro Way Hair School', author: 'Former Member', authorKind: 'member' },
     })
     const archived = await prisma.viewbookField.findFirstOrThrow({
       where: { viewbookId: id, defKey: 'school-contact-name' },
@@ -189,11 +189,13 @@ describe('loadViewbookPublicData', () => {
     expect(school.some((f) => f.label === 'Primary contact name')).toBe(false)
     const named = school.find((f) => f.label === 'School name')!
     expect(named.value).toBe('Pro Way')
-    expect(named.valueUpdatedBy).toBe('client')
+    expect(named.valueUpdatedBy).toBe('former@example.com')
+    expect(named.valueUpdatedByKind).toBe('member')
     expect(named.version).toBe(2)
     expect(named.createdAt).toMatch(/^\d{4}-/)
     expect(named.amendments).toHaveLength(1)
     expect(named.amendments[0].value).toBe('Pro Way Hair School')
+    expect(named.amendments[0].authorKind).toBe('member')
     expect(named.amendments[0].id).toBeGreaterThan(0)
   })
 
@@ -208,7 +210,7 @@ describe('loadViewbookPublicData', () => {
       data: { reviewLinkId: link.id, body: 'Love it', authorKind: 'client', authorName: 'Pat' },
     })
     await prisma.viewbookMaterialLink.create({
-      data: { viewbookId: id, label: 'Logo files', status: 'requested', addedBy: 'kevin@er.com' },
+      data: { viewbookId: id, label: 'Logo files', status: 'requested', addedBy: 'kevin@er.com', addedByKind: 'operator' },
     })
 
     const data = await loadViewbookPublicData(token)
@@ -219,6 +221,7 @@ describe('loadViewbookPublicData', () => {
     expect(withLink.reviewLinks[0].feedback[0].body).toBe('Love it')
     expect(data!.materials).toHaveLength(1)
     expect(data!.materials[0].status).toBe('requested')
+    expect(data!.materials[0].addedByKind).toBe('operator')
   })
 
   it('degrades global content to null blocks instead of failing (corrupt row)', async () => {

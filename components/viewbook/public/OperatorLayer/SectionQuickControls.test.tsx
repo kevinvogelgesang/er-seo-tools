@@ -5,7 +5,7 @@ import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/re
 import { prisma } from '@/lib/db'
 import type { OperatorSectionData } from '@/lib/viewbook/operator-data'
 import type { SectionKey } from '@/lib/viewbook/theme'
-import { ACKABLE_SECTION_KEYS, acknowledgeSection } from '@/lib/viewbook/ack'
+import { ACKABLE_SECTION_KEYS, acknowledgeSection as acknowledgeSectionCore } from '@/lib/viewbook/ack'
 import { loadViewbookPublicData } from '@/lib/viewbook/public-data'
 import { createViewbook } from '@/lib/viewbook/service'
 import { requireViewbookToken } from '@/lib/viewbook/route-auth'
@@ -29,6 +29,11 @@ vi.mock('@/lib/jobs/queue', async (importOriginal) => {
 })
 
 const INTEGRATION_PREFIX = 'vb-l3-ack-flow-'
+const LEGACY_TEST_AUTH = { principal: { kind: 'operator', email: 'client' } } as const
+
+function acknowledgeSection(...args: [Parameters<typeof acknowledgeSectionCore>[0], Parameters<typeof acknowledgeSectionCore>[1], Parameters<typeof acknowledgeSectionCore>[2]]) {
+  return acknowledgeSectionCore(args[0], args[1], args[2], LEGACY_TEST_AUTH)
+}
 
 afterAll(async () => {
   await prisma.client.deleteMany({ where: { name: { startsWith: INTEGRATION_PREFIX } } })
