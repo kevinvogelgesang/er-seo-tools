@@ -9,6 +9,7 @@ import { prisma } from '@/lib/db'
 import { AUTH_COOKIE_NAME, createAuthCookieValue } from '@/lib/auth'
 import { createViewbook } from '@/lib/viewbook/service'
 import { PATCH as patchSection } from './[id]/sections/[sectionKey]/route'
+import { POST as pullSection } from './[id]/sections/[sectionKey]/pull/route'
 import { PATCH as patchSubsection } from './[id]/subsections/[subId]/route'
 import { POST as createField } from './[id]/fields/route'
 import { DELETE as archiveField, PATCH as patchField } from './[id]/fields/[fieldId]/route'
@@ -266,5 +267,72 @@ describe('field routes — aggregate bump + archiveReason (F2 Task 4)', () => {
     )
     expect(replay.status).toBe(404)
     expect((await getSection(id, 'data-source')).version).toBe(beforeReplay.version)
+  })
+})
+
+describe('POST /api/viewbooks/:id/sections/:sectionKey/pull (F2 Task 5)', () => {
+  it('pulls the section, returning {summary, section} — an equal-version pull is legal', async () => {
+    const { id } = await mkViewbook()
+    const before = await getSection(id, 'brand')
+    const res = await pullSection(
+      req(`/api/viewbooks/${id}/sections/brand/pull`, {
+        method: 'POST',
+        body: JSON.stringify({ version: before.version }),
+      }),
+      params({ id: String(id), sectionKey: 'brand' }),
+    )
+    expect(res.status).toBe(200)
+    const payload = await res.json()
+    expect(payload.summary).toEqual({
+      subsectionsAdded: 0,
+      subsectionsUpdated: 1,
+      subsectionsArchived: 0,
+      fieldsAdded: 0,
+      fieldsUpdated: 0,
+      fieldsArchived: 0,
+    })
+    expect(payload.section.sectionKey).toBe('brand')
+    expect(payload.section.version).toBe(before.version + 1)
+    expect(Array.isArray(payload.section.subsections)).toBe(true)
+  })
+
+  it('stale version → 409 version_conflict envelope', async () => {
+    const { id } = await mkViewbook()
+    const before = await getSection(id, 'brand')
+    const res = await pullSection(
+      req(`/api/viewbooks/${id}/sections/brand/pull`, {
+        method: 'POST',
+        body: JSON.stringify({ version: before.version + 7 }),
+      }),
+      params({ id: String(id), sectionKey: 'brand' }),
+    )
+    expect(res.status).toBe(409)
+    expect((await res.json()).error).toBe('version_conflict')
+    expect((await getSection(id, 'brand')).version).toBe(before.version)
+  })
+
+  it('missing/non-integer version → 400 invalid_content', async () => {
+    const { id } = await mkViewbook()
+    for (const body of [{}, { version: 'one' }, { version: 1.5 }]) {
+      const res = await pullSection(
+        req(`/api/viewbooks/${id}/sections/brand/pull`, { method: 'POST', body: JSON.stringify(body) }),
+        params({ id: String(id), sectionKey: 'brand' }),
+      )
+      expect(res.status).toBe(400)
+      expect((await res.json()).error).toBe('invalid_content')
+    }
+  })
+
+  it('no auth cookie → 401', async () => {
+    const { id } = await mkViewbook()
+    const res = await pullSection(
+      req(`/api/viewbooks/${id}/sections/brand/pull`, {
+        method: 'POST',
+        body: JSON.stringify({ version: 1 }),
+        auth: false,
+      }),
+      params({ id: String(id), sectionKey: 'brand' }),
+    )
+    expect(res.status).toBe(401)
   })
 })
