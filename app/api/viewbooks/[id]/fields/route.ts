@@ -8,7 +8,6 @@ import { CATALOG_CATEGORIES } from '@/lib/viewbook/catalog'
 import { requireOperatorEmail } from '@/lib/viewbook/operator'
 import { parseId, requireJsonObject } from '@/lib/viewbook/route-utils'
 import { syncVersionBumpWhere } from '@/lib/viewbook/sync'
-import { bumpSectionAggregateGuarded } from '@/lib/viewbook/instance-service'
 
 export const dynamic = 'force-dynamic'
 
@@ -63,15 +62,26 @@ export const POST = withRoute(async (request: NextRequest, { params }: RoutePara
   // Defense-in-depth only: the preconditions above were just verified, so this
   // WHERE is a narrow-race safety net (client archived / row deleted between
   // the reads above and this txn), not the primary authorization mechanism.
+  //
+  // Fix round 1 (Codex review, Finding 1): all three statements below share
+  // this EXACT predicate — a client archived in the race window makes the
+  // sync bump, the aggregate bump, AND the INSERT no-op TOGETHER (0 rows,
+  // no throw), so version + syncVersion stay untouched whenever no field is
+  // actually created. Mirrors the DELETE route's shared-`archiveGuard`
+  // pattern (fields/[fieldId]/route.ts).
+  const activeClientGuard = Prisma.sql`
+    EXISTS (SELECT 1 FROM "Viewbook" v JOIN "Client" c ON c."id" = v."clientId" WHERE v."id" = ${viewbookId} AND c."archivedAt" IS NULL)
+  `
   let results: unknown[]
   try {
     results = await prisma.$transaction([
-      syncVersionBumpWhere(viewbookId, Prisma.sql`
-        EXISTS (SELECT 1 FROM "Viewbook" v JOIN "Client" c ON c."id" = v."clientId" WHERE v."id" = ${viewbookId} AND c."archivedAt" IS NULL)
-      `),
+      syncVersionBumpWhere(viewbookId, activeClientGuard),
       // ONE aggregate bump per create — the field row's owning section (Codex
       // fix carried from Task 3 review: this bump was previously missing).
-      bumpSectionAggregateGuarded(subsection.sectionId, viewbookId),
+      // Guarded (not the throwing bumpSectionAggregateGuarded helper) so a
+      // client-archived race no-ops it instead of committing a spurious bump
+      // alongside a zero-row INSERT below.
+      prisma.$executeRaw`UPDATE "ViewbookSection" SET "version" = "version" + 1, "updatedAt" = ${createdAt} WHERE "id" = ${subsection.sectionId} AND (${activeClientGuard})`,
       prisma.$queryRaw<Array<{ id: number }>>`
         INSERT INTO "ViewbookField"
           ("viewbookId", "subsectionId", "defKey", "category", "label", "fieldType", "sortOrder", "version", "createdBy", "createdAt")

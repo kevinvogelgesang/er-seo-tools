@@ -148,14 +148,21 @@ export async function patchSubsectionInstance(
   })
   if (!sub) throw new HttpError(404, 'not_found')
 
+  // Fix round 1 (Codex review, Finding 2): persist the PARSER'S normalized
+  // return value, not the raw request input — matches patchSectionInstance's
+  // validatedCopy precedent. parseSubsectionCopy/parseSubsectionContent are
+  // more than validity gates: they trim/lowercase emails (canonicalMailbox,
+  // via validateTeam) and blank-to-null copy fields (norm()). Storing the raw
+  // input would silently drop that normalization.
   let copyJson: string | null | undefined // undefined = field absent from the patch
   if (input.copy !== undefined) {
     if (input.copy === null) {
       copyJson = null
     } else {
       const envelope = JSON.stringify({ v: 1, copy: input.copy })
-      if (parseSubsectionCopy(envelope) === null) throw new HttpError(400, 'invalid_content')
-      copyJson = envelope
+      const validated = parseSubsectionCopy(envelope)
+      if (validated === null) throw new HttpError(400, 'invalid_content')
+      copyJson = JSON.stringify(validated)
     }
   }
 
@@ -166,10 +173,9 @@ export async function patchSubsectionInstance(
     } else {
       if (!isPlainObject(input.content)) throw new HttpError(400, 'invalid_content')
       const envelope = JSON.stringify({ v: 1, ...input.content })
-      if (parseSubsectionContent(sub.section.rendererType, envelope) === null) {
-        throw new HttpError(400, 'invalid_content')
-      }
-      contentJson = envelope
+      const validated = parseSubsectionContent(sub.section.rendererType, envelope)
+      if (validated === null) throw new HttpError(400, 'invalid_content')
+      contentJson = JSON.stringify(validated)
     }
   }
 

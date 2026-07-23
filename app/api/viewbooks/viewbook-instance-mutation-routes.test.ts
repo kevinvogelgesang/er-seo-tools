@@ -2,7 +2,7 @@
 // the section PATCH route's mixed-body 400, the new subsections PATCH
 // route, and the field routes' aggregate bump + archiveReason + the
 // missing-category-subsection 409 (spec §9, carried from the Task 3 review).
-import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
 import crypto from 'crypto'
 import type { NextRequest } from 'next/server'
 import { prisma } from '@/lib/db'
@@ -155,6 +155,51 @@ describe('field routes — aggregate bump + archiveReason (F2 Task 4)', () => {
     expect(res.status).toBe(201)
     const after = await getSection(id, 'data-source')
     expect(after.version).toBe(dataSource.version + 1)
+  })
+
+  it('client archived in the race window between the precondition reads and the txn leaves version+syncVersion untouched (Fix round 1, Finding 1)', async () => {
+    const { id } = await mkViewbook()
+    const viewbookRow = await prisma.viewbook.findUniqueOrThrow({ where: { id }, select: { clientId: true } })
+    const dataSource = await getSection(id, 'data-source')
+    const beforeSync = await syncVersion(id)
+
+    // Simulate the archived-client race: the subsection lookup (the LAST
+    // precondition read before the txn) resolves normally, then — before the
+    // txn runs — the client is archived out from under the request. Before
+    // the fix, the aggregate bump had no archived-client guard and would
+    // still commit a spurious version+syncVersion bump even though the
+    // INSERT (which DOES guard on the archived client) inserts zero rows.
+    // Reinstall via `mockImplementation`, NOT `mockRestore` — this codebase's
+    // convention (lib/viewbook/public-data.test.ts) for prisma model-delegate
+    // spies, since `mockRestore`'s captured property descriptor is a proxy
+    // artifact here (`value: undefined`) that permanently breaks the method.
+    const original = prisma.viewbookSubsection.findFirst.bind(prisma.viewbookSubsection)
+    const spy = vi
+      .spyOn(prisma.viewbookSubsection, 'findFirst')
+      .mockImplementationOnce(async (...args: unknown[]) => {
+        const result = await (original as (...a: unknown[]) => Promise<unknown>)(...args)
+        await prisma.client.update({ where: { id: viewbookRow.clientId }, data: { archivedAt: new Date() } })
+        return result
+      })
+
+    try {
+      const res = await createField(
+        req(`/api/viewbooks/${id}/fields`, {
+          method: 'POST',
+          body: JSON.stringify({ label: 'Race question', fieldType: 'text', category: 'school' }),
+        }),
+        params({ id: String(id) }),
+      )
+      expect(res.status).toBe(404)
+      expect((await res.json()).error).toBe('not_found')
+    } finally {
+      spy.mockImplementation(original)
+    }
+
+    expect((await getSection(id, 'data-source')).version).toBe(dataSource.version)
+    expect(await syncVersion(id)).toBe(beforeSync)
+    const created = await prisma.viewbookField.findMany({ where: { viewbookId: id, label: 'Race question' } })
+    expect(created).toHaveLength(0)
   })
 
   it('POST create 409 conflicting_ops when the category subsection instance is missing', async () => {

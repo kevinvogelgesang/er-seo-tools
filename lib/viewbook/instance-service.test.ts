@@ -164,6 +164,48 @@ describe('patchSubsectionInstance', () => {
     expect(afterSection.version).toBe(beforeSection.version + 1)
   })
 
+  // Fix round 1 (Codex review, Finding 2): persist the VALIDATED/normalized
+  // envelope, not the raw request body.
+  it('copy patch persists the NORMALIZED envelope: a whitespace-only field blanks to null (not the raw whitespace string)', async () => {
+    const { id } = await mkViewbook()
+    const beforeSub = await getSubsection(id, 'brand', 'main')
+
+    await patchSubsectionInstance(
+      id,
+      beforeSub.id,
+      { version: beforeSub.version, copy: { intro: '   ', whatWeNeed: 'Real text' } },
+      OPERATOR,
+    )
+
+    const afterSub = await getSubsection(id, 'brand', 'main')
+    const copy = JSON.parse(afterSub.copyJson!).copy
+    expect(copy.intro).toBeNull()
+    expect(copy.whatWeNeed).toBe('Real text')
+  })
+
+  it('content patch on the welcome/main subsection persists the CANONICAL email (trimmed + lowercased), not the raw mixed-case/whitespace input', async () => {
+    const { id } = await mkViewbook()
+    const beforeSub = await getSubsection(id, 'welcome', 'main')
+
+    await patchSubsectionInstance(
+      id,
+      beforeSub.id,
+      {
+        version: beforeSub.version,
+        content: {
+          team: [{ name: 'Jo', role: 'CSM', photo: null, blurb: '', email: '  Jo.Smith@Example.COM  ' }],
+          process: { blocks: [] },
+          why: { blocks: [] },
+        },
+      },
+      OPERATOR,
+    )
+
+    const afterSub = await getSubsection(id, 'welcome', 'main')
+    const team = JSON.parse(afterSub.contentJson!).team
+    expect(team[0].email).toBe('jo.smith@example.com')
+  })
+
   it('title patch bumps both versions exactly once', async () => {
     const { id } = await mkViewbook()
     const beforeSection = await getSection(id, 'brand')
