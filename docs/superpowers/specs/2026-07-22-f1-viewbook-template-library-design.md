@@ -5,7 +5,7 @@
 **Tracker:** `docs/superpowers/todos/2026-07-22-onboarding-viewbook-tracker.md`.
 **Sequencing:** track head; F2 (instances + cutover) builds directly on this. Parallel with U1/U2. **Split confirmed: F1a (schema + registry + seed + parity) and F1b (template admin UI + bridge) are two PRs.** U1/F1/F2 all touch `prisma/schema.prisma` — whichever merges second rebases, `npx prisma generate`, `rm -rf .test-dbs`.
 
-## 0. BLOCKING Kevin decision (§9 Q2 — required BEFORE F1a deploys)
+## 0. §9 Q2 — canonical section order (**CONFIRMED by Kevin 2026-07-22: recommended order + proposed seeded titles approved** — F1a's seed/deploy gate is CLEARED)
 
 **The canonical initial 13-section order must be confirmed by Kevin before the first production seed** — the seeder never updates existing rows (§5), so a wrong first-seed order persists until manually resequenced. Recommended order (stage-journey; rationale §5): `pc-intro, pc-setup, pc-invite, data-source, welcome, milestones, strategy, kickoff-next, ws-intro, brand, assessment, materials, pc-thanks`. This is no longer a non-blocking recommendation; F1a's merge gate includes this sign-off. (Also needing sign-off, same gate, lower stakes: the display titles for the seeded `main` subsections and the 8 data-source category subsections — §5 proposes defaults.)
 
@@ -130,7 +130,7 @@ The roadmap bar "seeded website templates render byte-parity with today's defaul
 
 `SECTION_TITLES['data-source']` → **"What we need from you"** ships in **F1a**, in the same PR as (and ordered before) the seeder, so the first production seed captures the new title and the never-update rule can't fossilize the old one. It's user-facing copy (same class as S1); the parity test pins title equality through the rename. The seeded `data-source` template title uses the same constant.
 
-## 9. §9 Q1 — team roster frozen vs live-shared (RECOMMENDATION; Kevin to confirm at F2 spec time)
+## 9. §9 Q1 — team roster frozen vs live-shared (**CONFIRMED by Kevin 2026-07-22: uniform copy-on-create, frozen + explicit pull** — F2's spec inherits this as a decision)
 
 Recommend **uniform copy-on-create (frozen + explicit pull), same as all template content** — no live-share carve-out for the team section. Rationale: D8's model already gives every viewbook a one-click "update to current global version" pull in F2, which handles staff churn adequately; a live-share exception would make the team subsection the ONLY content that mutates under a client's feet and would complicate F2's asset-snapshot contract for no structural gain. Consequence to confirm with Kevin: an ex-employee's face stays in an existing viewbook until someone pulls. **F1 is unaffected either way** (the seeder copies the roster; freeze semantics are an F2 behavior) — flagged now so F2's spec inherits a decision, not a question. (Codex concurs the recommendation is D8-consistent.)
 
