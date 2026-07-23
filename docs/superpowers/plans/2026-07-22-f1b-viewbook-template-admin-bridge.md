@@ -4,11 +4,13 @@
 
 **Goal:** Replace `GlobalContentEditor`+`SectionCopyEditor` on `/viewbooks/settings` with a template editor over the F1a `SectionTemplate`/`SubsectionTemplate`/`FieldTemplate` trees, routed through ONE dual-write authority (`lib/viewbook/template-service.ts`) so template edits keep rendering via the legacy stores (and legacy routes forward-write templates — no drift in either direction), plus the one-time F1a→F1b `reconcileSeededTemplates()` boot pass.
 
-**Architecture:** All absorbed-content writes — new template routes AND the still-callable legacy routes — compose ONE array-form `$transaction` in `template-service.ts`: template statement(s) + the corresponding legacy-row statement(s) + one syncVersion bump, with the house bump-first fence-sharing pattern (every conditional statement carries the SAME pre-state predicate; fenced statements run BEFORE the statement that changes what the fence reads). The existing `putGlobalContent`/`putSectionCopyGlobal` transaction owners are refactored into pure statement builders (extraction, not wrapping). `attachTeamPhoto` stays the SINGLE file-save/fence/delete-old authority — it gains an injected txn-builder seam instead of a second flow. Template-route mutations are optimistic-`version`-fenced (409 `version_conflict`, aggregate section version); legacy-route forward-writes are unconditional last-writer-wins with drift logging. NO schema migration.
+**Architecture:** All absorbed-content writes — new template routes AND the still-callable legacy routes — compose ONE array-form `$transaction` in `template-service.ts`: template statement(s) + the corresponding legacy-row statement(s) + one syncVersion bump. **Hard preconditions (template-route mutations) are THROWING conditional guards inside the txn** — `prisma.<model>.update({ where: { id, version: expected }, … })` throws P2025 on a stale version and aborts (rolls back) the WHOLE array transaction; same for a fenced roster `update({ where: { key: 'team', bodyJson: loadedBody } })` and create-P2002 (Codex plan-fixes #2/#4/#5; house precedent: `lib/viewbook/service.ts:397` uses `update({ where: { id, stage } })` as a rollback-producing fence). Once the first guard succeeds, SQLite's single-writer lock prevents interleaving for the rest of the txn, so subsequent statements can be plain. **Soft companions (legacy-route forward-writes into templates) stay non-throwing** `updateMany` fenced on pre-state — a miss is drift-logged, never fails the legacy write. The existing `putGlobalContent`/`putSectionCopyGlobal` transaction owners are refactored into composable NAMED statement builders (extraction, not wrapping; Codex fix #1). `attachTeamPhoto` stays the SINGLE file-save/fence/delete-old authority — it gains an injected txn-builder seam instead of a second flow; hard conflicts surface as in-txn throws, never post-commit checks (Codex fix #3). NO schema migration.
 
 **Tech Stack:** Next.js 15 App Router, Prisma + SQLite, vitest + Testing Library.
 
 **Spec:** `docs/superpowers/specs/2026-07-22-f1-viewbook-template-library-design.md` §7 (Codex-reviewed, 15 fixes applied; F1b implements fixes #1–#4 + the §3 aggregate-version rule #12). F1a module inventory: `docs/superpowers/archive/plans/2026-07-22-f1a-viewbook-template-library.md`.
+
+**Plan review:** Codex (Sol) 2026-07-22 — accept with 9 named fixes, ALL applied below (composable named statement builders #1; throwing-guard welcome/team txn #2; in-txn photo hard conflicts + explicit corrupt-envelope rule #3; all-or-nothing reorder via throwing `update` #4; version-carrying creates #5; syncVersion delta tests #6; rollback/no-op pin tests #7; crash-before-marker + concurrent-marker tests + separate `template-reconcile-boot` log op #8; CsmPicker test migration #9). Codex confirmed: the `INSERT … SELECT … WHERE <fence> ON CONFLICT DO UPDATE` form is valid SQLite (no candidate row → no conflict handler; the `WHERE` resolves the upsert parse ambiguity) — retained ONLY where a soft cross-table fence is needed (Task 6 delete-bridged template reset).
 
 ## Resolved decisions (spec + this plan)
 
@@ -17,16 +19,16 @@
 - **Team-photo order (spec fix #4):** save NEW file → ONE fenced txn (legacy roster + template subsection content + syncVersion) → best-effort delete OLD file; conflict deletes the NEW file (409). Orphan-file-on-crash acceptable.
 - **Section CREATE/DELETE is NOT in F1b** (F5b). Subsection/field CREATE is (fieldKey operator-entered, `FIELD_KEY_RE`-validated, immutable; archive-never-delete).
 - **Title edits back-write nothing** — the editor labels title fields "applies after template cutover (F2)". Same for subsection copy (`copyJson` — no legacy target exists).
-- **Plan decision D-a (version token):** every template mutation carries the SECTION's aggregate `version` as the optimistic token (the tree GET supplies it; any concurrent subtree change invalidates the whole panel — simplest honest token; per §3 every subtree mutation bumps it anyway).
+- **Plan decision D-a (version token):** EVERY template mutation — patches AND creates (Codex fix #5) — carries the SECTION's aggregate `version` as the optimistic token (the tree GET supplies it; any concurrent subtree change invalidates the whole panel — simplest honest token; per §3 every subtree mutation bumps it anyway). Version-fencing creates also prevents two concurrent creates from independently deriving the same `max(sortOrder)+N`.
 - **Plan decision D-b (content-shape rule):** subsection `contentJson` validates as (1) the section's renderer shape for the four BRIDGED seeded pairs (`welcome/main`, `strategy/main`, `milestones/main`, `pc-intro/main`); (2) REJECTED (400) for other SEEDED subsections (contentless `main`s and the 8 `data-source` category subsections — nothing renders content there, ever); (3) the `generic` `{v:1, blocks}` shape for every operator-created subsection (the VA/PPC content-entry path; per spec §4 "generic subsections").
 - **Plan decision D-c (forward-write misses):** on the legacy path, a template statement matching 0 rows (missing/edited-away template row, corrupt-envelope fence miss) NEVER fails the legacy write — it is logged (`logError`, op `template-forward-write-miss`) as visible drift. On the template path, fence misses are hard 409s.
-- **Plan decision D-d (reorder partiality):** reorder = one array txn of per-section guarded UPDATEs fenced on each touched section's expected version, 409 on any 0-count (spec §3 verbatim). Because array txns don't roll back on 0-count, a conflicting reorder can commit PARTIAL sortOrder movement — harmless (sortOrder is presentation-only, versions stay honest); the client MUST refetch the tree on 409, and the UI only ever reorders two adjacent sections per call.
+- **Plan decision D-d (reorder is all-or-nothing — REVISED per Codex fix #4):** reorder = one array txn of per-section THROWING guarded updates (`prisma.sectionTemplate.update({ where: { id, version }, data: { sortOrder, version: { increment: 1 } } })`); any stale version throws P2025, which aborts and ROLLS BACK the whole txn → 409 `version_conflict`, zero rows changed. Partial sortOrder movement was rejected (it can leave duplicate/intermediate ordering a refetch exposes rather than repairs); a CASE-based raw UPDATE is unnecessary. The client refetches on 409.
 - **Plan decision D-e (syncVersion):** bridged writes (section copy, the four bridged content pairs, team photo) bump syncVersion — they change what clients render. Template-only writes (title, subsection copy, offerings, fields, reorder, generic content, archive) do NOT — nothing renders templates until F2.
 
 ## Global Constraints
 
-- Array-form `$transaction([...])` only; conditional logic in SQL (`EXISTS`); raw SQL sets `updatedAt` manually (`Date.now()` — integer ms).
-- Bump-first fence-sharing (house pattern, `lib/viewbook/sync.ts` header): a predicated companion statement carries the SAME self-contained pre-state predicate as the domain statement and is placed BEFORE any statement that changes what that predicate reads.
+- Array-form `$transaction([...])` only; raw SQL sets `updatedAt` manually (`Date.now()` — integer ms).
+- **Hard/soft fencing split (Codex fix #2):** HARD preconditions (template-route version tokens, roster conflicts) = throwing conditional guards inside the txn (`update({ where: { <unique>, <filter> } })` → P2025 aborts + rolls back everything; create → P2002 same; catch and map to the 409). The FIRST statement in the txn is always a guard; after it succeeds, SQLite's write lock guarantees no interleaving. SOFT companions (legacy→template forward-writes) = non-throwing `updateMany`/raw fenced on pre-state, placed per the bump-first pattern (`lib/viewbook/sync.ts` header: the predicated statement runs BEFORE any statement that changes what its predicate reads); a soft miss is drift-logged, never thrown.
 - Template JSON columns always carry `{v:1,…}` envelopes; parse via `lib/viewbook/template-content.ts` (whole-doc-reject); legacy rows get the exact legacy shapes via `toLegacySectionCopy`/`toLegacyGlobalBody` — envelopes never leak into legacy rows.
 - Legacy behavior stays byte-identical: `putGlobalContent`/`putTeamRoster`/`attachTeamPhoto`/`putSectionCopyGlobal`/`deleteSectionCopyGlobal` keep their exact signatures, validation, error codes, and fence semantics — their existing tests are the net and must stay green UNCHANGED (except the routes' service-import swap in Task 6).
 - `attachTeamPhoto` remains the ONLY file-save/fence/delete-old authority for team photos — no second flow.
@@ -158,17 +160,23 @@ export function parseSubsectionCopy(raw: string | null): SubsectionCopyV1 | null
 - Produces (consumed by Task 3–6):
 
 ```ts
-// section-copy-content.ts
-export function putSectionCopyGlobalStatements(sectionKey: SectionKey, validated: SectionCopyContent, updatedBy: string): Prisma.PrismaPromise<unknown>[]  // [upsert, syncVersionBumpAllStatement()]
-export function deleteSectionCopyGlobalStatements(sectionKey: SectionKey): { statements: Prisma.PrismaPromise<unknown>[]; deleteIndex: number }  // [bumpAllWhere(fence), deleteMany]; caller 404s on results[deleteIndex].count === 0
+// section-copy-content.ts — NAMED composable pieces (Codex plan-fix #1: callers
+// interleave template statements between them; opaque arrays can't be re-ordered)
+export function putSectionCopyGlobalStatements(sectionKey: SectionKey, validated: SectionCopyContent, updatedBy: string): { legacyWrite: Prisma.PrismaPromise<unknown>; syncBump: Prisma.PrismaPromise<unknown> }
+export function deleteSectionCopyGlobalStatements(sectionKey: SectionKey): { fence: Prisma.Sql; syncBump: Prisma.PrismaPromise<unknown>; deleteStmt: Prisma.PrismaPromise<{ count: number }> }
+  // fence = EXISTS(legacy row); caller composes [syncBump, <template statements sharing fence>, deleteStmt] and 404s on deleteStmt count === 0
 
 // global-content.ts
 export function teamRosterFence(bodyJson: string): Prisma.Sql            // was private — export as-is
-export function putGlobalContentStatements(key: GlobalContentKey, validated: ContentBlocks | string, updatedBy: string): Prisma.PrismaPromise<unknown>[]  // non-team keys only: [upsert, bumpAll]; throws HttpError(400) on key === 'team'
+export function putGlobalContentStatements(key: GlobalContentKey, validated: ContentBlocks | string, updatedBy: string): { legacyWrite: Prisma.PrismaPromise<unknown>; syncBump: Prisma.PrismaPromise<unknown> }  // non-team keys only; throws HttpError(400) on key === 'team'
 export interface TeamRosterWrite {
   bodyJson: string; next: TeamMember[]; orphaned: string[]
-  statements: Prisma.PrismaPromise<unknown>[]
-  conflictIndex: number | null  // index of the fenced updateMany whose count===0 means 409 roster_conflict; null on the create path
+  // THROWING guard-write (Codex fix #2): existing row → prisma.viewbookGlobalContent.update({
+  //   where: { key: 'team', bodyJson: row.bodyJson }, data: { bodyJson, updatedBy } })
+  //   — P2025 on a concurrent roster edit aborts + rolls back the whole txn;
+  //   no row → .create (concurrent P2002 aborts). No count-checking.
+  legacyWrite: Prisma.PrismaPromise<unknown>
+  syncBump: Prisma.PrismaPromise<unknown>  // bumpAllWhere(teamRosterFence(row.bodyJson)) or bumpAll on the create path
 }
 export function buildTeamRosterWrite(row: { bodyJson: string } | null, incoming: TeamMember[], updatedBy: string): TeamRosterWrite
 
@@ -177,56 +185,66 @@ export function projectMainContentJson(key: SectionKey, globalRows: SeedSourceRo
 export function seedTreeCreateData(tree: SeedSectionTree): Prisma.SectionTemplateCreateInput  // the exact nested-create `data` object createSeedTree passes; createSeedTree becomes prisma.sectionTemplate.create({ data: seedTreeCreateData(tree) })
 ```
 
+**Note on `putTeamRoster` behavior under the throwing guard:** the P2025 thrown by the guard-write replaces today's count-0 check — `putTeamRoster` catches it and throws the SAME `HttpError(409, 'roster_conflict')` as before (external behavior byte-identical; the existing suite proves it). `syncBump` stays fence-predicated AND ordered before `legacyWrite` (belt-and-suspenders: the predicate is also pre-state-correct if a future caller reorders).
+
 - [ ] **Step 1: Write the failing builder tests** (append to `lib/viewbook/global-content.test.ts`, following its existing DB-backed conventions):
 
 ```ts
 describe('statement builders (F1b extraction)', () => {
   it('putGlobalContentStatements composes inside a caller-owned transaction', async () => {
-    await prisma.$transaction(putGlobalContentStatements('process', { blocks: [{ heading: 'H', body: 'B' }] }, 'op@er.com'))
+    const { legacyWrite, syncBump } = putGlobalContentStatements('process', { blocks: [{ heading: 'H', body: 'B' }] }, 'op@er.com')
+    await prisma.$transaction([legacyWrite, syncBump])
     const row = await prisma.viewbookGlobalContent.findUnique({ where: { key: 'process' } })
     expect(JSON.parse(row!.bodyJson)).toEqual({ blocks: [{ heading: 'H', body: 'B' }] })
   })
   it('putGlobalContentStatements rejects team (roster has its own builder)', () => {
     expect(() => putGlobalContentStatements('team', [], 'op@er.com')).toThrow()
   })
-  it('buildTeamRosterWrite re-derives photos by name and reports the conflict index', async () => {
+  it('buildTeamRosterWrite re-derives photos by name; a concurrent roster edit makes the guard-write throw and roll back the txn', async () => {
     await prisma.viewbookGlobalContent.create({ data: { key: 'team', bodyJson: JSON.stringify([{ name: 'A', role: 'R', photo: 'a.webp', blurb: '' }]), updatedBy: 'x' } })
     const row = await prisma.viewbookGlobalContent.findUnique({ where: { key: 'team' } })
     const write = buildTeamRosterWrite(row!, [{ name: 'A', role: 'R2', photo: null, blurb: '' }], 'op@er.com')
     expect(write.next[0].photo).toBe('a.webp')      // incoming photo ignored, re-derived
-    expect(write.conflictIndex).not.toBeNull()
-    const results = await prisma.$transaction(write.statements)
-    expect((results[write.conflictIndex!] as { count: number }).count).toBe(1)
+    await prisma.$transaction([write.syncBump, write.legacyWrite])
+    // now stale: rebuild against the OLD row snapshot → guard throws P2025 and the companion rolls back
+    const before = await prisma.viewbook.findFirst({ select: { syncVersion: true } })
+    const stale = buildTeamRosterWrite(row!, [{ name: 'A', role: 'R3', photo: null, blurb: '' }], 'op@er.com')
+    await expect(prisma.$transaction([stale.syncBump, stale.legacyWrite])).rejects.toMatchObject({ code: 'P2025' })
+    const after = await prisma.viewbook.findFirst({ select: { syncVersion: true } })
+    expect(after!.syncVersion).toBe(before!.syncVersion)   // rollback proven, not just count-0
   })
 })
 ```
+
+  (The rollback assertion needs a seeded viewbook row — reuse the suite's existing viewbook fixture helper.)
 
 - [ ] **Step 2:** Run `npx vitest run lib/viewbook/global-content.test.ts` → FAIL (builders not exported).
 - [ ] **Step 3: Refactor `section-copy-content.ts`.** Move the transaction bodies out; the legacy functions re-compose:
 
 ```ts
-export function putSectionCopyGlobalStatements(sectionKey: SectionKey, validated: SectionCopyContent, updatedBy: string): Prisma.PrismaPromise<unknown>[] {
+export function putSectionCopyGlobalStatements(sectionKey: SectionKey, validated: SectionCopyContent, updatedBy: string) {
   const key = sectionCopyKey(sectionKey)
   const bodyJson = JSON.stringify(validated)
-  return [
-    prisma.viewbookGlobalContent.upsert({
+  return {
+    legacyWrite: prisma.viewbookGlobalContent.upsert({
       where: { key },
       update: { bodyJson, updatedBy },
       create: { key, bodyJson, updatedBy },
     }),
-    syncVersionBumpAllStatement(),
-  ]
+    syncBump: syncVersionBumpAllStatement(),
+  }
 }
 
-export function deleteSectionCopyGlobalStatements(sectionKey: SectionKey): { statements: Prisma.PrismaPromise<unknown>[]; deleteIndex: number } {
+export function deleteSectionCopyGlobalStatements(sectionKey: SectionKey) {
   const key = sectionCopyKey(sectionKey)
   const fence = Prisma.sql`EXISTS (SELECT 1 FROM "ViewbookGlobalContent" WHERE "key" = ${key})`
-  return { statements: [syncVersionBumpAllWhere(fence), prisma.viewbookGlobalContent.deleteMany({ where: { key } })], deleteIndex: 1 }
+  return { fence, syncBump: syncVersionBumpAllWhere(fence), deleteStmt: prisma.viewbookGlobalContent.deleteMany({ where: { key } }) }
 }
 ```
 
-`putSectionCopyGlobal` keeps its validation + `throw HttpError(400, 'invalid_content')` and ends with `await prisma.$transaction(putSectionCopyGlobalStatements(sectionKey, validated, updatedBy))`. `deleteSectionCopyGlobal` keeps its validation, destructures the builder, runs the txn, and keeps `if (res.count === 0) throw new HttpError(404, 'not_found')` reading `results[deleteIndex]`.
-- [ ] **Step 4: Refactor `global-content.ts`.** Export `teamRosterFence` (add `export` — no body change). Extract `putGlobalContentStatements` (the non-team upsert+bump pair, verbatim from `putGlobalContent`; `if (key === 'team') throw new HttpError(400, 'invalid_content')`). Extract `buildTeamRosterWrite` from `putTeamRoster`'s body — it holds the stored-roster parse, photo re-derivation by name, orphan computation, and returns either the create pair (`conflictIndex: null`) or the fenced pair (`conflictIndex: 1`, statements `[syncVersionBumpAllWhere(fence), updateMany]`). `putTeamRoster` becomes: load row → `buildTeamRosterWrite` → txn → conflict check → orphan delete. Behavior identical — the assertions in the EXISTING suite are the proof.
+`putSectionCopyGlobal` keeps its validation + `throw HttpError(400, 'invalid_content')` and ends with `const { legacyWrite, syncBump } = …; await prisma.$transaction([legacyWrite, syncBump])`. `deleteSectionCopyGlobal` keeps its validation, destructures the builder, runs `$transaction([syncBump, deleteStmt])`, and keeps `if (res.count === 0) throw new HttpError(404, 'not_found')` reading the deleteStmt result.
+- [ ] **Step 4: Refactor `global-content.ts`.** Export `teamRosterFence` (add `export` — no body change). Extract `putGlobalContentStatements` (the non-team upsert+bump pair, verbatim from `putGlobalContent`; `if (key === 'team') throw new HttpError(400, 'invalid_content')`). Extract `buildTeamRosterWrite` from `putTeamRoster`'s body — stored-roster parse, photo re-derivation by name, orphan computation, and the THROWING guard-write per the interface block (existing row → `update({ where: { key: 'team', bodyJson: row.bodyJson } })`, no row → `create`). `putTeamRoster` becomes: load row → `buildTeamRosterWrite` → `$transaction([syncBump, legacyWrite])` in try/catch → P2025 → `HttpError(409, 'roster_conflict')` → orphan delete on success. External behavior identical — the assertions in the EXISTING suite are the proof.
+- [ ] **Step 4b: Call-site inventory (Codex fix #1).** `grep -rn "putGlobalContent\|putTeamRoster\|putSectionCopyGlobal\|deleteSectionCopyGlobal\|attachTeamPhoto" app lib components --include='*.ts*' | grep -v test | grep -v template-service` — record in the PR body that the ONLY production callers are the three legacy routes (`app/api/viewbook-content/[key]`, `…/team-photo`, `app/api/viewbooks/section-copy/[sectionKey]`) plus intra-module use. Any other hit = an unbridged writer; stop and extend Task 6.
 - [ ] **Step 5: Extract in `template-seed.ts`:** rename the private `mainContentJson` to exported `projectMainContentJson` (same signature — update its two internal call sites); extract `seedTreeCreateData(tree)` returning the exact `data` object, `createSeedTree` calls `prisma.sectionTemplate.create({ data: seedTreeCreateData(tree) })`. No behavior change; existing seed + parity suites are the proof.
 - [ ] **Step 6:** `npx vitest run lib/viewbook` → ALL green (existing suites unchanged + new builder tests). `npx tsc --noEmit` → clean.
 - [ ] **Step 7: Commit** — `git add lib/viewbook/section-copy-content.ts lib/viewbook/global-content.ts lib/viewbook/global-content.test.ts lib/viewbook/template-seed.ts && git commit -m "refactor(viewbook): extract legacy content writers into pure statement builders (F1b, spec fixes 2-3)"`
@@ -277,31 +295,24 @@ export async function reorderSections(items: Array<{ id: number; version: number
 
 **Semantics to implement:**
 - `getTemplateTree`: one `findMany` with nested `subsections.fields`, all three levels `orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }]`; decode copy/content per row (`parseTemplateCopy(...)?.copy ?? null`, `parseSubsectionCopy`, `parseSubsectionContent(section.rendererType, …)` for bridged pairs / `parseSubsectionContent('generic', …)` for operator-created subsections); `contentKind` per plan decision D-b (`BRIDGED_CONTENT[templateKey]` + `subsectionKey === 'main'` → the templateKey as kind; other `main`s and `data-source` category keys (`CATALOG_CATEGORIES`) → `'none'`; else `'generic'`).
-- `patchSectionTemplate`: at least one of title/copy required (400 `invalid_content`); load the row (404 `not_found`); when `copy` present → `validateSectionCopy(input.copy)` (400 on null). Statements, bump-first fence-shared on `(id, version)`:
-  - copy present AND `templateKey` is a `SectionKey` (all 13 seeded are): fenced legacy upsert as raw SQL (an unconditional upsert would commit even when the version fence misses — bridge writes must share the fence):
+- `patchSectionTemplate` (throwing-guard shape, Codex fix #2): at least one of title/copy required (400 `invalid_content`); load the row (404 `not_found`); when `copy` present → `validateSectionCopy(input.copy)` (400 on null). ONE txn, guard FIRST — a stale version throws P2025 and rolls back EVERYTHING (legacy write included):
 
 ```ts
-const now = Date.now()
-const legacyKey = sectionCopyKey(templateKey)
-const legacyBody = JSON.stringify(validatedCopy)
-const versionFence = Prisma.sql`EXISTS (SELECT 1 FROM "SectionTemplate" WHERE "id" = ${sectionId} AND "version" = ${input.version})`
-const statements = [
-  prisma.$executeRaw`
-    INSERT INTO "ViewbookGlobalContent" ("key", "bodyJson", "updatedBy", "updatedAt")
-    SELECT ${legacyKey}, ${legacyBody}, ${updatedBy}, ${now}
-    WHERE ${versionFence}
-    ON CONFLICT ("key") DO UPDATE SET "bodyJson" = excluded."bodyJson", "updatedBy" = excluded."updatedBy", "updatedAt" = excluded."updatedAt"`,
-  syncVersionBumpAllWhere(versionFence),
-  prisma.sectionTemplate.updateMany({
-    where: { id: sectionId, version: input.version },
-    data: { ...(input.title !== undefined ? { title: input.title } : {}), copyJson: JSON.stringify({ v: 1, copy: validatedCopy }), version: { increment: 1 } },
-  }),
-]
+const guardedTemplateWrite = prisma.sectionTemplate.update({
+  where: { id: sectionId, version: input.version },   // extendedWhereUnique filter — P2025 on stale (precedent: lib/viewbook/service.ts:397)
+  data: { ...(input.title !== undefined ? { title: input.title } : {}),
+          ...(validatedCopy ? { copyJson: JSON.stringify({ v: 1, copy: validatedCopy }) } : {}),
+          version: { increment: 1 } },
+})
+const statements = validatedCopy
+  ? (({ legacyWrite, syncBump }) => [guardedTemplateWrite, legacyWrite, syncBump])(putSectionCopyGlobalStatements(templateKey as SectionKey, validatedCopy, updatedBy))
+  : [guardedTemplateWrite]   // title-only: no legacy statement, no syncVersion bump (D-e)
+try { await prisma.$transaction(statements) }
+catch (err) { if (isP2025(err)) throw new HttpError(409, 'version_conflict'); throw err }
 ```
 
-  - title-only: just the fenced `updateMany` (no legacy statement, no syncVersion bump — plan decisions "titles back-write nothing" + D-e).
-  - After the txn: the `updateMany` count `0` → `throw new HttpError(409, 'version_conflict')`. Title validation: non-empty string ≤ 200 chars (400).
-- `reorderSections`: validate items non-empty, unique ids, sortOrder ints; txn = `items.map(i => prisma.sectionTemplate.updateMany({ where: { id: i.id, version: i.version }, data: { sortOrder: i.sortOrder, version: { increment: 1 } } }))`; any count 0 → 409 `version_conflict` (plan decision D-d).
+  (`isP2025` = a module-private `err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2025'` helper — the guard-first ordering means the plain upsert+bump only commit when the guard hit.) Title validation: non-empty string ≤ 200 chars (400).
+- `reorderSections` (all-or-nothing, Codex fix #4 / revised D-d): validate items non-empty, unique ids, sortOrder ints; txn = `items.map(i => prisma.sectionTemplate.update({ where: { id: i.id, version: i.version }, data: { sortOrder: i.sortOrder, version: { increment: 1 } } }))`; catch P2025 → 409 `version_conflict` — the throw rolls back the whole txn, ZERO rows changed.
 
 - [ ] **Step 1: Write the failing tests** (DB-backed; follow `template-seed.test.ts` conventions — seed via `seedViewbookTemplates()` in `beforeEach` against a fresh test DB):
 
@@ -333,13 +344,32 @@ describe('patchSectionTemplate', () => {
     expect(after!.version).toBe(s.version + 1)
     expect(toLegacySectionCopy(parseTemplateCopy(after!.copyJson)!)).toEqual(copy)
   })
-  it('stale version → 409 AND no legacy write (fence shared)', async () => {
+  it('stale version → 409, txn rolled back: no legacy write, no template change, no syncVersion bump (Codex fix #7)', async () => {
+    await prisma.viewbook.createMany({ data: [/* two minimal viewbooks via the suite's fixture helper */] })
+    // ALSO pre-seed an existing legacy row to pin the already-present branch:
+    await putSectionCopyGlobal('brand', { purpose: 'Old', whatThis: 'Old', whatWeNeed: null }, 'x')
+    const beforeSync = await prisma.viewbook.findMany({ select: { syncVersion: true } })
     const { sections } = await getTemplateTree()
     const s = sections.find(x => x.templateKey === 'brand')!
     const copy = { purpose: 'P', whatThis: 'W', whatWeNeed: null }
     await expect(patchSectionTemplate(s.id, { version: s.version + 5, copy }, 'op@er.com'))
       .rejects.toMatchObject({ status: 409 })
-    expect(await prisma.viewbookGlobalContent.findUnique({ where: { key: 'section-copy:brand' } })).toBeNull()
+    const row = await prisma.viewbookGlobalContent.findUnique({ where: { key: 'section-copy:brand' } })
+    expect(JSON.parse(row!.bodyJson).purpose).toBe('Old')                          // existing legacy content byte-unchanged
+    expect(await prisma.viewbook.findMany({ select: { syncVersion: true } })).toEqual(beforeSync)  // no bump
+    expect((await prisma.sectionTemplate.findUnique({ where: { id: s.id } }))!.version).toBe(s.version)
+  })
+  it('syncVersion deltas are exact (Codex fix #6): bridged edit +1 per viewbook, title-only +0', async () => {
+    await prisma.viewbook.createMany({ data: [/* two minimal viewbooks via the suite's fixture helper */] })
+    const { sections } = await getTemplateTree()
+    const s = sections.find(x => x.templateKey === 'brand')!
+    const before = await prisma.viewbook.findMany({ orderBy: { id: 'asc' }, select: { syncVersion: true } })
+    await patchSectionTemplate(s.id, { version: s.version, copy: { purpose: 'P', whatThis: 'W', whatWeNeed: null } }, 'op@er.com')
+    let after = await prisma.viewbook.findMany({ orderBy: { id: 'asc' }, select: { syncVersion: true } })
+    expect(after.map((v, i) => v.syncVersion - before[i].syncVersion)).toEqual([1, 1])   // exactly once, every viewbook
+    await patchSectionTemplate(s.id, { version: s.version + 1, title: 'T' }, 'op@er.com')
+    const after2 = await prisma.viewbook.findMany({ orderBy: { id: 'asc' }, select: { syncVersion: true } })
+    expect(after2).toEqual(after)                                                        // template-only: zero
   })
   it('title-only edit back-writes nothing', async () => {
     const { sections } = await getTemplateTree()
@@ -349,17 +379,22 @@ describe('patchSectionTemplate', () => {
   })
 })
 describe('reorderSections', () => {
-  it('swaps two adjacent sections and bumps both versions; stale version 409s', async () => {
+  it('swaps two adjacent sections and bumps both versions; a stale version 409s with ZERO rows changed (Codex fix #4)', async () => {
     const { sections } = await getTemplateTree()
-    const [a, b] = sections
+    const [a, b, c] = sections
     await reorderSections([
       { id: a.id, version: a.version, sortOrder: b.sortOrder },
       { id: b.id, version: b.version, sortOrder: a.sortOrder },
     ])
     const after = await getTemplateTree()
     expect(after.sections[0].id).toBe(b.id)
-    await expect(reorderSections([{ id: a.id, version: a.version, sortOrder: 5 }]))
-      .rejects.toMatchObject({ status: 409 })  // a's version already bumped
+    // one fresh item + one stale item → whole txn rolls back, the FRESH item moved nothing
+    const snapshot = await prisma.sectionTemplate.findMany({ select: { id: true, sortOrder: true, version: true } })
+    await expect(reorderSections([
+      { id: c.id, version: c.version, sortOrder: 500 },          // fresh
+      { id: a.id, version: a.version, sortOrder: 5 },            // stale (bumped by the swap above)
+    ])).rejects.toMatchObject({ status: 409 })
+    expect(await prisma.sectionTemplate.findMany({ select: { id: true, sortOrder: true, version: true } })).toEqual(snapshot)
   })
 })
 ```
@@ -381,11 +416,13 @@ describe('reorderSections', () => {
 - Produces:
 
 ```ts
-export async function createSubsection(sectionId: number, input: { subsectionKey: string; title: string; offeringWebsite?: boolean; offeringVa?: boolean; offeringPpc?: boolean; copy?: unknown; content?: unknown }, updatedBy: string): Promise<void>
+export async function createSubsection(sectionId: number, input: { version: number; subsectionKey: string; title: string; offeringWebsite?: boolean; offeringVa?: boolean; offeringPpc?: boolean; copy?: unknown; content?: unknown }, updatedBy: string): Promise<void>
 export async function patchSubsection(subId: number, input: { version: number; title?: string; offeringWebsite?: boolean; offeringVa?: boolean; offeringPpc?: boolean; copy?: unknown | null; content?: unknown | null; archived?: boolean }, updatedBy: string): Promise<void>
-export async function createField(subsectionId: number, input: { fieldKey: string; label: string; fieldType: string }, updatedBy: string): Promise<void>
+export async function createField(subsectionId: number, input: { version: number; fieldKey: string; label: string; fieldType: string }, updatedBy: string): Promise<void>
 export async function patchField(fieldId: number, input: { version: number; label?: string; sortOrder?: number; archived?: boolean }, updatedBy: string): Promise<void>
 ```
+
+(Creates carry `version` too — Codex fix #5 / revised D-a.)
 
 **Semantics to implement:**
 - **`patchSubsection`** — load sub + parent section (404). Determine `contentKind` (same rule as the tree). Validate:
@@ -393,15 +430,15 @@ export async function patchField(fieldId: number, input: { version: number; labe
   - `content` with kind `'none'` and content ≠ undefined/null → 400 `invalid_content` (plan decision D-b(2)).
   - `content` with kind `'generic'`: build `{ v: 1, blocks: … }` — accept the client's `{ blocks }` object, validate via `parseSubsectionContent('generic', JSON.stringify({ v: 1, ...input.content }))` → 400 on null.
   - `content` with a BRIDGED kind: same envelope-validate against the section's rendererType. For `welcome`, apply the roster photo-preservation rule BEFORE anything else: load the legacy `team` row, parse+validate its stored roster (corrupt → `[]`), re-derive each incoming member's `photo` from the stored roster by name (exactly `buildTeamRosterWrite`'s rule — reuse the same derivation by calling a small exported helper extracted in Task 2 if needed, or inline the two-line map; the DERIVED roster replaces `content.team` in both the template envelope and the legacy row). Orphaned photos of removed members are best-effort deleted after commit (`deleteViewbookAssets('global', orphaned)`), mirroring `putTeamRoster`.
-  - Statements (bump-first; every statement shares the version fence `versionFence = EXISTS(SELECT 1 FROM "SectionTemplate" WHERE "id"=sectionId AND "version"=input.version)`):
-    1. For each bridged part present in the new content: raw fenced legacy upsert (same `INSERT … SELECT … WHERE ${versionFence} ON CONFLICT("key") DO UPDATE …` shape as Task 3) with `bodyJson = JSON.stringify(toLegacyGlobalBody(legacyKey, parsedContent))`. For `team` the fence is `versionFence AND teamRosterFence(loadedTeamBodyJson)` when a legacy team row exists (a concurrent roster edit → whole write misses → 409); when no legacy team row exists yet the statement is a fenced plain INSERT (the upsert handles it).
-    2. `syncVersionBumpAllWhere(versionFence)` — bridged kinds only (D-e).
-    3. `prisma.subsectionTemplate.updateMany({ where: { id: subId, section: { version: input.version } }, data: { …fields…, version: { increment: 1 } } })` — title/offerings/copyJson/contentJson/archivedAt (`archived: true` → `new Date()`, `false` → `null`).
-    4. LAST: `prisma.sectionTemplate.updateMany({ where: { id: sectionId, version: input.version }, data: { version: { increment: 1 } } })` (the aggregate bump; placed last because it changes what every earlier fence reads).
-  - Post-txn: section-bump count 0 → 409 `version_conflict` (all statements shared the fence, so 0 means NOTHING committed). team-fence-only miss also surfaces as count 0 → 409 `roster_conflict` is NOT distinguishable — use `version_conflict` uniformly (the UI refetches either way; note this in the module comment).
-- **`createSubsection`** — `FIELD_KEY_RE.test(subsectionKey)` else 400 `invalid_key`; title non-empty ≤200; `content` only as `'generic'` shape (operator-created — never a bridge pair; reject `subsectionKey === 'main'` and, under `data-source`, any key in `CATALOG_CATEGORIES` with 409 `subsection_exists` — P2002 would catch these anyway, this just makes the error deterministic); `copy` via `parseSubsectionCopy`. sortOrder = max existing sortOrder in the section + 10 (loaded). Txn: `[create, sectionTemplate.updateMany({ where: { id: sectionId }, data: { version: { increment: 1 } } })]` — creates are additive, not version-fenced (plan decision D-a covers overwrites; a create can't lose anyone's update). P2002 → 409 `subsection_exists`.
-- **`createField`** — parent subsection must exist (404) and not be archived (409 `subsection_archived`); `FIELD_KEY_RE.test(fieldKey)` else 400 `invalid_key`; `fieldType` ∈ `['text','textarea','list']` else 400; label non-empty ≤200. sortOrder = max in subsection + 1 (catalog uses dense per-category ints). Txn: `[fieldTemplate.create, sectionTemplate.updateMany({ where: { id: sectionId }, data: { version: { increment: 1 } } })]`. P2002 (library-global fieldKey) → 409 `field_key_exists`. fieldKey is IMMUTABLE — `patchField` has no fieldKey input, and the route rejects unknown body keys.
-- **`patchField`** — fenced like patchSubsection: field `updateMany({ where: { id: fieldId, subsection: { section: { version: input.version } } }, data: { …, version: { increment: 1 } } })` then the section bump LAST fenced on `(id, version)`; count 0 → 409. label ≤200; archived → archivedAt set/cleared. No legacy writes, no syncVersion (D-e).
+  - Statements (throwing-guard shape, Codex fix #2 — the composite-fence ordering problem is unsolvable with count-checked statements because the txn mutates section version, subsection contentJson, AND the roster body while other statements would need to read their pre-states; a throwing guard FIRST makes everything after it safe):
+    1. GUARD (always first): `prisma.sectionTemplate.update({ where: { id: sectionId, version: input.version }, data: { version: { increment: 1 } } })` — P2025 on stale → whole txn rolls back.
+    2. `prisma.subsectionTemplate.update({ where: { id: subId }, data: { …title/offerings/copyJson/contentJson/archivedAt…, version: { increment: 1 } } })` (`archived: true` → `new Date()`, `false` → `null`) — plain: the guard already fenced this txn.
+    3. Bridged kinds only: for each part in the new content, the PLAIN legacy upsert from `putGlobalContentStatements(legacyKey, toLegacyGlobalBody(legacyKey, parsedContent), updatedBy).legacyWrite` — EXCEPT `team`, which uses `buildTeamRosterWrite(loadedTeamRow, derivedRoster, updatedBy).legacyWrite` (the THROWING guard-write: a concurrent roster edit → P2025 → whole txn rolls back).
+    4. Bridged kinds only: ONE `syncVersionBumpAllStatement()` (plain — D-e; guarded by the txn as a whole).
+  - Catch P2025/P2002 → 409 `version_conflict` uniformly (a roster-fence loss is deliberately NOT distinguished — the UI refetches either way; note this in the module comment).
+- **`createSubsection`** — `FIELD_KEY_RE.test(subsectionKey)` else 400 `invalid_key`; title non-empty ≤200; `content` only as `'generic'` shape (operator-created — never a bridge pair; reject `subsectionKey === 'main'` and, under `data-source`, any key in `CATALOG_CATEGORIES` with 409 `subsection_exists` — P2002 would catch these anyway, this just makes the error deterministic); `copy` via `parseSubsectionCopy`. sortOrder = max existing sortOrder in the section + 10 (loaded — safe: the version guard makes concurrent same-section creates conflict instead of racing the max, Codex fix #5). Txn: `[GUARD sectionTemplate.update({ where: { id: sectionId, version: input.version }, data: { version: { increment: 1 } } }), subsectionTemplate.create]`. P2025 → 409 `version_conflict`; P2002 → 409 `subsection_exists`.
+- **`createField`** — parent subsection must exist (404) and not be archived (409 `subsection_archived`); `FIELD_KEY_RE.test(fieldKey)` else 400 `invalid_key`; `fieldType` ∈ `['text','textarea','list']` else 400; label non-empty ≤200. sortOrder = max in subsection + 1 (catalog uses dense per-category ints). Txn: `[GUARD sectionTemplate.update({ where: { id: sectionId, version: input.version }, … }), fieldTemplate.create]`. P2025 → 409 `version_conflict`; P2002 (library-global fieldKey) → 409 `field_key_exists`. fieldKey is IMMUTABLE — `patchField` has no fieldKey input, and the route rejects a `fieldKey` body property with 400.
+- **`patchField`** — txn: `[GUARD sectionTemplate.update({ where: { id: sectionId, version: input.version }, data: { version: { increment: 1 } } }), fieldTemplate.update({ where: { id: fieldId }, data: { …, version: { increment: 1 } } })]`; P2025 → 409. label ≤200; archived → archivedAt set/cleared. No legacy writes, no syncVersion (D-e).
 
 - [ ] **Step 1: Write the failing tests** (extend the Task 3 suite; key cases):
 
@@ -432,19 +469,35 @@ describe('patchSubsection content bridge', () => {
     const row = await prisma.viewbookGlobalContent.findUnique({ where: { key: 'team' } })
     expect(JSON.parse(row!.bodyJson)[0].photo).toBe('a.webp')
   })
-  it('stale version → 409 and NO legacy row written', async () => {
+  it('stale version → 409, txn rolled back: no legacy row, no subsection change, no syncVersion bump', async () => {
     const { sections } = await getTemplateTree()
     const s = sections.find(x => x.templateKey === 'milestones')!
     await expect(patchSubsection(s.subsections[0].id, { version: s.version + 9, content: { processMilestones: { blocks: [] } } }, 'op@er.com'))
       .rejects.toMatchObject({ status: 409 })
     expect(await prisma.viewbookGlobalContent.findUnique({ where: { key: 'process-milestones' } })).toBeNull()
+    const sub = await prisma.subsectionTemplate.findUnique({ where: { id: s.subsections[0].id } })
+    expect(sub!.version).toBe(s.subsections[0].version)   // guard threw → subsection update rolled back too
+  })
+  it('a concurrent roster edit during a welcome content PATCH → 409, nothing committed (throwing roster guard)', async () => {
+    await prisma.viewbookGlobalContent.create({ data: { key: 'team', bodyJson: JSON.stringify([{ name: 'A', role: 'R', photo: null, blurb: '' }]), updatedBy: 'x' } })
+    const { sections } = await getTemplateTree()
+    const s = sections.find(x => x.templateKey === 'welcome')!
+    // patchSubsection loads the team row, then a rival write lands before the txn (deps.beforeWrite seam, test-only)
+    await expect(patchSubsection(s.subsections[0].id, {
+      version: s.version,
+      content: { team: [{ name: 'A', role: 'R2', photo: null, blurb: '' }], process: { blocks: [] }, why: { blocks: [] } },
+    }, 'op@er.com', { beforeWrite: async () => {
+      await prisma.viewbookGlobalContent.update({ where: { key: 'team' }, data: { bodyJson: JSON.stringify([{ name: 'B', role: 'R', photo: null, blurb: '' }]) } })
+    } })).rejects.toMatchObject({ status: 409 })
+    const sec = await prisma.sectionTemplate.findUnique({ where: { id: s.id } })
+    expect(sec!.version).toBe(s.version)                  // guard bump rolled back with the roster P2025
   })
   it('content on a contentless seeded main → 400; generic content on a created subsection is accepted with no legacy write', async () => {
     const { sections } = await getTemplateTree()
     const brand = sections.find(x => x.templateKey === 'brand')!
     await expect(patchSubsection(brand.subsections[0].id, { version: brand.version, content: { blocks: [] } }, 'op@er.com'))
       .rejects.toMatchObject({ status: 400 })
-    await createSubsection(brand.id, { subsectionKey: 'va-notes', title: 'VA notes', offeringVa: true }, 'op@er.com')
+    await createSubsection(brand.id, { version: brand.version, subsectionKey: 'va-notes', title: 'VA notes', offeringVa: true }, 'op@er.com')
     const t2 = await getTemplateTree()
     const b2 = t2.sections.find(x => x.templateKey === 'brand')!
     const created = b2.subsections.find(x => x.subsectionKey === 'va-notes')!
@@ -453,13 +506,15 @@ describe('patchSubsection content bridge', () => {
   })
 })
 describe('fields', () => {
-  it('createField validates key format, global uniqueness, bumps aggregate version', async () => {
+  it('createField validates key format, global uniqueness, version token, bumps aggregate version', async () => {
     const { sections } = await getTemplateTree()
     const ds = sections.find(x => x.templateKey === 'data-source')!
     const sub = ds.subsections[0]
-    await expect(createField(sub.id, { fieldKey: 'Bad Key', label: 'X', fieldType: 'text' }, 'op@er.com')).rejects.toMatchObject({ status: 400 })
-    await expect(createField(sub.id, { fieldKey: 'school-name', label: 'X', fieldType: 'text' }, 'op@er.com')).rejects.toMatchObject({ status: 409 })
-    await createField(sub.id, { fieldKey: 'va-hours', label: 'VA hours', fieldType: 'text' }, 'op@er.com')
+    await expect(createField(sub.id, { version: ds.version, fieldKey: 'Bad Key', label: 'X', fieldType: 'text' }, 'op@er.com')).rejects.toMatchObject({ status: 400 })
+    await expect(createField(sub.id, { version: ds.version, fieldKey: 'school-name', label: 'X', fieldType: 'text' }, 'op@er.com')).rejects.toMatchObject({ status: 409 })
+    await expect(createField(sub.id, { version: ds.version + 7, fieldKey: 'va-hours', label: 'X', fieldType: 'text' }, 'op@er.com')).rejects.toMatchObject({ status: 409 })  // stale token → rolled back, no row
+    expect(await prisma.fieldTemplate.findUnique({ where: { fieldKey: 'va-hours' } })).toBeNull()
+    await createField(sub.id, { version: ds.version, fieldKey: 'va-hours', label: 'VA hours', fieldType: 'text' }, 'op@er.com')
     const after = await getTemplateTree()
     expect(after.sections.find(x => x.templateKey === 'data-source')!.version).toBe(ds.version + 1)
   })
@@ -476,19 +531,7 @@ describe('fields', () => {
 ```
 
 - [ ] **Step 2:** Run → FAIL (functions missing).
-- [ ] **Step 3: Implement** per the semantics block. The raw fenced-upsert builder is shared with Task 3 — extract a module-private helper:
-
-```ts
-// One fenced legacy upsert: commits IFF the shared pre-state fence holds.
-function fencedLegacyUpsert(key: string, bodyJson: string, updatedBy: string, fence: Prisma.Sql) {
-  return prisma.$executeRaw`
-    INSERT INTO "ViewbookGlobalContent" ("key", "bodyJson", "updatedBy", "updatedAt")
-    SELECT ${key}, ${bodyJson}, ${updatedBy}, ${Date.now()}
-    WHERE ${fence}
-    ON CONFLICT ("key") DO UPDATE SET "bodyJson" = excluded."bodyJson", "updatedBy" = excluded."updatedBy", "updatedAt" = excluded."updatedAt"`
-}
-```
-
+- [ ] **Step 3: Implement** per the semantics block. `patchSubsection` takes an optional test-only `deps?: { beforeWrite?: () => Promise<void> }` last parameter (awaited between the loads and the `$transaction` — the roster-race test's injection point, same idiom as `attachTeamPhoto.beforeStamp`). Share one module-private `runGuarded(statements, conflictCode = 'version_conflict')` helper that runs the txn and maps P2025/P2002 → `HttpError(409, conflictCode)`.
 - [ ] **Step 4:** Run the suite → PASS.
 - [ ] **Step 5: Commit** — `git add lib/viewbook/template-service.ts lib/viewbook/template-service.test.ts && git commit -m "feat(viewbook): subsection/field mutations with fenced content bridge (F1b)"`
 
@@ -505,12 +548,14 @@ function fencedLegacyUpsert(key: string, bodyJson: string, updatedBy: string, fe
 
 ```ts
 // global-content.ts — attachTeamPhoto stays the ONE file authority; the txn
-// body becomes injectable so template-service can add fenced statements
-// WITHOUT a second save/fence/delete-old flow.
+// body becomes injectable so template-service can add statements WITHOUT a
+// second save/fence/delete-old flow. HARD conflicts happen INSIDE the txn as
+// throwing guards (Codex fix #3 — a post-commit verify(false) cannot undo
+// partial writes); `inspect` is for SOFT post-commit drift logging ONLY.
 export interface TeamPhotoTxn {
   statements: Prisma.PrismaPromise<unknown>[]
-  verify: (results: unknown[]) => boolean   // false → attachTeamPhoto deletes the NEW file and throws HttpError(409, conflictCode)
-  conflictCode: string
+  conflictCode: string                        // 409 code when the txn throws P2025/P2002
+  inspect?: (results: unknown[]) => void      // post-commit, soft-only (drift logging); MUST NOT throw for control flow
 }
 export interface AttachTeamPhotoDeps {
   beforeStamp?: () => Promise<void>
@@ -518,18 +563,23 @@ export interface AttachTeamPhotoDeps {
 }
 
 // template-service.ts
-export async function attachTeamPhotoBridged(memberName: string, buf: Buffer, updatedBy: string): Promise<string>                    // legacy route: unconditional forward-write, drift-logged
-export async function attachTemplateTeamPhoto(sectionId: number, memberName: string, buf: Buffer, updatedBy: string, expectedVersion: number): Promise<string>  // template route: everything version-fenced, 409 version_conflict
+export async function attachTeamPhotoBridged(memberName: string, buf: Buffer, updatedBy: string): Promise<string>                    // legacy route: hard roster guard, SOFT template forward-write (drift-logged)
+export async function attachTemplateTeamPhoto(sectionId: number, memberName: string, buf: Buffer, updatedBy: string, expectedVersion: number): Promise<string>  // template route: version guard + roster guard, all-or-nothing, 409 version_conflict
 ```
 
 **Semantics:**
-- `attachTeamPhoto` refactor: the existing fenced pair + count-check becomes the DEFAULT `buildTxn` (`conflictCode: 'roster_conflict'`, verify = `results[1].count === 1`). The load/validate/member-lookup/save-file/delete-old/orphan-on-throw logic is UNTOUCHED; only the `$transaction(...)` contents come from `buildTxn(ctx)` and the count check becomes `txn.verify(results)`.
-- Both bridged flows pre-load the welcome/main subsection (section `templateKey: 'welcome'`, sub `subsectionKey: 'main'`) + its parsed envelope. If missing/corrupt envelope: `attachTeamPhotoBridged` re-projects it from current legacy rows via `projectMainContentJson('welcome', rowsWithDerivedRoster, [])`; `attachTemplateTeamPhoto` 409s `template_missing` only when the tree row is absent entirely (can't fence what isn't there).
-- `attachTeamPhotoBridged.buildTxn` returns the default statements PLUS (order: section bump BEFORE sub update — pre-state pattern):
-  - `sectionBump`: raw `UPDATE "SectionTemplate" SET "version"="version"+1, "updatedAt"=${Date.now()} WHERE "id"=${welcomeSectionId} AND EXISTS (SELECT 1 FROM "SubsectionTemplate" WHERE "id"=${subId} AND "contentJson" = ${loadedContentJson}) AND (${teamRosterFence(row.bodyJson)})` — `loadedContentJson` may be `IS NULL`-shaped; use `Prisma.sql` branches for null.
-  - `subUpdate`: raw UPDATE of `SubsectionTemplate` setting `contentJson = ${newEnvelope}` (the loaded envelope with `team` replaced by `ctx.next`), `version = version + 1`, `updatedAt`, `WHERE "id"=${subId} AND ("contentJson" = ${loadedContentJson})` + rosterFence.
-  - verify = roster count === 1 (legacy semantics unchanged); template counts 0 → post-commit `logError(op: 'template-forward-write-miss')` (plan decision D-c) — verify still returns true.
-- `attachTemplateTeamPhoto` resolves the section by `sectionId` (must be the welcome template — 404 otherwise), then calls `attachTeamPhoto(memberName, buf, updatedBy, { buildTxn })` where buildTxn's statements ALL carry `versionFence = EXISTS(SELECT 1 FROM "SectionTemplate" WHERE "id"=${sectionId} AND "version"=${expectedVersion})` in addition to the roster fence, verify requires roster count === 1 AND both template counts === 1, `conflictCode: 'version_conflict'`. Includes `syncVersionBumpAllWhere` fenced the same way (replacing the default's fence-only bump — build the statement list from scratch here, not by appending to the default).
+- `attachTeamPhoto` refactor: the DEFAULT `buildTxn` reproduces today's behavior with the Task 2 throwing guard-write — statements `[syncVersionBumpAllWhere(teamRosterFence(row.bodyJson)), viewbookGlobalContent.update({ where: { key: 'team', bodyJson: row.bodyJson }, data: … })]`, `conflictCode: 'roster_conflict'`, no `inspect`. The load/validate/member-lookup/save-file/delete-old/orphan-on-throw logic is UNTOUCHED; the txn runner becomes: `try { results = await prisma.$transaction(txn.statements) } catch (err) { if (P2025/P2002) { delete NEW file; throw HttpError(409, txn.conflictCode) } … existing non-HttpError file-cleanup path … }` then `txn.inspect?.(results)` post-commit. External behavior byte-identical (same 409, same file cleanup) — the existing photo suites prove it.
+- Both bridged flows pre-load the welcome/main subsection (section `templateKey: 'welcome'`, sub `subsectionKey: 'main'`) + its parsed envelope. **Corrupt/missing envelope rule (Codex fix #3, explicit for BOTH paths): re-project the whole envelope from the current legacy rows (with the derived roster substituted) via `projectMainContentJson('welcome', rowsWithDerivedRoster, [])` before saving — self-healing, never a 4xx for corruption.** `attachTemplateTeamPhoto` 409s `template_missing` only when the welcome tree row is absent entirely (can't guard what isn't there); `attachTeamPhotoBridged` skips the template statements + drift-logs in that case.
+- `attachTemplateTeamPhoto` (HARD path — everything in-txn): resolves the section by `sectionId` (must be the welcome template — 404 otherwise), then `attachTeamPhoto(memberName, buf, updatedBy, { buildTxn })` with statements built from scratch:
+  1. GUARD: `prisma.sectionTemplate.update({ where: { id: sectionId, version: expectedVersion }, data: { version: { increment: 1 } } })` — P2025 → rollback → 409 `version_conflict` (file deleted by the wrapper).
+  2. GUARD: the Task 2 throwing roster write (`update({ where: { key: 'team', bodyJson: ctx.row.bodyJson }, … })` with the new-photo roster).
+  3. `prisma.subsectionTemplate.update({ where: { id: subId }, data: { contentJson: newEnvelope, version: { increment: 1 } } })` (plain — guards already fenced the txn).
+  4. `syncVersionBumpAllStatement()` (plain).
+  `conflictCode: 'version_conflict'` (uniform — a roster race is indistinguishable by design, module comment).
+- `attachTeamPhotoBridged` (legacy route — SOFT template companion): default-shaped roster guard statements PLUS non-throwing template forward-writes fenced on pre-state, ordered per the bump-first pattern (section statement BEFORE the sub statement it reads):
+  - `sectionBump`: raw `UPDATE "SectionTemplate" SET "version"="version"+1, "updatedAt"=${Date.now()} WHERE "id"=${welcomeSectionId} AND EXISTS (SELECT 1 FROM "SubsectionTemplate" WHERE "id"=${subId} AND "contentJson" IS ${loadedContentJson})` — build the null/non-null comparison with `Prisma.sql` branches.
+  - `subUpdate`: raw UPDATE of `SubsectionTemplate` setting `contentJson = ${newEnvelope}`, `version = version + 1`, manual `updatedAt`, `WHERE "id"=${subId} AND "contentJson" = ${loadedContentJson}` (same null-branch handling).
+  - `inspect`: template statement counts 0 → `logError(op: 'template-forward-write-miss')` (plan decision D-c). The roster guard still throws on a real roster race → 409 `roster_conflict`, template statements rolled back with it.
 
 - [ ] **Step 1: Write the failing tests:**
 
@@ -595,10 +645,10 @@ export async function deleteSectionCopyGlobalBridged(sectionKey: string): Promis
   1. Validate exactly as `putGlobalContent` does (`validateGlobalContent` → 400 `invalid_content`) — identical error surface.
   2. Resolve the bridged target from the inverse of `BRIDGED_CONTENT` (`LEGACY_KEY_TARGET: Record<GlobalContentKey, { templateKey: SectionKey; part: string }>` — build it once from `BRIDGED_CONTENT` at module scope). Load the target section + main subsection.
   3. Compute the NEW template envelope: parse the current `contentJson` (`parseSubsectionContent(rendererType, …)`); if parseable → replace the one part; if null/corrupt → re-project the whole envelope from the CURRENT legacy rows with the new value substituted (`projectMainContentJson(templateKey, substitutedRows, [])`).
-  4. Team key: `buildTeamRosterWrite` (photo re-derivation + roster fence) supplies the legacy statements; other keys: `putGlobalContentStatements`. Template statements: the same raw fenced pair as Task 5 (`sectionBump` before `subUpdate`, both fenced on the sub's pre-state `contentJson` equality; for team, ALSO the roster fence). One `$transaction` of all statements.
-  5. Post-txn: legacy conflict check exactly as today (team `conflictIndex` count 0 → 409 `roster_conflict` + NO orphan deletion; success → orphan deletion). Template counts 0 → `logError('template-forward-write-miss')`, never a throw (D-c). Template row entirely missing → skip template statements + same drift log.
-- `putSectionCopyGlobalBridged`: validate exactly as `putSectionCopyGlobal` (invalid key/content → 400); txn = `putSectionCopyGlobalStatements(...)` + `prisma.sectionTemplate.updateMany({ where: { templateKey: sectionKey }, data: { copyJson: JSON.stringify({ v: 1, copy: validated }), version: { increment: 1 } } })` (unfenced — legacy last-writer-wins); count 0 → drift log.
-- `deleteSectionCopyGlobalBridged`: destructure `deleteSectionCopyGlobalStatements(...)`; template statement = raw UPDATE setting `copyJson` to the CODE DEFAULT envelope (`{ v: 1, copy: { purpose, whatThis, whatWeNeed } }` from `SECTION_COPY[sectionKey]` — delete means "revert to code default" in the resolve chain) + `version + 1` + manual `updatedAt`, `WHERE "templateKey"=${sectionKey} AND EXISTS (SELECT 1 FROM "ViewbookGlobalContent" WHERE "key"=${sectionCopyKey(sectionKey)})` (shares the delete's fence, placed BEFORE the deleteMany). `results[deleteIndex].count === 0` → 404 `not_found` (unchanged); template count 0 with legacy count 1 → drift log.
+  4. Team key: `buildTeamRosterWrite` (photo re-derivation + THROWING roster guard-write) supplies `{ legacyWrite, syncBump }`; other keys: `putGlobalContentStatements`. Template companions are SOFT (non-throwing, fenced on the sub's pre-state `contentJson` — the same raw `sectionBump`/`subUpdate` pair as Task 5's bridged flow), ordered `[syncBump, sectionBump, subUpdate, legacyWrite]` (fenced statements before the writes that change what they read). One `$transaction` of all statements.
+  5. Post-txn/throw: roster P2025 → 409 `roster_conflict` + NO orphan deletion (template statements rolled back with it); success → orphan deletion. Template statement counts 0 → `logError('template-forward-write-miss')`, never a throw (D-c). Template row entirely missing → skip template statements + same drift log.
+- `putSectionCopyGlobalBridged`: validate exactly as `putSectionCopyGlobal` (invalid key/content → 400); txn = `[legacyWrite, syncBump]` from `putSectionCopyGlobalStatements(...)` + `prisma.sectionTemplate.updateMany({ where: { templateKey: sectionKey }, data: { copyJson: JSON.stringify({ v: 1, copy: validated }), version: { increment: 1 } } })` (unfenced soft companion — legacy last-writer-wins); count 0 → drift log.
+- `deleteSectionCopyGlobalBridged`: destructure `deleteSectionCopyGlobalStatements(...)` into `{ fence, syncBump, deleteStmt }`; template statement = raw UPDATE setting `copyJson` to the CODE DEFAULT envelope (`{ v: 1, copy: { purpose, whatThis, whatWeNeed } }` from `SECTION_COPY[sectionKey]` — delete means "revert to code default" in the resolve chain) + `version + 1` + manual `updatedAt`, `WHERE "templateKey"=${sectionKey} AND (${fence})` — the ONE surviving raw cross-table fence (soft companion sharing the delete's EXISTS pre-state, placed BEFORE the deleteMany). Txn `[syncBump, templateReset, deleteStmt]`; `deleteStmt.count === 0` → 404 `not_found` (unchanged — and the shared fence means the template reset also no-opped); template count 0 with legacy count 1 → drift log.
 - Routes: swap `putGlobalContent` → `putGlobalContentBridged`, `attachTeamPhoto` → `attachTeamPhotoBridged`, `putSectionCopyGlobal`/`deleteSectionCopyGlobal` → bridged variants. NOTHING else in the routes changes — same auth, parsing, response shapes, error codes.
 
 - [ ] **Step 1: Write the failing tests:**
@@ -642,8 +692,16 @@ describe('legacy bridged writes (forward-write)', () => {
   })
   it('team roster conflict still 409s and writes NOTHING (template included)', async () => {
     await prisma.viewbookGlobalContent.create({ data: { key: 'team', bodyJson: JSON.stringify([{ name: 'A', role: 'R', photo: null, blurb: '' }]), updatedBy: 'x' } })
-    // …use the beforeStamp-style race: capture the loaded row, mutate the roster between load and txn via a deps seam
-    // mirroring global-content.test.ts's existing roster-conflict test, then assert the welcome envelope is unchanged.
+    // …use the beforeWrite deps seam: capture the loaded row, mutate the roster between load and txn
+    // (mirroring global-content.test.ts's roster-conflict idiom), expect 409 P2025-mapped roster_conflict,
+    // then assert the welcome envelope AND section version are unchanged (rolled back with the guard).
+  })
+  it('legacy bridged writes bump syncVersion EXACTLY once per viewbook (Codex fix #6 — not twice via the template companion)', async () => {
+    await prisma.viewbook.createMany({ data: [/* two minimal viewbooks via the suite's fixture helper */] })
+    const before = await prisma.viewbook.findMany({ orderBy: { id: 'asc' }, select: { syncVersion: true } })
+    await putGlobalContentBridged('process', { blocks: [{ heading: 'P', body: 'b' }] }, 'op@er.com')
+    const after = await prisma.viewbook.findMany({ orderBy: { id: 'asc' }, select: { syncVersion: true } })
+    expect(after.map((v, i) => v.syncVersion - before[i].syncVersion)).toEqual([1, 1])
   })
 })
 ```
@@ -662,7 +720,7 @@ describe('legacy bridged writes (forward-write)', () => {
 - Test: `lib/viewbook/template-service.test.ts` (extend)
 
 **Interfaces:**
-- Produces: `export async function reconcileSeededTemplates(): Promise<void>` and `export const RECONCILE_MARKER_KEY = 'template-library:reconciled'`.
+- Produces: `export async function reconcileSeededTemplates(deps?: { beforeMarker?: () => Promise<void> }): Promise<void>` (the `beforeMarker` hook is the crash-window test seam — Codex fix #8) and `export const RECONCILE_MARKER_KEY = 'template-library:reconciled'`.
 
 **Semantics:**
 - Marker check first: `viewbookGlobalContent.findUnique({ where: { key: RECONCILE_MARKER_KEY } })` → present → return (never again).
@@ -671,18 +729,23 @@ describe('legacy bridged writes (forward-write)', () => {
   - Row missing → `createSeedTree(tree)` (the boot seeder ran first, so this only happens after a manual deletion — still correct).
   - Untouched since seed = `section.version === 1 && every subsection.version === 1 && every field.version === 1` → overwrite: `await prisma.$transaction([prisma.sectionTemplate.delete({ where: { templateKey } }), prisma.sectionTemplate.create({ data: seedTreeCreateData(tree) })])` (cascade wipes the subtree; delete precedes create so the global `fieldKey` uniques can't collide; array-form, atomic).
   - Any `version > 1` anywhere in the tree → skip (operator-edited — defensive, spec fix #1).
-- Finally create the marker: `viewbookGlobalContent.create({ data: { key: RECONCILE_MARKER_KEY, bodyJson: JSON.stringify({ v: 1, reconciledAt: new Date().toISOString() }), updatedBy: 'system' } })`; catch P2002 → fine (a concurrent boot won). A crash BEFORE the marker → the whole pass re-runs next boot (idempotent: re-projection of version-1 trees converges).
+- Finally: `await deps?.beforeMarker?.()` then create the marker: `viewbookGlobalContent.create({ data: { key: RECONCILE_MARKER_KEY, bodyJson: JSON.stringify({ v: 1, reconciledAt: new Date().toISOString() }), updatedBy: 'system' } })`; catch P2002 → fine (a concurrent boot won). A crash BEFORE the marker → the whole pass re-runs next boot (idempotent: re-projection of version-1 trees converges).
 - The marker key is a reserved-namespace `ViewbookGlobalContent` row (`section-copy:` precedent); no reader parses it — `getSectionCopyGlobalMap` filters exact keys and `getGlobalContent` only accepts `GLOBAL_CONTENT_KEYS`.
-- `instrumentation.ts`: inside the SAME try/catch that invokes `seedViewbookTemplates()`, directly after it:
+- `instrumentation.ts`: its OWN try/catch with its OWN log op (Codex fix #8 — a shared catch obscures which boot phase failed), placed directly AFTER the seeder's try/catch:
 
 ```ts
-      const { seedViewbookTemplates } = await import('@/lib/viewbook/template-seed')
-      await seedViewbookTemplates()
-      // F1b: one-time activation reconciliation (spec fix #1) — re-projects
-      // legacy edits made in the F1a→F1b window into still-untouched trees,
-      // marker-guarded so it never runs twice. MUST follow the seeder.
+    // F1b: one-time activation reconciliation (spec fix #1) — re-projects
+    // legacy edits made in the F1a→F1b window into still-untouched trees,
+    // marker-guarded so it never runs twice. MUST follow the seeder. Own
+    // failure isolation + own op so seed vs reconcile failures are
+    // distinguishable in PM2 stderr.
+    try {
       const { reconcileSeededTemplates } = await import('@/lib/viewbook/template-service')
       await reconcileSeededTemplates()
+    } catch (err) {
+      const { logError } = await import('@/lib/log')
+      logError({ subsystem: 'viewbook', op: 'template-reconcile-boot' }, err)
+    }
 ```
 
 - [ ] **Step 1: Write the failing tests:**
@@ -712,6 +775,22 @@ describe('reconcileSeededTemplates', () => {
     const after = await getTemplateTree()
     expect((after.sections.find(x => x.templateKey === 'welcome')!.subsections[0].content as { process: ContentBlocks }).process.blocks).toEqual([])
   })
+  it('crash before the marker → full re-run converges, marker written second time (Codex fix #8)', async () => {
+    await prisma.viewbookGlobalContent.create({ data: { key: 'process', bodyJson: JSON.stringify({ blocks: [{ heading: 'Window edit', body: 'b' }] }), updatedBy: 'x' } })
+    await expect(reconcileSeededTemplates({ beforeMarker: async () => { throw new Error('boom') } })).rejects.toThrow('boom')
+    expect(await prisma.viewbookGlobalContent.findUnique({ where: { key: RECONCILE_MARKER_KEY } })).toBeNull()
+    await reconcileSeededTemplates()   // re-run: version-1 trees converge, marker lands
+    expect(await prisma.viewbookGlobalContent.findUnique({ where: { key: RECONCILE_MARKER_KEY } })).not.toBeNull()
+    const { sections } = await getTemplateTree()
+    expect((sections.find(x => x.templateKey === 'welcome')!.subsections[0].content as { process: ContentBlocks }).process.blocks[0].heading).toBe('Window edit')
+  })
+  it('a concurrent boot winning the marker race (P2002) is tolerated', async () => {
+    await reconcileSeededTemplates({ beforeMarker: async () => {
+      await prisma.viewbookGlobalContent.create({ data: { key: RECONCILE_MARKER_KEY, bodyJson: JSON.stringify({ v: 1, reconciledAt: 'rival' }), updatedBy: 'system' } })
+    } })  // resolves without throwing; rival marker survives
+    const marker = await prisma.viewbookGlobalContent.findUnique({ where: { key: RECONCILE_MARKER_KEY } })
+    expect(JSON.parse(marker!.bodyJson).reconciledAt).toBe('rival')
+  })
 })
 ```
 
@@ -732,10 +811,10 @@ describe('reconcileSeededTemplates', () => {
 |---|---|
 | `GET /api/viewbook-templates` | — → `getTemplateTree()` |
 | `PATCH …/sections/[id]` | `{ version, title?, copy? }` → `patchSectionTemplate(id, body, operator)` |
-| `POST …/sections/[id]/subsections` | `{ subsectionKey, title, offeringWebsite?, offeringVa?, offeringPpc?, copy?, content? }` → `createSubsection` |
+| `POST …/sections/[id]/subsections` | `{ version, subsectionKey, title, offeringWebsite?, offeringVa?, offeringPpc?, copy?, content? }` → `createSubsection` (version required — Codex fix #5) |
 | `PATCH …/sections/[id]/subsections/[subId]` | `{ version, title?, offering*?, copy?, content?, archived? }` → `patchSubsection(subId, …)` (the `[id]` segment is resolved-and-checked: sub must belong to section, else 404) |
 | `POST …/sections/[id]/photo` | multipart `memberName` + `version` + file → `attachTemplateTeamPhoto(id, memberName, buf, operator, Number(version))` (non-integer version → 400) |
-| `POST …/subsections/[id]/fields` | `{ fieldKey, label, fieldType }` → `createField` |
+| `POST …/subsections/[id]/fields` | `{ version, fieldKey, label, fieldType }` → `createField` (version required — Codex fix #5) |
 | `PATCH …/subsections/[id]/fields/[fieldId]` | `{ version, label?, sortOrder?, archived? }` → `patchField(fieldId, …)` (fieldId-under-subsection checked, 404) — a `fieldKey` property in the body → 400 `invalid_content` (immutability made explicit) |
 | `POST …/reorder` | `{ items: [{ id, version, sortOrder }] }` → `reorderSections(items)` |
 
@@ -754,7 +833,7 @@ describe('reconcileSeededTemplates', () => {
 
 **Step order matters — CsmPicker moves BEFORE the delete:**
 
-- [ ] **Step 1: Move `CsmPicker`** verbatim from `GlobalContentEditor.tsx:225-282` into `components/viewbook/admin/CsmPicker.tsx` (same imports: `jsonFetch`, `editorInputClass`, `editorLabelClass`, `TeamMember`); update `ViewbookEditor.tsx:24` to `import { CsmPicker } from './CsmPicker'`. Run `npx vitest run components/viewbook` → green. Commit — `refactor(viewbook): move CsmPicker to its own module`.
+- [ ] **Step 1: Move `CsmPicker`** verbatim from `GlobalContentEditor.tsx:225-282` into `components/viewbook/admin/CsmPicker.tsx` (same imports: `jsonFetch`, `editorInputClass`, `editorLabelClass`, `TeamMember`); update `ViewbookEditor.tsx:24` to `import { CsmPicker } from './CsmPicker'`. **Move the CsmPicker test cases out of `GlobalContentEditor.test.tsx` into a new `components/viewbook/admin/CsmPicker.test.tsx` in the same step (Codex fix #9 — deleting the old suite in Step 6 must not orphan CsmPicker's coverage; grep the old suite for every `CsmPicker` describe/it and port them verbatim).** Run `npx vitest run components/viewbook` → green. Commit — `refactor(viewbook): move CsmPicker + its tests to their own modules`.
 - [ ] **Step 2: Write the failing component tests** (`TemplateEditor.test.tsx`, following `GlobalContentEditor.test.tsx`'s mock-fetch conventions):
   - renders the section list from a mocked GET tree (13 sections, sortOrder order), title fields carry the literal helper text `applies after template cutover (F2)`;
   - editing brand's purpose and saving PATCHes `/api/viewbook-templates/sections/<id>` with `{ version, copy }`;
@@ -768,7 +847,7 @@ describe('reconcileSeededTemplates', () => {
   - `TemplateEditor.tsx` (`'use client'`): loads `GET /api/viewbook-templates` via `jsonFetch`; holds the tree + a `refetch`; top warning banner reused from GlobalContentEditor ("Affects every viewbook" — bridged edits still render everywhere); maps sections → `SectionPanel`; per-section ↑/↓ buttons build the two-item swap payload for `POST /api/viewbook-templates/reorder`; EVERY mutation helper (shared `mutate(label, fn)` modeled on GlobalContentEditor's `run`) refetches on success AND on a 409 (`version_conflict` → set a "Someone else edited this — reloaded latest" notice). Include a per-panel save-state button pattern (the 2026-07-19 button-local feedback lesson — copy the `saveState` idiom from TeamEditor).
   - `SectionPanel.tsx`: collapsed row (title, templateKey pill, subsection count) → expands to: title input (helper text `applies after template cutover (F2)`), section-copy form (purpose/whatThis/whatWeNeed — port SectionCopyEditor's field layout + caps display), subsection list (`SubsectionPanel` each), add-subsection form (key + title + offering checkboxes; key validated against `FIELD_KEY_RE` client-side).
   - `SubsectionPanel.tsx`: title input (same F2 helper text), offering checkboxes (Website/VA/PPC), subsection-copy form (intro/whatWeNeed, helper text F2), content form by `contentKind`: `welcome` → ported TeamEditor roster grid + per-member photo upload POSTing the TEMPLATE photo route (`FormData` with `memberName`, `version`, `file`) + the process/why block lists; `strategy` → three labeled block lists (SEO/GEO/E-E-A-T foundation, labels from the old BLOCK_TITLES); `milestones` → one block list; `pc-intro` → textarea; `generic` → one block list; `none` → nothing. Block-list editing ports BlocksEditor's add/remove/edit rows. Save = ONE `PATCH` per subsection sending the whole decoded content object + copy + offerings + title with the section `version`. Archive/Restore button (`archived: true/false`).
-  - `FieldGrid.tsx`: table of fields (label input, fieldType select, sortOrder number input, Archived pill + toggle) with per-row save (PATCH), plus the add-field row (fieldKey input with pattern hint `a-z, 0-9, dashes; permanent`, label, fieldType select) POSTing create. fieldKey immutability: existing rows render the key as static text, never an input.
+  - `FieldGrid.tsx`: table of fields (label input, fieldType select, sortOrder number input, Archived pill + toggle) with per-row save (PATCH), plus the add-field row (fieldKey input with pattern hint `a-z, 0-9, dashes; permanent`, label, fieldType select) POSTing create. fieldKey immutability: existing rows render the key as static text, never an input. EVERY request — patches AND creates (add-field, add-subsection) — sends the section's `version` from the loaded tree (Codex fix #5).
 - [ ] **Step 5: Swap the settings page:**
 
 ```tsx
@@ -832,6 +911,7 @@ This is spec §6's deferred acceptance line: **template write → legacy row ≡
 
 ## Self-Review notes
 
-- **Spec §7 coverage:** editor-replaces-legacy-editors → Task 9; reconcile fix #1 → Task 7; single dual-write authority + statement-builder extraction fixes #2/#3 → Tasks 2–6; team-photo fix #4 → Task 5; routes list → Task 8 (all seven mutation surfaces + GET); aggregate-version rule §3/#12 → every mutation in Tasks 3–5 bumps own + section version in one txn; reorder → Task 3 (D-d notes the spec-literal partiality); optimistic version 409 → Tasks 3–5, 8; fieldKey operator-entered/validated/immutable/archive-never-delete → Tasks 4, 8, 9; section CREATE/DELETE excluded; subsection/field create included; title-edits-back-write-nothing + F2 label → Tasks 3, 9; bridge-parity acceptance (spec §6 deferral) → Task 10; legacy routes still green → Tasks 2/6 constraints.
-- **Type consistency:** `TemplateTree` views defined Task 3, consumed Tasks 8/9 (client copies in `template-editor-types.ts`); `TeamPhotoTxn`/`AttachTeamPhotoDeps` defined Task 5 where consumed; builders defined Task 2 signatures match Task 3–6 call sites; `parseSubsectionCopy` (Task 1) consumed Tasks 4/9; `projectMainContentJson`/`seedTreeCreateData` (Task 2) consumed Tasks 6/7.
-- **Known risk flagged for Codex review:** (1) the raw `INSERT … SELECT … ON CONFLICT` fenced-upsert shape (SQLite requires the `WHERE` clause we already have to disambiguate the upsert parse — believed fine, verify in test); (2) D-d's partial-reorder-on-conflict; (3) the uniform 409 `version_conflict` for the roster-fence miss inside `patchSubsection`; (4) creates being version-bump-only (not version-fenced) — deliberate, documented in D-a.
+- **Spec §7 coverage:** editor-replaces-legacy-editors → Task 9; reconcile fix #1 → Task 7; single dual-write authority + statement-builder extraction fixes #2/#3 → Tasks 2–6; team-photo fix #4 → Task 5; routes list → Task 8 (all seven mutation surfaces + GET); aggregate-version rule §3/#12 → every mutation in Tasks 3–5 bumps own + section version in one txn; reorder → Task 3 (all-or-nothing per Codex plan-fix #4); optimistic version 409 → Tasks 3–5, 8 (creates included per plan-fix #5); fieldKey operator-entered/validated/immutable/archive-never-delete → Tasks 4, 8, 9; section CREATE/DELETE excluded; subsection/field create included; title-edits-back-write-nothing + F2 label → Tasks 3, 9; bridge-parity acceptance (spec §6 deferral) → Task 10; legacy routes still green → Tasks 2/6 constraints.
+- **Type consistency:** `TemplateTree` views defined Task 3, consumed Tasks 8/9 (client copies in `template-editor-types.ts`); `TeamPhotoTxn`/`AttachTeamPhotoDeps` defined Task 5 where consumed; builders defined Task 2 signatures match Task 3–6 call sites; `parseSubsectionCopy` (Task 1) consumed Tasks 4/9; `projectMainContentJson`/`seedTreeCreateData` (Task 2) consumed Tasks 5/6/7.
+- **Codex plan review (Sol, 2026-07-22): accept with 9 named fixes, ALL applied in place** — see the Plan review header line for the list. The review's key structural ruling: hard preconditions are THROWING guards inside the array txn (P2025/P2025-mapping precedent `lib/viewbook/service.ts:397`), which resolved my three self-flagged risks (composite-fence ordering in the welcome/team path, reorder partiality, post-commit verify in the photo seam); Codex confirmed the `INSERT … SELECT … WHERE ON CONFLICT` SQLite semantics (retained only for Task 6's delete-bridged soft fence) and the attachTeamPhoto single-authority seam shape.
+- **Verify-after-deploy (from the review):** marker row exists exactly once + no `template-reconcile-boot` errors; one real copy edit and one roster/photo edit produce identical legacy/template values and a SINGLE syncVersion increment; reorder conflict changes zero rows.

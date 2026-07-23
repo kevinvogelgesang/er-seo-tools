@@ -104,7 +104,7 @@ Prod: https://tools.enrollmentresources.com (paths below are relative).
 
 ## 7. Onboarding Viewbook (U1 auth)
 
-- [ ] **7.1 U1 post-deploy Mailgun smoke** — on a test viewbook (all viewbooks
+- [x] **7.1 U1 post-deploy Mailgun smoke** — on a test viewbook (all viewbooks
   are test-only per D4): admin roster → invite (or resend) a member → the
   Mailgun email arrives → click the emailed `#g=` magic link → the interstitial
   consumes the grant and the cookie session renders the viewbook. Then log out
@@ -119,4 +119,12 @@ Prod: https://tools.enrollmentresources.com (paths below are relative).
 (Sessions: when Kevin reports an item done, tick it above and append a dated
 line here — newest first — with anything observed worth keeping.)
 
-- *(nothing yet)*
+- **2026-07-22 — 7.1 U1 Mailgun smoke: PASS.** Email arrived; the `#g=` link
+  consumed and the cookie session rendered the viewbook; "Signed in as Kevin
+  Vogelgesang" + sign-out button visible top-right. Finding: the auth
+  interstitial shows the DEFAULT "enter your email to get a link" copy on the
+  link-consumption path too — needs a distinct "you're signed in — continue"
+  message when arriving via `#g=` (you just hit Continue and go straight in).
+  Follow-up filed in the onboarding-viewbook tracker. Sign-out cookie-clear
+  leg not explicitly exercised (button seen, not clicked) — trivially
+  re-checkable anytime.
