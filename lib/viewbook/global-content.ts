@@ -42,7 +42,7 @@ function isOverrideEligibleKey(key: string): key is GlobalContentKey {
 // syncVersionBumpAllWhere in one $transaction — bump first, both hit or both
 // miss — so a concurrent roster edit between load and write is caught as a
 // 409 rather than silently clobbered.
-function teamRosterFence(bodyJson: string): Prisma.Sql {
+export function teamRosterFence(bodyJson: string): Prisma.Sql {
   return Prisma.sql`EXISTS (
     SELECT 1 FROM "ViewbookGlobalContent" WHERE "key" = 'team' AND "bodyJson" = ${bodyJson}
   )`
@@ -55,6 +55,25 @@ export function validateGlobalContent(key: string, raw: unknown): TeamMember[] |
   return validateBlocks(raw)
 }
 
+// Named composable piece for the non-team keys (Codex plan-fix #1: F1b's
+// template-service caller interleaves template statements between these).
+// 'team' is rejected here — it has its own builder (buildTeamRosterWrite)
+// because its write is a THROWING guard, not a plain upsert.
+export function putGlobalContentStatements(key: GlobalContentKey, validated: ContentBlocks | string, updatedBy: string) {
+  if (key === 'team') throw new HttpError(400, 'invalid_content')
+  const bodyJson = JSON.stringify(validated)
+  return {
+    // Unscoped bump: global content renders on every viewbook, so a change
+    // here is visible everywhere at once.
+    legacyWrite: prisma.viewbookGlobalContent.upsert({
+      where: { key },
+      update: { bodyJson, updatedBy },
+      create: { key, bodyJson, updatedBy },
+    }),
+    syncBump: syncVersionBumpAllStatement(),
+  }
+}
+
 export async function putGlobalContent(key: string, raw: unknown, updatedBy: string): Promise<void> {
   const validated = validateGlobalContent(key, raw)
   if (!validated) throw new HttpError(400, 'invalid_content')
@@ -63,27 +82,29 @@ export async function putGlobalContent(key: string, raw: unknown, updatedBy: str
     await putTeamRoster(validated as TeamMember[], updatedBy)
     return
   }
-  const bodyJson = JSON.stringify(validated)
-  // Unscoped bump: global content renders on every viewbook, so a change here
-  // is visible everywhere at once.
-  await prisma.$transaction([
-    prisma.viewbookGlobalContent.upsert({
-      where: { key },
-      update: { bodyJson, updatedBy },
-      create: { key, bodyJson, updatedBy },
-    }),
-    syncVersionBumpAllStatement(),
-  ])
+  const { legacyWrite, syncBump } = putGlobalContentStatements(key as GlobalContentKey, validated as ContentBlocks | string, updatedBy)
+  await prisma.$transaction([legacyWrite, syncBump])
+}
+
+export interface TeamRosterWrite {
+  bodyJson: string
+  next: TeamMember[]
+  orphaned: string[]
+  // THROWING guard-write (Codex fix #2): existing row →
+  // prisma.viewbookGlobalContent.update({ where: { key: 'team', bodyJson: row.bodyJson }, data: {...} })
+  // — P2025 on a concurrent roster edit aborts + rolls back the whole txn;
+  // no row → .create (concurrent P2002 aborts). No count-checking.
+  legacyWrite: Prisma.PrismaPromise<unknown>
+  syncBump: Prisma.PrismaPromise<unknown>
 }
 
 // Roster writes: photo filenames are single-owner (attachTeamPhoto is the only
 // writer) — incoming `photo` values are IGNORED and re-derived from the stored
 // roster by member name, so a stale tab's roster save can never resurrect a
 // deleted photo file. The write is fenced on the loaded bodyJson (concurrent
-// edit → 409 roster_conflict), and photos of REMOVED members are best-effort
-// deleted (Codex PR1 review finding).
-async function putTeamRoster(incoming: TeamMember[], updatedBy: string): Promise<void> {
-  const row = await prisma.viewbookGlobalContent.findUnique({ where: { key: 'team' } })
+// edit → the guard-write throws P2025 → caller maps to roster_conflict), and
+// photos of REMOVED members are best-effort deleted by the caller.
+export function buildTeamRosterWrite(row: { bodyJson: string } | null, incoming: TeamMember[], updatedBy: string): TeamRosterWrite {
   let stored: TeamMember[] = []
   if (row) {
     try {
@@ -96,30 +117,48 @@ async function putTeamRoster(incoming: TeamMember[], updatedBy: string): Promise
   const next = incoming.map((m) => ({ ...m, photo: storedPhotoByName.get(m.name) ?? null }))
   const bodyJson = JSON.stringify(next)
 
-  if (!row) {
-    await prisma.$transaction([
-      prisma.viewbookGlobalContent.create({ data: { key: 'team', bodyJson, updatedBy } }),
-      syncVersionBumpAllStatement(),
-    ])
-    return
-  }
-  // Fenced pair: the bump carries the SAME loaded-bodyJson predicate as the
-  // updateMany below — bump first, both hit or both miss.
-  const fence = teamRosterFence(row.bodyJson)
-  const [, res] = await prisma.$transaction([
-    syncVersionBumpAllWhere(fence),
-    prisma.viewbookGlobalContent.updateMany({
-      where: { key: 'team', bodyJson: row.bodyJson },
-      data: { bodyJson, updatedBy },
-    }),
-  ])
-  if (res.count === 0) throw new HttpError(409, 'roster_conflict')
-
   const keptNames = new Set(next.map((m) => m.name))
   const orphaned = stored
     .filter((m) => m.photo != null && !keptNames.has(m.name))
     .map((m) => m.photo as string)
-  if (orphaned.length > 0) await deleteViewbookAssets('global', orphaned)
+
+  if (!row) {
+    return {
+      bodyJson,
+      next,
+      orphaned,
+      legacyWrite: prisma.viewbookGlobalContent.create({ data: { key: 'team', bodyJson, updatedBy } }),
+      syncBump: syncVersionBumpAllStatement(),
+    }
+  }
+  // Fenced pair: the bump carries the SAME loaded-bodyJson predicate as the
+  // guard-write below — bump first, both hit or both miss.
+  const fence = teamRosterFence(row.bodyJson)
+  return {
+    bodyJson,
+    next,
+    orphaned,
+    legacyWrite: prisma.viewbookGlobalContent.update({
+      where: { key: 'team', bodyJson: row.bodyJson },
+      data: { bodyJson, updatedBy },
+    }),
+    syncBump: syncVersionBumpAllWhere(fence),
+  }
+}
+
+async function putTeamRoster(incoming: TeamMember[], updatedBy: string): Promise<void> {
+  const row = await prisma.viewbookGlobalContent.findUnique({ where: { key: 'team' } })
+  const write = buildTeamRosterWrite(row, incoming, updatedBy)
+  try {
+    await prisma.$transaction([write.syncBump, write.legacyWrite])
+  } catch (err) {
+    if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2025') {
+      throw new HttpError(409, 'roster_conflict')
+    }
+    throw err
+  }
+
+  if (write.orphaned.length > 0) await deleteViewbookAssets('global', write.orphaned)
 }
 
 export async function getGlobalContent(key: GlobalContentKey): Promise<TeamMember[] | ContentBlocks | string | null> {
@@ -140,15 +179,54 @@ export async function getAllGlobalContent(): Promise<Record<GlobalContentKey, Te
   return out
 }
 
-// Test seam only: lets a test inject a concurrent roster write between load
-// and stamp to exercise the conflict path.
+// F1b seam (spec fix #4): the txn body attachTeamPhoto runs becomes
+// injectable so template-service can interleave template-tree statements
+// WITHOUT a second save/fence/delete-old flow. HARD conflicts (a lost roster
+// race, a stale template version token) throw INSIDE the txn as P2025/P2002 —
+// a post-commit verify(false) could not undo partial writes (Codex fix #3).
+// `inspect` runs AFTER a successful commit and is for SOFT drift-logging
+// ONLY — it must never throw for control flow (there is nothing left to roll
+// back by the time it runs).
+export interface TeamPhotoTxn {
+  statements: Prisma.PrismaPromise<unknown>[]
+  conflictCode: string // 409 code when the txn throws P2025/P2002
+  inspect?: (results: unknown[]) => void
+}
+
 export interface AttachTeamPhotoDeps {
+  // Test seam only: lets a test inject a concurrent roster write between load
+  // and stamp to exercise the conflict path.
   beforeStamp?: () => Promise<void>
+  // Test/caller seam: builds the txn statements from the loaded row + the
+  // derived next roster. Defaults to today's roster-only guard-write.
+  buildTxn?: (ctx: { row: { bodyJson: string }; next: TeamMember[]; filename: string; updatedBy: string }) => TeamPhotoTxn
+}
+
+// Default txn: the throwing roster guard-write fenced pair — bump first
+// (SAME loaded-bodyJson predicate as the guard-write), both hit or both miss.
+function defaultTeamPhotoTxn(ctx: {
+  row: { bodyJson: string }
+  next: TeamMember[]
+  updatedBy: string
+}): TeamPhotoTxn {
+  const fence = teamRosterFence(ctx.row.bodyJson)
+  return {
+    statements: [
+      syncVersionBumpAllWhere(fence),
+      prisma.viewbookGlobalContent.update({
+        where: { key: 'team', bodyJson: ctx.row.bodyJson },
+        data: { bodyJson: JSON.stringify(ctx.next), updatedBy: ctx.updatedBy },
+      }),
+    ],
+    conflictCode: 'roster_conflict',
+  }
 }
 
 // One atomic multipart flow (Kevin decision): save file → conditional stamp
-// fenced on the LOADED bodyJson (concurrent roster edit → 0 rows → delete the
-// new file, honest 409) → delete the replaced photo. Returns the new filename.
+// fenced on the LOADED bodyJson (concurrent roster edit → 409, honest) →
+// delete the replaced photo. Returns the new filename. The txn body itself is
+// injectable (F1b) — the load/validate/member-lookup/save-file/delete-old/
+// orphan-on-throw logic here is UNCHANGED from before that seam existed.
 export async function attachTeamPhoto(
   memberName: string,
   buf: Buffer,
@@ -177,27 +255,23 @@ export async function attachTeamPhoto(
 
   if (deps.beforeStamp) await deps.beforeStamp()
 
-  // Fenced pair: the bump carries the SAME loaded-bodyJson predicate as the
-  // updateMany below — bump first, both hit or both miss.
-  const fence = teamRosterFence(row.bodyJson)
+  const buildTxn = deps.buildTxn ?? defaultTeamPhotoTxn
+  const txn = buildTxn({ row, next, filename, updatedBy })
+
+  let results: unknown[]
   try {
-    const [, res] = await prisma.$transaction([
-      syncVersionBumpAllWhere(fence),
-      prisma.viewbookGlobalContent.updateMany({
-        where: { key: 'team', bodyJson: row.bodyJson },
-        data: { bodyJson: JSON.stringify(next), updatedBy },
-      }),
-    ])
-    if (res.count === 0) {
-      await deleteViewbookAssets('global', [filename])
-      throw new HttpError(409, 'roster_conflict')
-    }
+    results = await prisma.$transaction(txn.statements)
   } catch (err) {
+    if (err instanceof Prisma.PrismaClientKnownRequestError && (err.code === 'P2025' || err.code === 'P2002')) {
+      await deleteViewbookAssets('global', [filename])
+      throw new HttpError(409, txn.conflictCode)
+    }
     if (!(err instanceof HttpError)) await deleteViewbookAssets('global', [filename])
     throw err
   }
 
   if (oldPhoto && oldPhoto !== filename) await deleteViewbookAssets('global', [oldPhoto])
+  txn.inspect?.(results)
   return filename
 }
 

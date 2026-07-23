@@ -4,7 +4,7 @@ import { HttpError } from '@/lib/api/errors'
 import { requireOperatorEmail } from '@/lib/viewbook/operator'
 import { MAX_ASSET_BYTES } from '@/lib/viewbook/assets'
 import { fileBufferFromForm, requireBoundedContentLength } from '@/lib/viewbook/route-utils'
-import { attachTeamPhoto } from '@/lib/viewbook/global-content'
+import { attachTeamPhotoBridged } from '@/lib/viewbook/template-service'
 
 export const dynamic = 'force-dynamic'
 const MAX_MULTIPART_BYTES = MAX_ASSET_BYTES + 64 * 1024
@@ -26,6 +26,6 @@ export const POST = withRoute(async (request: NextRequest) => {
   const memberName = form.get('memberName')
   if (typeof memberName !== 'string' || !memberName) throw new HttpError(400, 'invalid_upload')
   const buf = await fileBufferFromForm(form, MAX_ASSET_BYTES)
-  const filename = await attachTeamPhoto(memberName, buf, operator)
+  const filename = await attachTeamPhotoBridged(memberName, buf, operator)
   return NextResponse.json({ filename })
 })

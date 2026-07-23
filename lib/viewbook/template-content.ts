@@ -45,6 +45,28 @@ export function parseTemplateCopy(raw: string | null): TemplateCopyV1 | null {
   return { v: 1, copy }
 }
 
+export const SUBSECTION_COPY_CAPS = { intro: 600, whatWeNeed: 600 }
+
+export interface SubsectionCopyV1 { v: 1; copy: { intro: string | null; whatWeNeed: string | null } }
+
+// Subsection heading+copy (spec §3 comment: {v:1, copy:{intro?, whatWeNeed?}};
+// D6 — a subsection has its own copy). No legacy target exists — this shape is
+// template-only until F2 renders it. Blank strings normalize to null (mirrors
+// validateSectionCopy's whatWeNeed normalization).
+export function parseSubsectionCopy(raw: string | null): SubsectionCopyV1 | null {
+  const parsed = parseEnvelope(raw)
+  if (parsed === null) return null
+  if (Object.keys(parsed).length !== 2) return null
+  if (!isPlainObject(parsed.copy)) return null
+  const keys = Object.keys(parsed.copy)
+  if (keys.length !== 2) return null
+  const { intro, whatWeNeed } = parsed.copy
+  if (intro !== null && (typeof intro !== 'string' || intro.length > SUBSECTION_COPY_CAPS.intro)) return null
+  if (whatWeNeed !== null && (typeof whatWeNeed !== 'string' || whatWeNeed.length > SUBSECTION_COPY_CAPS.whatWeNeed)) return null
+  const norm = (s: string | null) => (typeof s === 'string' && s.trim().length > 0 ? s : null)
+  return { v: 1, copy: { intro: norm(intro as string | null), whatWeNeed: norm(whatWeNeed as string | null) } }
+}
+
 export function parseSubsectionContent(rendererType: string, raw: string | null): SubsectionContentV1 | null {
   const parsed = parseEnvelope(raw)
   if (parsed === null) return null

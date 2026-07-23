@@ -13,6 +13,8 @@ import {
   attachTeamPhoto,
   putContentOverride,
   deleteContentOverride,
+  putGlobalContentStatements,
+  buildTeamRosterWrite,
 } from './global-content'
 import { OVERRIDE_ELIGIBLE_KEYS } from './global-content-keys'
 import { readViewbookAsset } from './assets'
@@ -305,5 +307,32 @@ describe('content overrides', () => {
       if (key === 'team' || key === 'pc-intro') continue
       expect(OVERRIDE_ELIGIBLE_KEYS).toContain(key)
     }
+  })
+})
+
+describe('statement builders (F1b extraction)', () => {
+  it('putGlobalContentStatements composes inside a caller-owned transaction', async () => {
+    const { legacyWrite, syncBump } = putGlobalContentStatements('process', { blocks: [{ heading: 'H', body: 'B' }] }, 'op@er.com')
+    await prisma.$transaction([legacyWrite, syncBump])
+    const row = await prisma.viewbookGlobalContent.findUnique({ where: { key: 'process' } })
+    expect(JSON.parse(row!.bodyJson)).toEqual({ blocks: [{ heading: 'H', body: 'B' }] })
+  })
+  it('putGlobalContentStatements rejects team (roster has its own builder)', () => {
+    expect(() => putGlobalContentStatements('team', [], 'op@er.com')).toThrow()
+  })
+  it('buildTeamRosterWrite re-derives photos by name; a concurrent roster edit makes the guard-write throw and roll back the txn', async () => {
+    const client = await mkClient()
+    await createViewbook(client.id, 'upgrade', OPERATOR)
+    await prisma.viewbookGlobalContent.create({ data: { key: 'team', bodyJson: JSON.stringify([{ name: 'A', role: 'R', photo: 'a.webp', blurb: '' }]), updatedBy: 'x' } })
+    const row = await prisma.viewbookGlobalContent.findUnique({ where: { key: 'team' } })
+    const write = buildTeamRosterWrite(row!, [{ name: 'A', role: 'R2', photo: null, blurb: '' }], 'op@er.com')
+    expect(write.next[0].photo).toBe('a.webp')      // incoming photo ignored, re-derived
+    await prisma.$transaction([write.syncBump, write.legacyWrite])
+    // now stale: rebuild against the OLD row snapshot → guard throws P2025 and the companion rolls back
+    const before = await prisma.viewbook.findFirst({ select: { syncVersion: true } })
+    const stale = buildTeamRosterWrite(row!, [{ name: 'A', role: 'R3', photo: null, blurb: '' }], 'op@er.com')
+    await expect(prisma.$transaction([stale.syncBump, stale.legacyWrite])).rejects.toMatchObject({ code: 'P2025' })
+    const after = await prisma.viewbook.findFirst({ select: { syncVersion: true } })
+    expect(after!.syncVersion).toBe(before!.syncVersion)   // rollback proven, not just count-0
   })
 })

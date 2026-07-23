@@ -21,7 +21,7 @@ import { FeedbackTab } from './FeedbackTab'
 import { ActivityFeed } from './ActivityFeed'
 import { DataSourceTab } from './DataSourceTab'
 import { useBaselineSync, useEditorActivity, useFocusWithin, useViewbookSync } from '@/components/viewbook/public/useViewbookSync'
-import { CsmPicker } from './GlobalContentEditor'
+import { CsmPicker } from './CsmPicker'
 
 const TABS = ['Theme', 'Content', 'Data Source', 'Milestones', 'Feedback', 'Activity', 'Settings'] as const
 

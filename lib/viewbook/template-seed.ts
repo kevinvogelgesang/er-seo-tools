@@ -155,7 +155,7 @@ const EMPTY_BLOCKS: ContentBlocks = { blocks: [] }
 
 // Build the ONE 'main' subsection's contentJson for the content-bearing
 // renderers; every other section's main subsection is contentless (null).
-function mainContentJson(
+export function projectMainContentJson(
   key: SectionKey,
   globalRows: SeedSourceRow[],
   issues: SeedIssue[],
@@ -228,7 +228,7 @@ export function projectTemplateSeedWithIssues(
               offeringVa: false,
               offeringPpc: false,
               copyJson: null,
-              contentJson: mainContentJson(key, globalRows, issues),
+              contentJson: projectMainContentJson(key, globalRows, issues),
               sortOrder: 10,
               fields: [],
             },
@@ -255,40 +255,44 @@ export function projectTemplateSeed(
 
 // ---- the seeder ------------------------------------------------------------
 
-// The ONE nested create production uses (exported for the atomicity test).
-// SectionTemplate + all subsections + all fields in a SINGLE statement, so a
-// crash or a uniqueness violation can never leave a partial tree behind.
-export async function createSeedTree(tree: SeedSectionTree): Promise<void> {
-  await prisma.sectionTemplate.create({
-    data: {
-      templateKey: tree.templateKey,
-      rendererType: tree.rendererType,
-      title: tree.title,
-      copyJson: tree.copyJson,
-      contentJson: tree.contentJson,
-      sortOrder: tree.sortOrder,
-      subsections: {
-        create: tree.subsections.map((s) => ({
-          subsectionKey: s.subsectionKey,
-          title: s.title,
-          offeringWebsite: s.offeringWebsite,
-          offeringVa: s.offeringVa,
-          offeringPpc: s.offeringPpc,
-          copyJson: s.copyJson,
-          contentJson: s.contentJson,
-          sortOrder: s.sortOrder,
-          fields: {
-            create: s.fields.map((f) => ({
-              fieldKey: f.fieldKey,
-              label: f.label,
-              fieldType: f.fieldType,
-              sortOrder: f.sortOrder,
-            })),
-          },
-        })),
-      },
+// The ONE nested-create `data` object production uses (pure — exported for
+// F1b's template-service caller). SectionTemplate + all subsections + all
+// fields in a SINGLE statement, so a crash or a uniqueness violation can
+// never leave a partial tree behind.
+export function seedTreeCreateData(tree: SeedSectionTree): Prisma.SectionTemplateCreateInput {
+  return {
+    templateKey: tree.templateKey,
+    rendererType: tree.rendererType,
+    title: tree.title,
+    copyJson: tree.copyJson,
+    contentJson: tree.contentJson,
+    sortOrder: tree.sortOrder,
+    subsections: {
+      create: tree.subsections.map((s) => ({
+        subsectionKey: s.subsectionKey,
+        title: s.title,
+        offeringWebsite: s.offeringWebsite,
+        offeringVa: s.offeringVa,
+        offeringPpc: s.offeringPpc,
+        copyJson: s.copyJson,
+        contentJson: s.contentJson,
+        sortOrder: s.sortOrder,
+        fields: {
+          create: s.fields.map((f) => ({
+            fieldKey: f.fieldKey,
+            label: f.label,
+            fieldType: f.fieldType,
+            sortOrder: f.sortOrder,
+          })),
+        },
+      })),
     },
-  })
+  }
+}
+
+// Exported for the atomicity test.
+export async function createSeedTree(tree: SeedSectionTree): Promise<void> {
+  await prisma.sectionTemplate.create({ data: seedTreeCreateData(tree) })
 }
 
 export async function seedViewbookTemplates(deps: SeedDeps = {}): Promise<void> {
