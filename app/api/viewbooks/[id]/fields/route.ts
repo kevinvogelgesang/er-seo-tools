@@ -8,6 +8,7 @@ import { CATALOG_CATEGORIES } from '@/lib/viewbook/catalog'
 import { requireOperatorEmail } from '@/lib/viewbook/operator'
 import { parseId, requireJsonObject } from '@/lib/viewbook/route-utils'
 import { syncVersionBumpWhere } from '@/lib/viewbook/sync'
+import { bumpSectionAggregateGuarded } from '@/lib/viewbook/instance-service'
 
 export const dynamic = 'force-dynamic'
 
@@ -33,49 +34,68 @@ export const POST = withRoute(async (request: NextRequest, { params }: RoutePara
   const label = parseLabel(body.label)
   if (!(FIELD_TYPES as readonly unknown[]).includes(body.fieldType)) throw new HttpError(400, 'invalid_field')
   if (!(CATALOG_CATEGORIES as readonly unknown[]).includes(body.category)) throw new HttpError(400, 'invalid_field')
-  const createdAt = Date.now()
+  const category = body.category as string
+
+  // F2 (Task 4): a viewbook that genuinely doesn't exist (or whose client is
+  // archived) stays a 404 not_found — the SAME undifferentiated case the
+  // pre-F2 route returned. Distinct from the case below.
+  const viewbook = await prisma.viewbook.findUnique({
+    where: { id: viewbookId },
+    select: { id: true, client: { select: { archivedAt: true } } },
+  })
+  if (!viewbook || viewbook.client.archivedAt !== null) throw new HttpError(404, 'not_found')
+
   // F2: fields are subsection-instance-owned — resolve the owning data-source
-  // subsection instance from `category` by durable key (subsectionKey ===
-  // category, catalog seed contract). The subselect joins the INSERT's WHERE
-  // (and the bump guard) so a viewbook missing that subsection instance is a
-  // clean 0-row miss, never a NOT NULL violation.
-  const subsectionSubselect = Prisma.sql`
-    (SELECT s."id" FROM "ViewbookSubsection" s
-      JOIN "ViewbookSection" sec ON sec."id" = s."sectionId" AND sec."viewbookId" = s."viewbookId"
-      WHERE s."viewbookId" = ${viewbookId} AND s."subsectionKey" = ${body.category as string}
-        AND sec."sectionKey" = 'data-source')
-  `
-  // Bump shares the same guard the INSERT's WHERE uses (mechanism b) — the
-  // RETURNING statement is the LAST array member; its returned id is what the
-  // response uses (never a post-tx findFirst by label — duplicate custom
-  // labels are legal, which would make that lookup ambiguous under concurrency).
-  const insertGuard = Prisma.sql`
-    EXISTS (
-      SELECT 1 FROM "Viewbook" v JOIN "Client" c ON c."id" = v."clientId"
-      WHERE v."id" = ${viewbookId} AND c."archivedAt" IS NULL
-        AND (${subsectionSubselect}) IS NOT NULL
-    )
-  `
-  const [, inserted] = await prisma.$transaction([
-    syncVersionBumpWhere(viewbookId, insertGuard),
-    prisma.$queryRaw<Array<{ id: number }>>`
-      INSERT INTO "ViewbookField"
-        ("viewbookId", "subsectionId", "defKey", "category", "label", "fieldType", "sortOrder", "version", "createdBy", "createdAt")
-      SELECT v."id", (${subsectionSubselect}), NULL, ${body.category as string}, ${label}, ${body.fieldType as string},
-        COALESCE((SELECT MAX(f."sortOrder") + 1 FROM "ViewbookField" f
-                  WHERE f."viewbookId" = v."id" AND f."category" = ${body.category as string}), 1),
-        0, ${operatorEmail},
-        CASE
-          WHEN v."dataLockedAt" IS NOT NULL AND v."dataLockedAt" >= ${createdAt}
-            THEN v."dataLockedAt" + 1
-          ELSE ${createdAt}
-        END
-      FROM "Viewbook" v JOIN "Client" c ON c."id" = v."clientId"
-      WHERE v."id" = ${viewbookId} AND c."archivedAt" IS NULL
-        AND (${subsectionSubselect}) IS NOT NULL
-      RETURNING "id"
-    `,
-  ])
+  // subsection INSTANCE from `category` by durable key (subsectionKey ===
+  // category, catalog seed contract). Task 3 left a missing instance here as
+  // an indistinguishable 404 folded into the viewbook-missing case; Task 4
+  // splits it out — an EXISTING viewbook whose category subsection instance
+  // is absent (not yet pulled in, or archived away — Task 6/7 territory) is
+  // a 409 conflicting_ops, never a 404 (spec §9, Codex fix carried from
+  // Task 3 review).
+  const subsection = await prisma.viewbookSubsection.findFirst({
+    where: { viewbookId, subsectionKey: category, section: { sectionKey: 'data-source' } },
+    select: { id: true, sectionId: true },
+  })
+  if (!subsection) throw new HttpError(409, 'conflicting_ops')
+
+  const createdAt = Date.now()
+  // Defense-in-depth only: the preconditions above were just verified, so this
+  // WHERE is a narrow-race safety net (client archived / row deleted between
+  // the reads above and this txn), not the primary authorization mechanism.
+  let results: unknown[]
+  try {
+    results = await prisma.$transaction([
+      syncVersionBumpWhere(viewbookId, Prisma.sql`
+        EXISTS (SELECT 1 FROM "Viewbook" v JOIN "Client" c ON c."id" = v."clientId" WHERE v."id" = ${viewbookId} AND c."archivedAt" IS NULL)
+      `),
+      // ONE aggregate bump per create — the field row's owning section (Codex
+      // fix carried from Task 3 review: this bump was previously missing).
+      bumpSectionAggregateGuarded(subsection.sectionId, viewbookId),
+      prisma.$queryRaw<Array<{ id: number }>>`
+        INSERT INTO "ViewbookField"
+          ("viewbookId", "subsectionId", "defKey", "category", "label", "fieldType", "sortOrder", "version", "createdBy", "createdAt")
+        SELECT v."id", ${subsection.id}, NULL, ${category}, ${label}, ${body.fieldType as string},
+          COALESCE((SELECT MAX(f."sortOrder") + 1 FROM "ViewbookField" f
+                    WHERE f."viewbookId" = v."id" AND f."category" = ${category}), 1),
+          0, ${operatorEmail},
+          CASE
+            WHEN v."dataLockedAt" IS NOT NULL AND v."dataLockedAt" >= ${createdAt}
+              THEN v."dataLockedAt" + 1
+            ELSE ${createdAt}
+          END
+        FROM "Viewbook" v JOIN "Client" c ON c."id" = v."clientId"
+        WHERE v."id" = ${viewbookId} AND c."archivedAt" IS NULL
+        RETURNING "id"
+      `,
+    ])
+  } catch (err) {
+    if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2025') {
+      throw new HttpError(409, 'conflicting_ops')
+    }
+    throw err
+  }
+  const inserted = results[2] as Array<{ id: number }>
   if (inserted.length !== 1) throw new HttpError(404, 'not_found')
   const field = await prisma.viewbookField.findUniqueOrThrow({ where: { id: inserted[0].id } })
   return NextResponse.json({ field }, { status: 201 })

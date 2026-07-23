@@ -108,18 +108,33 @@ export const DELETE = withRoute(async (request: NextRequest, { params }: RoutePa
   const { id: rawId, fieldId: rawFieldId } = await params
   const viewbookId = parseId(rawId)
   const fieldId = parseId(rawFieldId)
-  const [, updated] = await prisma.$transaction([
-    syncVersionBumpWhere(viewbookId, Prisma.sql`
-      EXISTS (
-        SELECT 1 FROM "ViewbookField"
-        WHERE "id" = ${fieldId} AND "viewbookId" = ${viewbookId} AND "archivedAt" IS NULL
-      )
-    `),
+
+  // F2 (Task 4): resolve the owning section id up front so the aggregate
+  // bump below has a concrete target. The bump shares the EXACT SAME
+  // pre-state predicate (archiveGuard) as the archive's own WHERE — an
+  // already-archived field (lost race) is a clean 0-row miss on BOTH
+  // statements, never a spurious bump alongside a no-op archive.
+  const target = await prisma.viewbookField.findFirst({
+    where: { id: fieldId, viewbookId },
+    select: { subsection: { select: { sectionId: true } } },
+  })
+  if (!target) throw new HttpError(404, 'not_found')
+
+  const archiveGuard = Prisma.sql`
+    EXISTS (
+      SELECT 1 FROM "ViewbookField"
+      WHERE "id" = ${fieldId} AND "viewbookId" = ${viewbookId} AND "archivedAt" IS NULL
+    )
+  `
+  const results = await prisma.$transaction([
+    syncVersionBumpWhere(viewbookId, archiveGuard),
+    prisma.$executeRaw`UPDATE "ViewbookSection" SET "version" = "version" + 1, "updatedAt" = ${Date.now()} WHERE "id" = ${target.subsection.sectionId} AND (${archiveGuard})`,
     prisma.viewbookField.updateMany({
       where: { id: fieldId, viewbookId, archivedAt: null },
-      data: { archivedAt: new Date() },
+      data: { archivedAt: new Date(), archiveReason: 'operator' },
     }),
   ])
+  const updated = results[2] as { count: number }
   if (updated.count !== 1) throw new HttpError(404, 'not_found')
   return NextResponse.json({ ok: true })
 })
