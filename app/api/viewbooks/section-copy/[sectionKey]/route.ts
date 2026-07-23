@@ -3,7 +3,7 @@ import { withRoute } from '@/lib/api/with-route'
 import { parseJsonBody } from '@/lib/api/body'
 import { requireOperatorEmail } from '@/lib/viewbook/operator'
 import { requireJsonObject } from '@/lib/viewbook/route-utils'
-import { putSectionCopyGlobal, deleteSectionCopyGlobal } from '@/lib/viewbook/section-copy-content'
+import { putSectionCopyGlobalBridged, deleteSectionCopyGlobalBridged } from '@/lib/viewbook/template-service'
 
 export const dynamic = 'force-dynamic'
 
@@ -14,7 +14,7 @@ export const PUT = withRoute(async (request: NextRequest, { params }: RouteParam
   const operator = await requireOperatorEmail(request)
   const { sectionKey } = await params
   const body = requireJsonObject(await parseJsonBody<Record<string, unknown>>(request))
-  await putSectionCopyGlobal(sectionKey, body, operator)
+  await putSectionCopyGlobalBridged(sectionKey, body, operator)
   return NextResponse.json({ ok: true })
 })
 
@@ -22,6 +22,6 @@ export const PUT = withRoute(async (request: NextRequest, { params }: RouteParam
 export const DELETE = withRoute(async (request: NextRequest, { params }: RouteParams) => {
   await requireOperatorEmail(request)
   const { sectionKey } = await params
-  await deleteSectionCopyGlobal(sectionKey)
+  await deleteSectionCopyGlobalBridged(sectionKey)
   return NextResponse.json({ ok: true })
 })

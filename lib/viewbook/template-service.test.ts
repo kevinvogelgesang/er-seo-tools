@@ -7,7 +7,7 @@ import sharp from 'sharp'
 import { prisma } from '@/lib/db'
 import { seedViewbookTemplates, CANONICAL_SECTION_ORDER } from './template-seed'
 import { GLOBAL_CONTENT_KEYS } from './global-content-keys'
-import type { TeamMember } from './global-content'
+import type { TeamMember, ContentBlocks } from './global-content'
 import { SECTION_KEYS } from './theme'
 import { sectionCopyKey, putSectionCopyGlobal, resolveSectionCopy } from './section-copy-content'
 import { CATALOG } from './catalog'
@@ -24,6 +24,9 @@ import {
   patchField,
   attachTemplateTeamPhoto,
   attachTeamPhotoBridged,
+  putGlobalContentBridged,
+  putSectionCopyGlobalBridged,
+  deleteSectionCopyGlobalBridged,
 } from './template-service'
 import { parseSubsectionContent, toLegacyGlobalBody } from './template-content'
 
@@ -344,5 +347,80 @@ describe('team photo flows', () => {
     const w = after.sections.find(x => x.templateKey === 'welcome')!
     expect((w.subsections[0].content as { team: TeamMember[] }).team[0].photo).toBe(filename)
     expect(w.version).toBe(s.version + 1)
+  })
+})
+
+describe('legacy bridged writes (forward-write)', () => {
+  it('putGlobalContentBridged(process) updates the legacy row AND the welcome/main envelope part, preserving other parts', async () => {
+    await putGlobalContentBridged('why', { blocks: [{ heading: 'Why', body: 'w' }] }, 'op@er.com')
+    await putGlobalContentBridged('process', { blocks: [{ heading: 'P1', body: 'b' }] }, 'op@er.com')
+    const { sections } = await getTemplateTree()
+    const w = sections.find(x => x.templateKey === 'welcome')!
+    const content = w.subsections[0].content as { process: ContentBlocks; why: ContentBlocks }
+    expect(content.process).toEqual({ blocks: [{ heading: 'P1', body: 'b' }] })
+    expect(content.why).toEqual({ blocks: [{ heading: 'Why', body: 'w' }] })   // earlier part preserved
+    const legacy = await prisma.viewbookGlobalContent.findUnique({ where: { key: 'process' } })
+    expect(JSON.parse(legacy!.bodyJson)).toEqual({ blocks: [{ heading: 'P1', body: 'b' }] })
+  })
+
+  it('a corrupt template envelope self-heals by re-projection instead of failing the legacy write', async () => {
+    const { sections } = await getTemplateTree()
+    const w = sections.find(x => x.templateKey === 'welcome')!
+    await prisma.subsectionTemplate.update({ where: { id: w.subsections[0].id }, data: { contentJson: 'CORRUPT{' } })
+    await putGlobalContentBridged('process', { blocks: [{ heading: 'P', body: 'b' }] }, 'op@er.com')
+    const after = await getTemplateTree()
+    const content = after.sections.find(x => x.templateKey === 'welcome')!.subsections[0].content
+    expect(content).not.toBeNull()   // re-projected whole envelope
+    expect((content as { process: ContentBlocks }).process).toEqual({ blocks: [{ heading: 'P', body: 'b' }] })
+  })
+
+  it('a missing template tree never fails the legacy write (drift-logged)', async () => {
+    await prisma.sectionTemplate.delete({ where: { templateKey: 'pc-intro' } })
+    await expect(putGlobalContentBridged('pc-intro', 'Hello there — welcome aboard!', 'op@er.com')).resolves.toBeUndefined()
+    const row = await prisma.viewbookGlobalContent.findUnique({ where: { key: 'pc-intro' } })
+    expect(JSON.parse(row!.bodyJson)).toBe('Hello there — welcome aboard!')
+  })
+
+  it('putSectionCopyGlobalBridged + deleteSectionCopyGlobalBridged keep template copyJson in sync (delete → code default)', async () => {
+    const copy = { purpose: 'P', whatThis: 'W', whatWeNeed: null }
+    await putSectionCopyGlobalBridged('brand', copy, 'op@er.com')
+    let { sections } = await getTemplateTree()
+    expect(sections.find(x => x.templateKey === 'brand')!.copy).toEqual(copy)
+    await deleteSectionCopyGlobalBridged('brand')
+    ;({ sections } = await getTemplateTree())
+    expect(sections.find(x => x.templateKey === 'brand')!.copy).toEqual(resolveSectionCopy('brand', null, null))
+  })
+
+  it('team roster conflict still 409s and writes NOTHING (template included)', async () => {
+    await prisma.viewbookGlobalContent.create({ data: { key: 'team', bodyJson: JSON.stringify([{ name: 'A', role: 'R', photo: null, blurb: '' }]), updatedBy: 'x' } })
+    const { sections } = await getTemplateTree()
+    const w = sections.find(x => x.templateKey === 'welcome')!
+    const beforeContent = w.subsections[0].content
+    // Use the beforeWrite deps seam to land a rival roster write in the gap
+    // between the load and the txn (mirrors global-content.test.ts's
+    // beforeStamp roster-conflict idiom).
+    await expect(
+      putGlobalContentBridged('team', [{ name: 'A', role: 'R2', photo: null, blurb: '' }], 'op@er.com', {
+        beforeWrite: async () => {
+          await prisma.viewbookGlobalContent.update({
+            where: { key: 'team' },
+            data: { bodyJson: JSON.stringify([{ name: 'B', role: 'R', photo: null, blurb: '' }]) },
+          })
+        },
+      }),
+    ).rejects.toMatchObject({ status: 409, code: 'roster_conflict' })
+    const after = await getTemplateTree()
+    const w2 = after.sections.find(x => x.templateKey === 'welcome')!
+    expect(w2.version).toBe(w.version)                 // section guard-companion never committed
+    expect(w2.subsections[0].content).toEqual(beforeContent) // envelope unchanged
+  })
+
+  it('legacy bridged writes bump syncVersion EXACTLY once per viewbook (Codex fix #6 — not twice via the template companion)', async () => {
+    await createViewbook((await mkClient()).id, 'upgrade', OPERATOR)
+    await createViewbook((await mkClient()).id, 'upgrade', OPERATOR)
+    const before = await prisma.viewbook.findMany({ orderBy: { id: 'asc' }, select: { syncVersion: true } })
+    await putGlobalContentBridged('process', { blocks: [{ heading: 'P', body: 'b' }] }, 'op@er.com')
+    const after = await prisma.viewbook.findMany({ orderBy: { id: 'asc' }, select: { syncVersion: true } })
+    expect(after.map((v, i) => v.syncVersion - before[i].syncVersion)).toEqual([1, 1])
   })
 })

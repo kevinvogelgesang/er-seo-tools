@@ -26,15 +26,22 @@ import {
   type SubsectionContentV1,
 } from './template-content'
 import { validateSectionCopy, type SectionCopyContent } from './section-copy-validator'
-import { putSectionCopyGlobalStatements } from './section-copy-content'
-import { putGlobalContentStatements, buildTeamRosterWrite, attachTeamPhoto, teamRosterFence } from './global-content'
+import { putSectionCopyGlobalStatements, deleteSectionCopyGlobalStatements } from './section-copy-content'
+import {
+  putGlobalContentStatements,
+  buildTeamRosterWrite,
+  attachTeamPhoto,
+  teamRosterFence,
+  validateGlobalContent,
+} from './global-content'
 import { deleteViewbookAssets } from './assets'
 import { validateTeam } from './content-validators'
 import { SECTION_KEYS, type SectionKey } from './theme'
+import { SECTION_COPY } from './section-copy'
 import { CATALOG_CATEGORIES } from './catalog'
 import { syncVersionBumpAllStatement, syncVersionBumpAllWhere } from './sync'
 import { projectMainContentJson, type SeedSourceRow } from './template-seed'
-import type { GlobalContentKey, TeamMember } from './global-content-keys'
+import type { GlobalContentKey, TeamMember, ContentBlocks } from './global-content-keys'
 
 // The four bridged (templateKey, 'main') content pairs and their legacy keys.
 export const BRIDGED_CONTENT: Record<string, { parts: Record<string, GlobalContentKey> }> = {
@@ -44,6 +51,18 @@ export const BRIDGED_CONTENT: Record<string, { parts: Record<string, GlobalConte
   'pc-intro': { parts: { intro: 'pc-intro' } },
 }
 export type ContentKind = 'welcome' | 'strategy' | 'milestones' | 'pc-intro' | 'generic' | 'none'
+
+// Task 6: the inverse of BRIDGED_CONTENT — every legacy GlobalContentKey maps
+// to exactly one bridged templateKey + the envelope part name it substitutes
+// into. Built ONCE at module scope from BRIDGED_CONTENT so the forward
+// (envelope→legacy keys) and inverse (legacy key→envelope part) views can
+// never drift apart.
+const LEGACY_KEY_TARGET: Partial<Record<GlobalContentKey, { templateKey: SectionKey; part: string }>> = {}
+for (const [templateKey, { parts }] of Object.entries(BRIDGED_CONTENT)) {
+  for (const [part, legacyKey] of Object.entries(parts)) {
+    LEGACY_KEY_TARGET[legacyKey] = { templateKey: templateKey as SectionKey, part }
+  }
+}
 
 export interface TemplateFieldView {
   id: number
@@ -831,4 +850,207 @@ export async function attachTeamPhotoBridged(
       }
     },
   })
+}
+
+// ---- Task 6: legacy routes forward-write through the service --------------
+//
+// putGlobalContentBridged / putSectionCopyGlobalBridged /
+// deleteSectionCopyGlobalBridged are the three legacy write entry points
+// (viewbook-content/[key], viewbook-content/team-photo's sibling text
+// content, section-copy/[sectionKey]) becoming SOFT dual-writers: the legacy
+// row is the HARD write (same validation/error surface as the un-bridged
+// putGlobalContent/putSectionCopyGlobal/deleteSectionCopyGlobal), the
+// template-tree companion is a raw-SQL fenced write that drift-logs on a miss
+// but never fails the legacy commit. Same conventions as Task 5's bridged
+// photo flow: fence on the PRE-state loaded before any write, bump-before-
+// update ordering, Prisma.sql null-branch for SQLite `IS NULL`, manual
+// integer-ms updatedAt.
+
+// Load the OTHER bridged legacy rows for a templateKey (excluding the key
+// currently being written — the caller substitutes that one with the
+// just-validated value instead of the possibly-stale stored row).
+async function loadOtherBridgeLegacyRows(templateKey: string, excludeKey: GlobalContentKey): Promise<SeedSourceRow[]> {
+  const bridge = BRIDGED_CONTENT[templateKey]
+  const keys = Object.values(bridge.parts).filter((k) => k !== excludeKey)
+  if (keys.length === 0) return []
+  return prisma.viewbookGlobalContent.findMany({
+    where: { key: { in: keys } },
+    select: { key: true, bodyJson: true },
+  })
+}
+
+export interface PutGlobalContentBridgedDeps {
+  // Test-only seam (mirrors PatchSubsectionDeps/AttachTeamPhotoDeps): awaited
+  // between the loads (section+sub, and — for 'team' — the roster row) and
+  // the $transaction, so a test can inject a rival roster write that lands in
+  // the gap and prove the throwing roster guard catches it.
+  beforeWrite?: () => Promise<void>
+}
+
+export async function putGlobalContentBridged(
+  key: string,
+  raw: unknown,
+  updatedBy: string,
+  deps: PutGlobalContentBridgedDeps = {},
+): Promise<void> {
+  const validated = validateGlobalContent(key, raw)
+  if (!validated) throw new HttpError(400, 'invalid_content')
+  const legacyKey = key as GlobalContentKey
+  const isTeam = legacyKey === 'team'
+
+  const target = LEGACY_KEY_TARGET[legacyKey]
+  const section = target
+    ? await prisma.sectionTemplate.findUnique({
+        where: { templateKey: target.templateKey },
+        include: { subsections: { where: { subsectionKey: 'main' } } },
+      })
+    : null
+  const sub = section?.subsections[0] ?? null
+  const hasTemplate = target !== undefined && section !== null && sub !== null
+
+  const teamRow = isTeam ? await prisma.viewbookGlobalContent.findUnique({ where: { key: 'team' } }) : null
+
+  if (deps.beforeWrite) await deps.beforeWrite()
+
+  let legacyWrite: Prisma.PrismaPromise<unknown>
+  let syncBump: Prisma.PrismaPromise<unknown>
+  // The value substituted into the template envelope: for 'team' this is the
+  // DERIVED roster (photo re-derivation, buildTeamRosterWrite), never the raw
+  // incoming validated array — the same rule patchSubsection's welcome branch
+  // follows.
+  let substitutionValue: TeamMember[] | ContentBlocks | string = validated as ContentBlocks | string
+  let orphanedPhotos: string[] = []
+
+  if (isTeam) {
+    const teamWrite = buildTeamRosterWrite(teamRow, validated as TeamMember[], updatedBy)
+    legacyWrite = teamWrite.legacyWrite
+    syncBump = teamWrite.syncBump
+    substitutionValue = teamWrite.next
+    orphanedPhotos = teamWrite.orphaned
+  } else {
+    const stmts = putGlobalContentStatements(legacyKey, validated as ContentBlocks | string, updatedBy)
+    legacyWrite = stmts.legacyWrite
+    syncBump = stmts.syncBump
+  }
+
+  const statements: Prisma.PrismaPromise<unknown>[] = [syncBump]
+
+  if (hasTemplate && section && sub && target) {
+    const parsed = parseSubsectionContent(section.rendererType, sub.contentJson)
+    let newEnvelope: string
+    if (parsed) {
+      newEnvelope = JSON.stringify({ ...parsed, v: 1, [target.part]: substitutionValue })
+    } else {
+      // Corrupt/missing envelope: self-heal by re-projecting the whole
+      // envelope from the CURRENT legacy rows (excluding this key, which is
+      // substituted with the just-validated value) — never a 4xx for
+      // template corruption.
+      const otherRows = await loadOtherBridgeLegacyRows(target.templateKey, legacyKey)
+      const rowsWithSubstitution: SeedSourceRow[] = [
+        ...otherRows,
+        { key: legacyKey, bodyJson: JSON.stringify(substitutionValue) },
+      ]
+      newEnvelope = projectMainContentJson(target.templateKey, rowsWithSubstitution, []) as string
+    }
+    // Prisma.sql branch: SQLite `= NULL` never matches — a null pre-state
+    // needs IS NULL, a non-null pre-state needs an exact value compare.
+    const contentPredicate = sub.contentJson === null
+      ? Prisma.sql`"contentJson" IS NULL`
+      : Prisma.sql`"contentJson" = ${sub.contentJson}`
+    statements.push(
+      // Bump-first: this predicate reads SubsectionTemplate's CURRENT
+      // contentJson, so it must run BEFORE the update below changes it.
+      prisma.$executeRaw`UPDATE "SectionTemplate" SET "version" = "version" + 1, "updatedAt" = ${Date.now()} WHERE "id" = ${section.id} AND EXISTS (
+        SELECT 1 FROM "SubsectionTemplate" WHERE "id" = ${sub.id} AND ${contentPredicate}
+      )`,
+      prisma.$executeRaw`UPDATE "SubsectionTemplate" SET "contentJson" = ${newEnvelope}, "version" = "version" + 1, "updatedAt" = ${Date.now()} WHERE "id" = ${sub.id} AND ${contentPredicate}`,
+    )
+  }
+
+  statements.push(legacyWrite)
+
+  let results: unknown[]
+  try {
+    results = await prisma.$transaction(statements)
+  } catch (err) {
+    if (isTeam && err instanceof Prisma.PrismaClientKnownRequestError && (err.code === 'P2025' || err.code === 'P2002')) {
+      // Roster conflict: the template companion rolled back with it — no
+      // orphan deletion (nothing committed).
+      throw new HttpError(409, 'roster_conflict')
+    }
+    throw err
+  }
+
+  if (orphanedPhotos.length > 0) await deleteViewbookAssets('global', orphanedPhotos)
+
+  // SOFT drift log only — the legacy write already committed by the time
+  // this runs; there is nothing left to roll back.
+  if (target) {
+    if (!hasTemplate) {
+      logError(
+        { subsystem: 'viewbook', op: 'template-forward-write-miss', reason: 'no-template-tree', templateKey: target.templateKey },
+        new Error(`bridged global content: template tree absent for ${target.templateKey}`),
+      )
+    } else {
+      const sectionRows = results[1] as number
+      const subRows = results[2] as number
+      if (sectionRows === 0 || subRows === 0) {
+        logError(
+          { subsystem: 'viewbook', op: 'template-forward-write-miss', templateKey: target.templateKey },
+          new Error('bridged global content: template forward-write missed a stale pre-state'),
+        )
+      }
+    }
+  }
+}
+
+export async function putSectionCopyGlobalBridged(sectionKey: string, raw: unknown, updatedBy: string): Promise<void> {
+  if (!isSectionKey(sectionKey)) throw new HttpError(400, 'invalid_content')
+  const validated = validateSectionCopy(raw)
+  if (validated === null) throw new HttpError(400, 'invalid_content')
+
+  const { legacyWrite, syncBump } = putSectionCopyGlobalStatements(sectionKey, validated, updatedBy)
+  // Unfenced soft companion (legacy last-writer-wins) — mirrors patchSectionTemplate's guarded template write in reverse.
+  const templateUpdate = prisma.sectionTemplate.updateMany({
+    where: { templateKey: sectionKey },
+    data: { copyJson: JSON.stringify({ v: 1, copy: validated }), version: { increment: 1 } },
+  })
+
+  const results = await prisma.$transaction([legacyWrite, syncBump, templateUpdate])
+  const templateCount = (results[2] as { count: number }).count
+  if (templateCount === 0) {
+    logError(
+      { subsystem: 'viewbook', op: 'template-forward-write-miss', templateKey: sectionKey },
+      new Error(`bridged section copy: template row missing for ${sectionKey}`),
+    )
+  }
+}
+
+export async function deleteSectionCopyGlobalBridged(sectionKey: string): Promise<void> {
+  if (!isSectionKey(sectionKey)) throw new HttpError(400, 'invalid_content')
+
+  const { fence, syncBump, deleteStmt } = deleteSectionCopyGlobalStatements(sectionKey)
+  // Delete means "revert to code default" in the resolve chain
+  // (resolveSectionCopy falls through to SECTION_COPY when neither the
+  // legacy row nor an override exists) — so the template reset writes the
+  // CODE DEFAULT envelope, sharing the delete's EXISTS pre-state fence (the
+  // ONE surviving raw cross-table fence: both statements share `fence`,
+  // placed BEFORE the deleteMany so it still sees the row).
+  const codeDefault = SECTION_COPY[sectionKey]
+  const templateEnvelope = JSON.stringify({
+    v: 1,
+    copy: { purpose: codeDefault.purpose, whatThis: codeDefault.whatThis, whatWeNeed: codeDefault.whatWeNeed },
+  })
+  const templateReset = prisma.$executeRaw`UPDATE "SectionTemplate" SET "copyJson" = ${templateEnvelope}, "version" = "version" + 1, "updatedAt" = ${Date.now()} WHERE "templateKey" = ${sectionKey} AND (${fence})`
+
+  const results = await prisma.$transaction([syncBump, templateReset, deleteStmt])
+  const templateCount = results[1] as number
+  const deleteResult = results[2] as { count: number }
+  if (deleteResult.count === 0) throw new HttpError(404, 'not_found')
+  if (templateCount === 0) {
+    logError(
+      { subsystem: 'viewbook', op: 'template-forward-write-miss', templateKey: sectionKey },
+      new Error(`bridged section copy delete: template reset missed for ${sectionKey}`),
+    )
+  }
 }

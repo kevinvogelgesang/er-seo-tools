@@ -7,9 +7,9 @@ import { requireOperatorEmail } from '@/lib/viewbook/operator'
 import {
   GLOBAL_CONTENT_KEYS,
   getGlobalContent,
-  putGlobalContent,
   type GlobalContentKey,
 } from '@/lib/viewbook/global-content'
+import { putGlobalContentBridged } from '@/lib/viewbook/template-service'
 
 export const dynamic = 'force-dynamic'
 
@@ -31,6 +31,6 @@ export const PUT = withRoute(async (request: NextRequest, { params }: RouteParam
   const operator = await requireOperatorEmail(request)
   const key = parseKey((await params).key)
   const body = requireJsonObject(await parseJsonBody<{ content?: unknown }>(request))
-  await putGlobalContent(key, body.content, operator)
+  await putGlobalContentBridged(key, body.content, operator)
   return NextResponse.json({ ok: true })
 })
