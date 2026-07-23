@@ -6,9 +6,6 @@ export interface SectionCopy {
   purpose: string            // one sentence — chapter header + rail tooltip
   whatThis: string           // "What this is" — 1–2 sentences
   whatWeNeed: string | null  // "What we need from you" — null = nothing needed
-  // Optional primary action. `anchor` REQUIRED (a real in-page target other than
-  // the section's own hero); `sectionKey` is the SectionReveal to force-open.
-  cta?: { label: string; sectionKey: SectionKey; anchor: string } | null
 }
 
 export const INPUT_EXPECTING_KEYS: ReadonlySet<SectionKey> = new Set<SectionKey>([
@@ -17,7 +14,7 @@ export const INPUT_EXPECTING_KEYS: ReadonlySet<SectionKey> = new Set<SectionKey>
 
 export const SECTION_COPY: Record<SectionKey, SectionCopy> = {
   'pc-intro': { purpose: 'Welcome to your viewbook.', whatThis: 'A living space that walks you through every step of your new website, from kickoff to launch.', whatWeNeed: null },
-  'pc-setup': { purpose: "Confirm your school's core details.", whatThis: 'The essentials we build everything else on — name, contacts, and web address.', whatWeNeed: 'Fill in the org-basics fields below.', cta: { label: 'Fill in org basics', sectionKey: 'pc-setup', anchor: '#pc-setup' } },
+  'pc-setup': { purpose: "Confirm your school's core details.", whatThis: 'The essentials we build everything else on — name, contacts, and web address.', whatWeNeed: 'Fill in the org-basics fields below.' },
   'pc-invite': { purpose: 'Bring your team into the viewbook.', whatThis: 'Invite the people who should follow along and collaborate on the build.', whatWeNeed: 'Invite the people who should collaborate.' },
   'data-source': { purpose: "Connect the analytics we'll report on.", whatThis: 'Grants us read access to your traffic data so progress is measured, not guessed.', whatWeNeed: 'Grant access to your analytics.' },
   'pc-thanks': { purpose: "You're all set for kickoff.", whatThis: 'Everything we need to begin is in. Here is what happens next.', whatWeNeed: null },
