@@ -11,7 +11,7 @@ const toc: TocEntry[] = [
   { sectionKey: 'welcome', label: 'Welcome & Team', anchor: '#welcome', done: true, acked: false },
   {
     sectionKey: 'data-source',
-    label: 'Data Source',
+    label: 'What we need from you',
     anchor: '#data-source',
     done: false,
     acked: true,

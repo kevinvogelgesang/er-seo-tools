@@ -207,7 +207,7 @@ describe('SectionOutline', () => {
     expect(select).toHaveBeenCalledWith('welcome', 'manual-nav')
     expect(navigateToAnchor).toHaveBeenCalledWith('welcome', '#welcome')
 
-    expect(() => fireEvent.click(screen.getByRole('button', { name: 'Data Source' }))).not.toThrow()
+    expect(() => fireEvent.click(screen.getByRole('button', { name: 'What we need from you' }))).not.toThrow()
     expect(select).toHaveBeenCalledWith('data-source', 'manual-nav', 'status')
     expect(navigateToAnchor).toHaveBeenCalledWith('data-source', '#data-source')
     expect(container.querySelector('[data-operator-section-controls]')).toBeNull()

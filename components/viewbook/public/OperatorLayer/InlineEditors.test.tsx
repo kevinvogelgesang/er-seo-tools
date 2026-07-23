@@ -303,7 +303,7 @@ describe('operator inline editors', () => {
     const { container } = render(
       <DataSourceInlineEditor viewbookId={12} fields={[field]} dataLockedAt={null} />,
     )
-    openPanel('Data Source')
+    openPanel('What we need from you')
     openPanel('Add custom field')
     fireEvent.change(screen.getByLabelText('Custom field label'), { target: { value: 'New question' } })
     expectActive('operator-new-field')
@@ -327,7 +327,7 @@ describe('operator inline editors', () => {
     vi.stubGlobal('fetch', vi.fn())
     render(<DataSourceInlineEditor viewbookId={12} fields={[field]} dataLockedAt={null} />)
 
-    openPanel('Data Source')
+    openPanel('What we need from you')
     expect(screen.getByText('Open for direct editing')).toBeTruthy()
     expect(screen.getByText('School motto')).toBeTruthy()
     expect(screen.getAllByText('Text').length).toBeGreaterThan(0)
@@ -343,7 +343,7 @@ describe('operator inline editors', () => {
       .mockResolvedValueOnce(ok({ field: { ...field, value: 'Newer answer', version: 6 } }))
     vi.stubGlobal('fetch', fetchMock)
     render(<DataSourceInlineEditor viewbookId={12} fields={[field]} dataLockedAt={null} />)
-    openPanel('Data Source')
+    openPanel('What we need from you')
 
     fireEvent.change(screen.getByLabelText('Answer for School motto'), { target: { value: 'My answer' } })
     await advanceAutosave()
@@ -369,7 +369,7 @@ describe('operator inline editors', () => {
     const fetchMock = vi.fn().mockResolvedValue(ok({ amendment }))
     vi.stubGlobal('fetch', fetchMock)
     render(<DataSourceInlineEditor viewbookId={12} fields={[field]} dataLockedAt="2026-07-17T00:00:00.000Z" />)
-    openPanel('Data Source')
+    openPanel('What we need from you')
 
     fireEvent.change(screen.getByLabelText('Answer for School motto'), { target: { value: 'Proposal' } })
     await advanceAutosave(5000)
@@ -521,7 +521,7 @@ describe('operator inline editors — section-activity reporting', () => {
       .mockResolvedValueOnce(ok({ field: { ...field, value: 'My answer', version: 6 } }))
     vi.stubGlobal('fetch', fetchMock)
     render(<Providers><DataSourceInlineEditor viewbookId={12} fields={[field]} dataLockedAt={null} /><AggReadout sectionKey="data-source" /></Providers>)
-    openPanel('Data Source')
+    openPanel('What we need from you')
 
     fireEvent.change(screen.getByLabelText('Answer for School motto'), { target: { value: 'My answer' } })
     await advanceAutosave()

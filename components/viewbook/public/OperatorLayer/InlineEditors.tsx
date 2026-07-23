@@ -779,7 +779,7 @@ export function DataSourceInlineEditor({ viewbookId, fields, dataLockedAt }: { v
   return (
     <div onFocus={focus.onFocus} onBlur={focus.onBlur}>
     <EditorPanel
-      title="Data Source"
+      title={SECTION_TITLES['data-source']}
       description="Review client answers, amendments, and custom fields."
       activity={aggregate.activity}
     >

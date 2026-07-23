@@ -92,7 +92,7 @@ describe('buildTocIndex', () => {
     expect(dataSource.done).toBe(true)
     expect(dataSource.acked).toBe(false)
     expect(dataSource.anchor).toBe('#data-source')
-    expect(dataSource.label).toBe('Data Source')
+    expect(dataSource.label).toBe('What we need from you')
   })
 
   it('never includes carried sections', () => {
