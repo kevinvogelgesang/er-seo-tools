@@ -13,6 +13,7 @@ import { sweepStaleReservations } from '@/lib/keywords/strategy-volume-ledger';
 import { pruneRobotsChecks } from '@/lib/robots-check/retention';
 import { pruneWeeklySweeps } from '@/lib/sweep/retention';
 import { pruneViewbookActivity, pruneOrphanedViewbookAssetFiles } from '@/lib/viewbook/retention';
+import { pruneViewbookAuthRows } from '@/lib/viewbook/auth-retention';
 
 /** Parsed sessions and their data are kept for 180 days. */
 const SESSION_TTL_MS = 180 * 24 * 60 * 60 * 1000;
@@ -53,6 +54,7 @@ export async function runCleanup(): Promise<void> {
     pruneWeeklySweeps(),
     pruneViewbookActivity(new Date()),
     pruneOrphanedViewbookAssetFiles(new Date()),
+    pruneViewbookAuthRows(new Date()),
   ]);
   logSettledFailures('[cleanup] Cleanup task failed', results);
 }
