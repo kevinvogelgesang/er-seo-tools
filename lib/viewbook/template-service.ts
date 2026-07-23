@@ -21,13 +21,19 @@ import {
   parseTemplateCopy,
   parseSubsectionContent,
   parseSubsectionCopy,
+  toLegacyGlobalBody,
+  FIELD_KEY_RE,
   type SubsectionContentV1,
 } from './template-content'
 import { validateSectionCopy, type SectionCopyContent } from './section-copy-validator'
 import { putSectionCopyGlobalStatements } from './section-copy-content'
+import { putGlobalContentStatements, buildTeamRosterWrite } from './global-content'
+import { deleteViewbookAssets } from './assets'
+import { validateTeam } from './content-validators'
 import { SECTION_KEYS, type SectionKey } from './theme'
 import { CATALOG_CATEGORIES } from './catalog'
-import type { GlobalContentKey } from './global-content-keys'
+import { syncVersionBumpAllStatement } from './sync'
+import type { GlobalContentKey, TeamMember } from './global-content-keys'
 
 // The four bridged (templateKey, 'main') content pairs and their legacy keys.
 export const BRIDGED_CONTENT: Record<string, { parts: Record<string, GlobalContentKey> }> = {
@@ -98,6 +104,30 @@ function isSectionKey(key: string): key is SectionKey {
 
 function isP2025(err: unknown): boolean {
   return err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2025'
+}
+
+// Shared txn runner for Task 4's mutations (patchSubsection/patchField): both
+// map a stale version guard (P2025) AND — for patchSubsection's team-roster
+// fence — a lost concurrent-roster race (also P2025, uniformly NOT
+// distinguished from a stale template version; the UI refetches either way)
+// to the SAME conflict code. createSubsection/createField do NOT use this —
+// their P2002 (subsectionKey/fieldKey collision) needs a DISTINCT code from
+// their P2025 (stale version), so they catch inline instead.
+async function runGuarded<T extends Prisma.PrismaPromise<unknown>[]>(
+  statements: [...T],
+  conflictCode = 'version_conflict',
+): Promise<void> {
+  try {
+    await prisma.$transaction(statements)
+  } catch (err) {
+    if (
+      err instanceof Prisma.PrismaClientKnownRequestError &&
+      (err.code === 'P2025' || err.code === 'P2002')
+    ) {
+      throw new HttpError(409, conflictCode)
+    }
+    throw err
+  }
 }
 
 export async function getTemplateTree(): Promise<{ sections: TemplateSectionView[] }> {
@@ -277,4 +307,321 @@ export async function reorderSections(
     if (isP2025(err)) throw new HttpError(409, 'version_conflict')
     throw err
   }
+}
+
+export interface PatchSubsectionDeps {
+  // Test-only seam (mirrors attachTeamPhoto.beforeStamp): awaited between the
+  // loads (incl. the team row read used to fence the roster guard-write) and
+  // the $transaction, so a test can inject a rival roster write that lands in
+  // the gap and prove the throwing guard catches it.
+  beforeWrite?: () => Promise<void>
+}
+
+export async function patchSubsection(
+  subId: number,
+  input: {
+    version: number
+    title?: string
+    offeringWebsite?: boolean
+    offeringVa?: boolean
+    offeringPpc?: boolean
+    copy?: unknown | null
+    content?: unknown | null
+    archived?: boolean
+  },
+  updatedBy: string,
+  deps: PatchSubsectionDeps = {},
+): Promise<void> {
+  const sub = await prisma.subsectionTemplate.findUnique({
+    where: { id: subId },
+    include: { section: true },
+  })
+  if (!sub) throw new HttpError(404, 'not_found')
+  const section = sub.section
+
+  if (input.title !== undefined) {
+    if (typeof input.title !== 'string' || input.title.trim().length === 0 || input.title.length > 200) {
+      throw new HttpError(400, 'invalid_content')
+    }
+  }
+  for (const flag of ['offeringWebsite', 'offeringVa', 'offeringPpc'] as const) {
+    if (input[flag] !== undefined && typeof input[flag] !== 'boolean') {
+      throw new HttpError(400, 'invalid_content')
+    }
+  }
+
+  // copy: null clears; otherwise validate the {v:1, copy:{...}} envelope.
+  let copyJson: string | null | undefined // undefined = field absent from the patch
+  if (input.copy !== undefined) {
+    if (input.copy === null) {
+      copyJson = null
+    } else {
+      const envelope = JSON.stringify({ v: 1, copy: input.copy })
+      if (parseSubsectionCopy(envelope) === null) throw new HttpError(400, 'invalid_content')
+      copyJson = envelope
+    }
+  }
+
+  const contentKind = contentKindFor(section.templateKey, sub.subsectionKey)
+
+  // content: null clears (no legacy dual-write — there's nothing to derive a
+  // legacy body FROM); a non-null value is validated by contentKind (D-b(2)).
+  let contentJson: string | null | undefined
+  const legacyStatements: Prisma.PrismaPromise<unknown>[] = []
+  let syncBump: Prisma.PrismaPromise<unknown> | null = null
+  let orphanedPhotos: string[] = []
+
+  if (input.content !== undefined) {
+    if (input.content === null) {
+      contentJson = null
+    } else if (contentKind === 'none') {
+      throw new HttpError(400, 'invalid_content')
+    } else if (contentKind === 'generic') {
+      // The client sends the bare ContentBlocks value ({blocks:[...]}) — the
+      // generic envelope's OWN 'blocks' field holds that value directly (the
+      // double-nesting is real: SubsectionContentV1's generic variant is
+      // `{v:1, blocks: ContentBlocks}`, template-content.test.ts pins it).
+      const envelope = JSON.stringify({ v: 1, blocks: input.content })
+      if (parseSubsectionContent('generic', envelope) === null) throw new HttpError(400, 'invalid_content')
+      contentJson = envelope
+    } else {
+      // Bridged kind ('welcome' | 'strategy' | 'milestones' | 'pc-intro'):
+      // validate against the section's own rendererType (same convention as
+      // getTemplateTree's read side).
+      const rawContent = input.content as Record<string, unknown>
+      let envelopeContent: Record<string, unknown> = rawContent
+      let teamRow: { bodyJson: string } | null = null
+
+      if (contentKind === 'welcome') {
+        const validatedIncomingTeam = validateTeam(rawContent.team)
+        if (validatedIncomingTeam === null) throw new HttpError(400, 'invalid_content')
+        // Photo re-derivation rule (buildTeamRosterWrite): incoming `photo`
+        // values are IGNORED and re-derived from the STORED roster by name —
+        // the DERIVED roster replaces content.team in BOTH the template
+        // envelope and the legacy write below.
+        teamRow = await prisma.viewbookGlobalContent.findUnique({ where: { key: 'team' } })
+        const teamWrite = buildTeamRosterWrite(teamRow, validatedIncomingTeam, updatedBy)
+        envelopeContent = { ...rawContent, team: teamWrite.next }
+        legacyStatements.push(teamWrite.legacyWrite)
+        orphanedPhotos = teamWrite.orphaned
+      }
+
+      const envelope = JSON.stringify({ v: 1, ...envelopeContent })
+      const parsed = parseSubsectionContent(section.rendererType, envelope)
+      if (parsed === null) throw new HttpError(400, 'invalid_content')
+      contentJson = envelope
+
+      const bridge = BRIDGED_CONTENT[section.templateKey]
+      for (const [, legacyKey] of Object.entries(bridge.parts)) {
+        if (legacyKey === 'team') continue // already built above (throwing guard-write)
+        // Never TeamMember[] here ('team' skipped above) — the remaining
+        // bridge parts are always ContentBlocks or (pc-intro) a string.
+        const legacyBody = toLegacyGlobalBody(legacyKey, parsed) as Exclude<ReturnType<typeof toLegacyGlobalBody>, TeamMember[] | null>
+        legacyStatements.push(putGlobalContentStatements(legacyKey, legacyBody, updatedBy).legacyWrite)
+      }
+      syncBump = syncVersionBumpAllStatement() // ONE bump for the whole bridged write (D-e)
+    }
+  }
+
+  if (deps.beforeWrite) await deps.beforeWrite()
+
+  const guard = prisma.sectionTemplate.update({
+    where: { id: section.id, version: input.version },
+    data: { version: { increment: 1 } },
+  })
+  const subsectionUpdate = prisma.subsectionTemplate.update({
+    where: { id: subId },
+    data: {
+      ...(input.title !== undefined ? { title: input.title } : {}),
+      ...(input.offeringWebsite !== undefined ? { offeringWebsite: input.offeringWebsite } : {}),
+      ...(input.offeringVa !== undefined ? { offeringVa: input.offeringVa } : {}),
+      ...(input.offeringPpc !== undefined ? { offeringPpc: input.offeringPpc } : {}),
+      ...(copyJson !== undefined ? { copyJson } : {}),
+      ...(contentJson !== undefined ? { contentJson } : {}),
+      ...(input.archived !== undefined ? { archivedAt: input.archived ? new Date() : null } : {}),
+      version: { increment: 1 },
+    },
+  })
+
+  const statements: Prisma.PrismaPromise<unknown>[] = [guard, subsectionUpdate, ...legacyStatements]
+  if (syncBump) statements.push(syncBump)
+
+  await runGuarded(statements)
+
+  if (orphanedPhotos.length > 0) await deleteViewbookAssets('global', orphanedPhotos)
+}
+
+export async function createSubsection(
+  sectionId: number,
+  input: {
+    version: number
+    subsectionKey: string
+    title: string
+    offeringWebsite?: boolean
+    offeringVa?: boolean
+    offeringPpc?: boolean
+    copy?: unknown
+    content?: unknown
+  },
+  updatedBy: string,
+): Promise<void> {
+  if (!FIELD_KEY_RE.test(input.subsectionKey)) throw new HttpError(400, 'invalid_key')
+  if (typeof input.title !== 'string' || input.title.trim().length === 0 || input.title.length > 200) {
+    throw new HttpError(400, 'invalid_content')
+  }
+  // Deterministic pre-check (P2002 would catch these anyway): 'main' exists
+  // in every seeded section; the CATALOG_CATEGORIES keys belong to
+  // data-source. Operator-created subsections are ALWAYS 'generic' — never a
+  // bridge pair.
+  if (input.subsectionKey === 'main' || CATALOG_CATEGORY_SET.has(input.subsectionKey)) {
+    throw new HttpError(409, 'subsection_exists')
+  }
+
+  let contentJson: string | null = null
+  if (input.content !== undefined && input.content !== null) {
+    // Same double-nesting as patchSubsection's generic branch: the client
+    // sends the bare ContentBlocks value; the envelope's 'blocks' field holds
+    // it directly.
+    const envelope = JSON.stringify({ v: 1, blocks: input.content })
+    if (parseSubsectionContent('generic', envelope) === null) throw new HttpError(400, 'invalid_content')
+    contentJson = envelope
+  }
+
+  let copyJson: string | null = null
+  if (input.copy !== undefined && input.copy !== null) {
+    const envelope = JSON.stringify({ v: 1, copy: input.copy })
+    if (parseSubsectionCopy(envelope) === null) throw new HttpError(400, 'invalid_content')
+    copyJson = envelope
+  }
+
+  // Safe to load-then-use (not re-derive-under-lock): the version guard makes
+  // a concurrent same-section create conflict on the SECTION version instead
+  // of racing this max (Codex fix #5).
+  const maxRow = await prisma.subsectionTemplate.aggregate({
+    where: { sectionTemplateId: sectionId },
+    _max: { sortOrder: true },
+  })
+  const sortOrder = (maxRow._max.sortOrder ?? 0) + 10
+
+  const statements: Prisma.PrismaPromise<unknown>[] = [
+    prisma.sectionTemplate.update({
+      where: { id: sectionId, version: input.version },
+      data: { version: { increment: 1 } },
+    }),
+    prisma.subsectionTemplate.create({
+      data: {
+        sectionTemplateId: sectionId,
+        subsectionKey: input.subsectionKey,
+        title: input.title,
+        offeringWebsite: input.offeringWebsite ?? false,
+        offeringVa: input.offeringVa ?? false,
+        offeringPpc: input.offeringPpc ?? false,
+        copyJson,
+        contentJson,
+        sortOrder,
+      },
+    }),
+  ]
+
+  try {
+    await prisma.$transaction(statements)
+  } catch (err) {
+    if (err instanceof Prisma.PrismaClientKnownRequestError) {
+      if (err.code === 'P2025') throw new HttpError(409, 'version_conflict')
+      if (err.code === 'P2002') throw new HttpError(409, 'subsection_exists')
+    }
+    throw err
+  }
+}
+
+export async function createField(
+  subsectionId: number,
+  input: { version: number; fieldKey: string; label: string; fieldType: string },
+  updatedBy: string,
+): Promise<void> {
+  void updatedBy // fieldTemplate carries no updatedBy column — accepted for API-shape symmetry only
+  const sub = await prisma.subsectionTemplate.findUnique({
+    where: { id: subsectionId },
+    select: { sectionTemplateId: true, archivedAt: true },
+  })
+  if (!sub) throw new HttpError(404, 'not_found')
+  if (sub.archivedAt !== null) throw new HttpError(409, 'subsection_archived')
+
+  if (!FIELD_KEY_RE.test(input.fieldKey)) throw new HttpError(400, 'invalid_key')
+  if (!['text', 'textarea', 'list'].includes(input.fieldType)) throw new HttpError(400, 'invalid_content')
+  if (typeof input.label !== 'string' || input.label.trim().length === 0 || input.label.length > 200) {
+    throw new HttpError(400, 'invalid_content')
+  }
+
+  const maxRow = await prisma.fieldTemplate.aggregate({
+    where: { subsectionTemplateId: subsectionId },
+    _max: { sortOrder: true },
+  })
+  const sortOrder = (maxRow._max.sortOrder ?? 0) + 1
+
+  const statements: Prisma.PrismaPromise<unknown>[] = [
+    prisma.sectionTemplate.update({
+      where: { id: sub.sectionTemplateId, version: input.version },
+      data: { version: { increment: 1 } },
+    }),
+    prisma.fieldTemplate.create({
+      data: {
+        subsectionTemplateId: subsectionId,
+        fieldKey: input.fieldKey,
+        label: input.label,
+        fieldType: input.fieldType,
+        sortOrder,
+      },
+    }),
+  ]
+
+  try {
+    await prisma.$transaction(statements)
+  } catch (err) {
+    if (err instanceof Prisma.PrismaClientKnownRequestError) {
+      if (err.code === 'P2025') throw new HttpError(409, 'version_conflict')
+      if (err.code === 'P2002') throw new HttpError(409, 'field_key_exists')
+    }
+    throw err
+  }
+}
+
+// fieldKey is IMMUTABLE — no fieldKey input here; the route rejects a
+// fieldKey body property with 400.
+export async function patchField(
+  fieldId: number,
+  input: { version: number; label?: string; sortOrder?: number; archived?: boolean },
+  updatedBy: string,
+): Promise<void> {
+  void updatedBy // fieldTemplate carries no updatedBy column — accepted for API-shape symmetry only
+  const field = await prisma.fieldTemplate.findUnique({
+    where: { id: fieldId },
+    select: { subsection: { select: { sectionTemplateId: true } } },
+  })
+  if (!field) throw new HttpError(404, 'not_found')
+
+  if (input.label !== undefined) {
+    if (typeof input.label !== 'string' || input.label.trim().length === 0 || input.label.length > 200) {
+      throw new HttpError(400, 'invalid_content')
+    }
+  }
+  if (input.sortOrder !== undefined && !Number.isInteger(input.sortOrder)) {
+    throw new HttpError(400, 'invalid_content')
+  }
+
+  const guard = prisma.sectionTemplate.update({
+    where: { id: field.subsection.sectionTemplateId, version: input.version },
+    data: { version: { increment: 1 } },
+  })
+  const fieldUpdate = prisma.fieldTemplate.update({
+    where: { id: fieldId },
+    data: {
+      ...(input.label !== undefined ? { label: input.label } : {}),
+      ...(input.sortOrder !== undefined ? { sortOrder: input.sortOrder } : {}),
+      ...(input.archived !== undefined ? { archivedAt: input.archived ? new Date() : null } : {}),
+      version: { increment: 1 },
+    },
+  })
+
+  await runGuarded([guard, fieldUpdate])
 }

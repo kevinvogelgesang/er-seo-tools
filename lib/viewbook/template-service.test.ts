@@ -9,7 +9,16 @@ import { CATALOG } from './catalog'
 import { parseTemplateCopy, toLegacySectionCopy } from './template-content'
 import { validateSectionCopy } from './section-copy-validator'
 import { createViewbook } from './service'
-import { getTemplateTree, patchSectionTemplate, reorderSections } from './template-service'
+import {
+  getTemplateTree,
+  patchSectionTemplate,
+  reorderSections,
+  patchSubsection,
+  createSubsection,
+  createField,
+  patchField,
+} from './template-service'
+import { parseSubsectionContent, toLegacyGlobalBody } from './template-content'
 
 const OPERATOR = 'kevin@enrollmentresources.com'
 const SEED_KEYS = [...GLOBAL_CONTENT_KEYS, ...SECTION_KEYS.map(sectionCopyKey)]
@@ -164,5 +173,91 @@ describe('reorderSections', () => {
         { id: a.id, version: a.version, sortOrder: 2 },
       ]),
     ).rejects.toMatchObject({ status: 400 })
+  })
+})
+
+describe('patchSubsection content bridge', () => {
+  it('strategy/main content edit rewrites all three legacy rows + template envelope', async () => {
+    const { sections } = await getTemplateTree()
+    const s = sections.find(x => x.templateKey === 'strategy')!
+    const sub = s.subsections[0]
+    const blocks = (h: string) => ({ blocks: [{ heading: h, body: 'b' }] })
+    await patchSubsection(sub.id, { version: s.version, content: { seoBase: blocks('SEO'), geoBase: blocks('GEO'), eeatBase: blocks('EEAT') } }, 'op@er.com')
+    const seo = await prisma.viewbookGlobalContent.findUnique({ where: { key: 'seo-base' } })
+    expect(JSON.parse(seo!.bodyJson)).toEqual(blocks('SEO'))
+    const after = await prisma.subsectionTemplate.findUnique({ where: { id: sub.id } })
+    const parsed = parseSubsectionContent('strategy', after!.contentJson)!
+    expect(toLegacyGlobalBody('geo-base', parsed)).toEqual(blocks('GEO'))
+    const section = await prisma.sectionTemplate.findUnique({ where: { id: s.id } })
+    expect(section!.version).toBe(s.version + 1)
+    expect(after!.version).toBe(sub.version + 1)
+  })
+  it('welcome roster edit ignores incoming photo values (re-derived by name)', async () => {
+    await prisma.viewbookGlobalContent.create({ data: { key: 'team', bodyJson: JSON.stringify([{ name: 'A', role: 'R', photo: 'a.webp', blurb: '' }]), updatedBy: 'x' } })
+    const { sections } = await getTemplateTree()
+    const s = sections.find(x => x.templateKey === 'welcome')!
+    await patchSubsection(s.subsections[0].id, { version: s.version, content: {
+      team: [{ name: 'A', role: 'R2', photo: 'evil.webp', blurb: '' }], process: { blocks: [] }, why: { blocks: [] },
+    } }, 'op@er.com')
+    const row = await prisma.viewbookGlobalContent.findUnique({ where: { key: 'team' } })
+    expect(JSON.parse(row!.bodyJson)[0].photo).toBe('a.webp')
+  })
+  it('stale version → 409, txn rolled back: no legacy row, no subsection change, no syncVersion bump', async () => {
+    const { sections } = await getTemplateTree()
+    const s = sections.find(x => x.templateKey === 'milestones')!
+    await expect(patchSubsection(s.subsections[0].id, { version: s.version + 9, content: { processMilestones: { blocks: [] } } }, 'op@er.com'))
+      .rejects.toMatchObject({ status: 409 })
+    expect(await prisma.viewbookGlobalContent.findUnique({ where: { key: 'process-milestones' } })).toBeNull()
+    const sub = await prisma.subsectionTemplate.findUnique({ where: { id: s.subsections[0].id } })
+    expect(sub!.version).toBe(s.subsections[0].version)   // guard threw → subsection update rolled back too
+  })
+  it('a concurrent roster edit during a welcome content PATCH → 409, nothing committed (throwing roster guard)', async () => {
+    await prisma.viewbookGlobalContent.create({ data: { key: 'team', bodyJson: JSON.stringify([{ name: 'A', role: 'R', photo: null, blurb: '' }]), updatedBy: 'x' } })
+    const { sections } = await getTemplateTree()
+    const s = sections.find(x => x.templateKey === 'welcome')!
+    // patchSubsection loads the team row, then a rival write lands before the txn (deps.beforeWrite seam, test-only)
+    await expect(patchSubsection(s.subsections[0].id, {
+      version: s.version,
+      content: { team: [{ name: 'A', role: 'R2', photo: null, blurb: '' }], process: { blocks: [] }, why: { blocks: [] } },
+    }, 'op@er.com', { beforeWrite: async () => {
+      await prisma.viewbookGlobalContent.update({ where: { key: 'team' }, data: { bodyJson: JSON.stringify([{ name: 'B', role: 'R', photo: null, blurb: '' }]) } })
+    } })).rejects.toMatchObject({ status: 409 })
+    const sec = await prisma.sectionTemplate.findUnique({ where: { id: s.id } })
+    expect(sec!.version).toBe(s.version)                  // guard bump rolled back with the roster P2025
+  })
+  it('content on a contentless seeded main → 400; generic content on a created subsection is accepted with no legacy write', async () => {
+    const { sections } = await getTemplateTree()
+    const brand = sections.find(x => x.templateKey === 'brand')!
+    await expect(patchSubsection(brand.subsections[0].id, { version: brand.version, content: { blocks: [] } }, 'op@er.com'))
+      .rejects.toMatchObject({ status: 400 })
+    await createSubsection(brand.id, { version: brand.version, subsectionKey: 'va-notes', title: 'VA notes', offeringVa: true }, 'op@er.com')
+    const t2 = await getTemplateTree()
+    const b2 = t2.sections.find(x => x.templateKey === 'brand')!
+    const created = b2.subsections.find(x => x.subsectionKey === 'va-notes')!
+    expect(created.contentKind).toBe('generic')
+    await patchSubsection(created.id, { version: b2.version, content: { blocks: [{ heading: 'H', body: 'B' }] } }, 'op@er.com')
+  })
+})
+describe('fields', () => {
+  it('createField validates key format, global uniqueness, version token, bumps aggregate version', async () => {
+    const { sections } = await getTemplateTree()
+    const ds = sections.find(x => x.templateKey === 'data-source')!
+    const sub = ds.subsections[0]
+    await expect(createField(sub.id, { version: ds.version, fieldKey: 'Bad Key', label: 'X', fieldType: 'text' }, 'op@er.com')).rejects.toMatchObject({ status: 400 })
+    await expect(createField(sub.id, { version: ds.version, fieldKey: 'school-name', label: 'X', fieldType: 'text' }, 'op@er.com')).rejects.toMatchObject({ status: 409 })
+    await expect(createField(sub.id, { version: ds.version + 7, fieldKey: 'va-hours', label: 'X', fieldType: 'text' }, 'op@er.com')).rejects.toMatchObject({ status: 409 })  // stale token → rolled back, no row
+    expect(await prisma.fieldTemplate.findUnique({ where: { fieldKey: 'va-hours' } })).toBeNull()
+    await createField(sub.id, { version: ds.version, fieldKey: 'va-hours', label: 'VA hours', fieldType: 'text' }, 'op@er.com')
+    const after = await getTemplateTree()
+    expect(after.sections.find(x => x.templateKey === 'data-source')!.version).toBe(ds.version + 1)
+  })
+  it('patchField archives (never deletes) and 409s on stale version', async () => {
+    const { sections } = await getTemplateTree()
+    const ds = sections.find(x => x.templateKey === 'data-source')!
+    const field = ds.subsections[0].fields[0]
+    await patchField(field.id, { version: ds.version, archived: true }, 'op@er.com')
+    const row = await prisma.fieldTemplate.findUnique({ where: { id: field.id } })
+    expect(row!.archivedAt).not.toBeNull()
+    await expect(patchField(field.id, { version: ds.version, label: 'nope' }, 'op@er.com')).rejects.toMatchObject({ status: 409 })
   })
 })
