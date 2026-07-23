@@ -1,0 +1,1588 @@
+{
+  "new-build": {
+    "viewbookId": 0,
+    "clientName": "f2-parity-client-new-build",
+    "displayName": "f2-parity-client-new-build",
+    "csmName": null,
+    "kind": "new-build",
+    "welcomeNote": null,
+    "dataLockedAt": null,
+    "theme": {
+      "primary": "#122033",
+      "secondary": "#1D7F7F",
+      "tertiary": "#C99334",
+      "headingFont": "inter",
+      "bodyFont": "inter",
+      "logo": null,
+      "sectionHeroes": {}
+    },
+    "stage": "post-contract",
+    "stageLabel": "Getting Started",
+    "syncVersion": 0,
+    "pcCompletedAt": null,
+    "clientNotifyJson": [],
+    "teamMembers": [],
+    "primarySections": [
+      {
+        "sectionKey": "pc-intro",
+        "state": "active",
+        "doneAt": null,
+        "acknowledgedAt": null,
+        "introNote": null,
+        "narrative": null
+      },
+      {
+        "sectionKey": "pc-setup",
+        "state": "active",
+        "doneAt": null,
+        "acknowledgedAt": null,
+        "introNote": null,
+        "narrative": null
+      },
+      {
+        "sectionKey": "pc-invite",
+        "state": "active",
+        "doneAt": null,
+        "acknowledgedAt": null,
+        "introNote": null,
+        "narrative": null
+      },
+      {
+        "sectionKey": "data-source",
+        "state": "active",
+        "doneAt": null,
+        "acknowledgedAt": null,
+        "introNote": null,
+        "narrative": null
+      }
+    ],
+    "carriedSections": [],
+    "fieldCategories": [
+      {
+        "category": "school",
+        "fields": [
+          {
+            "id": 0,
+            "defKey": "school-name",
+            "label": "School name",
+            "fieldType": "text",
+            "value": null,
+            "version": 0,
+            "createdAt": "TS",
+            "valueUpdatedBy": null,
+            "valueUpdatedByKind": null,
+            "valueUpdatedAt": null,
+            "isCustom": false,
+            "amendments": []
+          },
+          {
+            "id": 0,
+            "defKey": "school-contact-name",
+            "label": "Primary contact name",
+            "fieldType": "text",
+            "value": null,
+            "version": 0,
+            "createdAt": "TS",
+            "valueUpdatedBy": null,
+            "valueUpdatedByKind": null,
+            "valueUpdatedAt": null,
+            "isCustom": false,
+            "amendments": []
+          },
+          {
+            "id": 0,
+            "defKey": "school-contact-email",
+            "label": "Primary contact email",
+            "fieldType": "text",
+            "value": null,
+            "version": 0,
+            "createdAt": "TS",
+            "valueUpdatedBy": null,
+            "valueUpdatedByKind": null,
+            "valueUpdatedAt": null,
+            "isCustom": false,
+            "amendments": []
+          },
+          {
+            "id": 0,
+            "defKey": "school-services",
+            "label": "Services in your subscription",
+            "fieldType": "list",
+            "value": null,
+            "version": 0,
+            "createdAt": "TS",
+            "valueUpdatedBy": null,
+            "valueUpdatedByKind": null,
+            "valueUpdatedAt": null,
+            "isCustom": false,
+            "amendments": []
+          },
+          {
+            "id": 0,
+            "defKey": "school-ad-name",
+            "label": "How do you refer to your school in advertising? Any abbreviations?",
+            "fieldType": "textarea",
+            "value": null,
+            "version": 0,
+            "createdAt": "TS",
+            "valueUpdatedBy": null,
+            "valueUpdatedByKind": null,
+            "valueUpdatedAt": null,
+            "isCustom": false,
+            "amendments": []
+          },
+          {
+            "id": 0,
+            "defKey": "school-phone",
+            "label": "Main phone number",
+            "fieldType": "text",
+            "value": null,
+            "version": 0,
+            "createdAt": "TS",
+            "valueUpdatedBy": null,
+            "valueUpdatedByKind": null,
+            "valueUpdatedAt": null,
+            "isCustom": false,
+            "amendments": []
+          },
+          {
+            "id": 0,
+            "defKey": "school-website",
+            "label": "Website URL",
+            "fieldType": "text",
+            "value": null,
+            "version": 0,
+            "createdAt": "TS",
+            "valueUpdatedBy": null,
+            "valueUpdatedByKind": null,
+            "valueUpdatedAt": null,
+            "isCustom": false,
+            "amendments": []
+          }
+        ]
+      },
+      {
+        "category": "programs",
+        "fields": [
+          {
+            "id": 0,
+            "defKey": "programs-roster",
+            "label": "Programs to market (one per line)",
+            "fieldType": "list",
+            "value": null,
+            "version": 0,
+            "createdAt": "TS",
+            "valueUpdatedBy": null,
+            "valueUpdatedByKind": null,
+            "valueUpdatedAt": null,
+            "isCustom": false,
+            "amendments": []
+          },
+          {
+            "id": 0,
+            "defKey": "programs-highlights",
+            "label": "Key features / highlights per program",
+            "fieldType": "textarea",
+            "value": null,
+            "version": 0,
+            "createdAt": "TS",
+            "valueUpdatedBy": null,
+            "valueUpdatedByKind": null,
+            "valueUpdatedAt": null,
+            "isCustom": false,
+            "amendments": []
+          }
+        ]
+      },
+      {
+        "category": "team-access",
+        "fields": [
+          {
+            "id": 0,
+            "defKey": "team-staff-accounts",
+            "label": "Staff needing accounts / lead notifications (name + email)",
+            "fieldType": "list",
+            "value": null,
+            "version": 0,
+            "createdAt": "TS",
+            "valueUpdatedBy": null,
+            "valueUpdatedByKind": null,
+            "valueUpdatedAt": null,
+            "isCustom": false,
+            "amendments": []
+          },
+          {
+            "id": 0,
+            "defKey": "team-website-approver",
+            "label": "Who approves website changes? (name, title, email)",
+            "fieldType": "text",
+            "value": null,
+            "version": 0,
+            "createdAt": "TS",
+            "valueUpdatedBy": null,
+            "valueUpdatedByKind": null,
+            "valueUpdatedAt": null,
+            "isCustom": false,
+            "amendments": []
+          },
+          {
+            "id": 0,
+            "defKey": "team-technical-contact",
+            "label": "Technical contact for coordination (name, title, email)",
+            "fieldType": "text",
+            "value": null,
+            "version": 0,
+            "createdAt": "TS",
+            "valueUpdatedBy": null,
+            "valueUpdatedByKind": null,
+            "valueUpdatedAt": null,
+            "isCustom": false,
+            "amendments": []
+          }
+        ]
+      },
+      {
+        "category": "crm-leads",
+        "fields": [
+          {
+            "id": 0,
+            "defKey": "crm-lead-delivery",
+            "label": "How would you like to receive leads?",
+            "fieldType": "text",
+            "value": null,
+            "version": 0,
+            "createdAt": "TS",
+            "valueUpdatedBy": null,
+            "valueUpdatedByKind": null,
+            "valueUpdatedAt": null,
+            "isCustom": false,
+            "amendments": []
+          },
+          {
+            "id": 0,
+            "defKey": "crm-notification-emails",
+            "label": "Emails that should receive lead notifications",
+            "fieldType": "list",
+            "value": null,
+            "version": 0,
+            "createdAt": "TS",
+            "valueUpdatedBy": null,
+            "valueUpdatedByKind": null,
+            "valueUpdatedAt": null,
+            "isCustom": false,
+            "amendments": []
+          },
+          {
+            "id": 0,
+            "defKey": "crm-in-use",
+            "label": "CRM / notification integrations in use",
+            "fieldType": "text",
+            "value": null,
+            "version": 0,
+            "createdAt": "TS",
+            "valueUpdatedBy": null,
+            "valueUpdatedByKind": null,
+            "valueUpdatedAt": null,
+            "isCustom": false,
+            "amendments": []
+          },
+          {
+            "id": 0,
+            "defKey": "crm-credential-method",
+            "label": "Preferred method for sharing CRM access",
+            "fieldType": "text",
+            "value": null,
+            "version": 0,
+            "createdAt": "TS",
+            "valueUpdatedBy": null,
+            "valueUpdatedByKind": null,
+            "valueUpdatedAt": null,
+            "isCustom": false,
+            "amendments": []
+          },
+          {
+            "id": 0,
+            "defKey": "crm-lead-volume",
+            "label": "Current leads per month + where they come from",
+            "fieldType": "textarea",
+            "value": null,
+            "version": 0,
+            "createdAt": "TS",
+            "valueUpdatedBy": null,
+            "valueUpdatedByKind": null,
+            "valueUpdatedAt": null,
+            "isCustom": false,
+            "amendments": []
+          },
+          {
+            "id": 0,
+            "defKey": "crm-enrollment-time",
+            "label": "Average enrollment time (inquiry → enrolled)",
+            "fieldType": "text",
+            "value": null,
+            "version": 0,
+            "createdAt": "TS",
+            "valueUpdatedBy": null,
+            "valueUpdatedByKind": null,
+            "valueUpdatedAt": null,
+            "isCustom": false,
+            "amendments": []
+          }
+        ]
+      },
+      {
+        "category": "admissions",
+        "fields": [
+          {
+            "id": 0,
+            "defKey": "admissions-staff-title",
+            "label": "What do you call your admissions staff?",
+            "fieldType": "text",
+            "value": null,
+            "version": 0,
+            "createdAt": "TS",
+            "valueUpdatedBy": null,
+            "valueUpdatedByKind": null,
+            "valueUpdatedAt": null,
+            "isCustom": false,
+            "amendments": []
+          },
+          {
+            "id": 0,
+            "defKey": "admissions-next-step",
+            "label": "What do you call the admissions interview / next step?",
+            "fieldType": "text",
+            "value": null,
+            "version": 0,
+            "createdAt": "TS",
+            "valueUpdatedBy": null,
+            "valueUpdatedByKind": null,
+            "valueUpdatedAt": null,
+            "isCustom": false,
+            "amendments": []
+          },
+          {
+            "id": 0,
+            "defKey": "admissions-tour-format",
+            "label": "Tour: online, in-person, or both?",
+            "fieldType": "text",
+            "value": null,
+            "version": 0,
+            "createdAt": "TS",
+            "valueUpdatedBy": null,
+            "valueUpdatedByKind": null,
+            "valueUpdatedAt": null,
+            "isCustom": false,
+            "amendments": []
+          },
+          {
+            "id": 0,
+            "defKey": "admissions-accreditations",
+            "label": "Accreditations (association names + URLs)",
+            "fieldType": "list",
+            "value": null,
+            "version": 0,
+            "createdAt": "TS",
+            "valueUpdatedBy": null,
+            "valueUpdatedByKind": null,
+            "valueUpdatedAt": null,
+            "isCustom": false,
+            "amendments": []
+          }
+        ]
+      },
+      {
+        "category": "positioning",
+        "fields": [
+          {
+            "id": 0,
+            "defKey": "positioning-advantages",
+            "label": "What unique advantages set your school apart?",
+            "fieldType": "list",
+            "value": null,
+            "version": 0,
+            "createdAt": "TS",
+            "valueUpdatedBy": null,
+            "valueUpdatedByKind": null,
+            "valueUpdatedAt": null,
+            "isCustom": false,
+            "amendments": []
+          },
+          {
+            "id": 0,
+            "defKey": "positioning-top5",
+            "label": "Top 5 reasons someone chooses your school",
+            "fieldType": "list",
+            "value": null,
+            "version": 0,
+            "createdAt": "TS",
+            "valueUpdatedBy": null,
+            "valueUpdatedByKind": null,
+            "valueUpdatedAt": null,
+            "isCustom": false,
+            "amendments": []
+          },
+          {
+            "id": 0,
+            "defKey": "positioning-differentiators",
+            "label": "What do you do differently that makes you stand out?",
+            "fieldType": "list",
+            "value": null,
+            "version": 0,
+            "createdAt": "TS",
+            "valueUpdatedBy": null,
+            "valueUpdatedByKind": null,
+            "valueUpdatedAt": null,
+            "isCustom": false,
+            "amendments": []
+          },
+          {
+            "id": 0,
+            "defKey": "positioning-demographic",
+            "label": "What best describes your demographic?",
+            "fieldType": "text",
+            "value": null,
+            "version": 0,
+            "createdAt": "TS",
+            "valueUpdatedBy": null,
+            "valueUpdatedByKind": null,
+            "valueUpdatedAt": null,
+            "isCustom": false,
+            "amendments": []
+          },
+          {
+            "id": 0,
+            "defKey": "positioning-ideal-student",
+            "label": "Ideal student per program (demographics / characteristics)",
+            "fieldType": "textarea",
+            "value": null,
+            "version": 0,
+            "createdAt": "TS",
+            "valueUpdatedBy": null,
+            "valueUpdatedByKind": null,
+            "valueUpdatedAt": null,
+            "isCustom": false,
+            "amendments": []
+          }
+        ]
+      },
+      {
+        "category": "student-experience",
+        "fields": [
+          {
+            "id": 0,
+            "defKey": "studentexp-motivations",
+            "label": "Common prospect motivations for going back to school",
+            "fieldType": "list",
+            "value": null,
+            "version": 0,
+            "createdAt": "TS",
+            "valueUpdatedBy": null,
+            "valueUpdatedByKind": null,
+            "valueUpdatedAt": null,
+            "isCustom": false,
+            "amendments": []
+          },
+          {
+            "id": 0,
+            "defKey": "studentexp-barriers",
+            "label": "Common barriers for prospects",
+            "fieldType": "list",
+            "value": null,
+            "version": 0,
+            "createdAt": "TS",
+            "valueUpdatedBy": null,
+            "valueUpdatedByKind": null,
+            "valueUpdatedAt": null,
+            "isCustom": false,
+            "amendments": []
+          },
+          {
+            "id": 0,
+            "defKey": "studentexp-feedback",
+            "label": "Most common feedback from students / graduates",
+            "fieldType": "textarea",
+            "value": null,
+            "version": 0,
+            "createdAt": "TS",
+            "valueUpdatedBy": null,
+            "valueUpdatedByKind": null,
+            "valueUpdatedAt": null,
+            "isCustom": false,
+            "amendments": []
+          },
+          {
+            "id": 0,
+            "defKey": "studentexp-culture",
+            "label": "Anything else about your students and culture",
+            "fieldType": "textarea",
+            "value": null,
+            "version": 0,
+            "createdAt": "TS",
+            "valueUpdatedBy": null,
+            "valueUpdatedByKind": null,
+            "valueUpdatedAt": null,
+            "isCustom": false,
+            "amendments": []
+          }
+        ]
+      },
+      {
+        "category": "brand-materials",
+        "fields": [
+          {
+            "id": 0,
+            "defKey": "brand-guidelines-status",
+            "label": "Existing brand guidelines / style guide?",
+            "fieldType": "text",
+            "value": null,
+            "version": 0,
+            "createdAt": "TS",
+            "valueUpdatedBy": null,
+            "valueUpdatedByKind": null,
+            "valueUpdatedAt": null,
+            "isCustom": false,
+            "amendments": []
+          },
+          {
+            "id": 0,
+            "defKey": "brand-privacy-policy",
+            "label": "Privacy policy status",
+            "fieldType": "text",
+            "value": null,
+            "version": 0,
+            "createdAt": "TS",
+            "valueUpdatedBy": null,
+            "valueUpdatedByKind": null,
+            "valueUpdatedAt": null,
+            "isCustom": false,
+            "amendments": []
+          },
+          {
+            "id": 0,
+            "defKey": "brand-testimonials",
+            "label": "Student testimonials available?",
+            "fieldType": "text",
+            "value": null,
+            "version": 0,
+            "createdAt": "TS",
+            "valueUpdatedBy": null,
+            "valueUpdatedByKind": null,
+            "valueUpdatedAt": null,
+            "isCustom": false,
+            "amendments": []
+          },
+          {
+            "id": 0,
+            "defKey": "brand-domain-registrar",
+            "label": "Domain registrar (e.g. GoDaddy, Namecheap)",
+            "fieldType": "text",
+            "value": null,
+            "version": 0,
+            "createdAt": "TS",
+            "valueUpdatedBy": null,
+            "valueUpdatedByKind": null,
+            "valueUpdatedAt": null,
+            "isCustom": false,
+            "amendments": []
+          }
+        ]
+      }
+    ],
+    "milestones": [
+      {
+        "id": 0,
+        "title": "Kickoff",
+        "blurb": "Orientation call — process, timeline, what we need from you.",
+        "description": null,
+        "status": "current",
+        "targetDate": null,
+        "doneAt": null,
+        "reviewLinks": []
+      },
+      {
+        "id": 0,
+        "title": "Materials in",
+        "blurb": "Logos, photos, policies, testimonials delivered.",
+        "description": null,
+        "status": "upcoming",
+        "targetDate": null,
+        "doneAt": null,
+        "reviewLinks": []
+      },
+      {
+        "id": 0,
+        "title": "Design",
+        "blurb": "Brand direction and page designs take shape.",
+        "description": null,
+        "status": "upcoming",
+        "targetDate": null,
+        "doneAt": null,
+        "reviewLinks": []
+      },
+      {
+        "id": 0,
+        "title": "Build",
+        "blurb": "Your site is assembled on our stack.",
+        "description": null,
+        "status": "upcoming",
+        "targetDate": null,
+        "doneAt": null,
+        "reviewLinks": []
+      },
+      {
+        "id": 0,
+        "title": "First review",
+        "blurb": "Homepage + one program page, ready for your feedback.",
+        "description": null,
+        "status": "upcoming",
+        "targetDate": null,
+        "doneAt": null,
+        "reviewLinks": []
+      },
+      {
+        "id": 0,
+        "title": "Full-site review",
+        "blurb": "The whole site, ready for your walkthrough.",
+        "description": null,
+        "status": "upcoming",
+        "targetDate": null,
+        "doneAt": null,
+        "reviewLinks": []
+      },
+      {
+        "id": 0,
+        "title": "Launch",
+        "blurb": "Go live.",
+        "description": null,
+        "status": "upcoming",
+        "targetDate": null,
+        "doneAt": null,
+        "reviewLinks": []
+      }
+    ],
+    "materials": [],
+    "docs": {
+      "global": [],
+      "own": []
+    },
+    "global": {
+      "team": [
+        {
+          "name": "Parity Member One",
+          "role": "Client Success Manager",
+          "photo": "PHOTO_1",
+          "blurb": "Guides your viewbook through every stage.",
+          "isCsm": true
+        },
+        {
+          "name": "Parity Member Two",
+          "role": "SEO Strategist",
+          "photo": null,
+          "blurb": "Owns the technical SEO roadmap."
+        }
+      ],
+      "pcIntro": null,
+      "blocks": {
+        "process": {
+          "blocks": [
+            {
+              "heading": "Discovery",
+              "body": "We start with a discovery call to learn your goals."
+            },
+            {
+              "heading": "Build",
+              "body": "Then we design and build the site together."
+            }
+          ]
+        },
+        "why": {
+          "blocks": [
+            {
+              "heading": "Why Enrollment Resources",
+              "body": "We specialize in education marketing."
+            }
+          ]
+        },
+        "seo-base": {
+          "blocks": [
+            {
+              "heading": "Technical SEO",
+              "body": "We audit and fix crawlability, speed, and metadata issues."
+            }
+          ]
+        },
+        "geo-base": null,
+        "eeat-base": null,
+        "process-milestones": null
+      }
+    },
+    "overrides": {},
+    "sectionCopy": {
+      "welcome": {
+        "purpose": "Say hello and introduce your assigned team.",
+        "whatThis": "A short welcome note plus your Enrollment Resources team.",
+        "whatWeNeed": "Nothing yet — just read through."
+      },
+      "milestones": {
+        "purpose": "The plan and where we are in it.",
+        "whatThis": "The build broken into milestones so you always know the current step.",
+        "whatWeNeed": null
+      },
+      "data-source": {
+        "purpose": "Connect the analytics we'll report on.",
+        "whatThis": "Grants us read access to your traffic data so progress is measured, not guessed.",
+        "whatWeNeed": "Grant access to your analytics."
+      },
+      "brand": {
+        "purpose": "Your brand guidelines for the new site.",
+        "whatThis": "The logos, colors, and rules that keep the site unmistakably you.",
+        "whatWeNeed": "Share logos, colors, and brand rules."
+      },
+      "assessment": {
+        "purpose": "What we found on your current site.",
+        "whatThis": "A review of the existing site so we carry forward what works and fix what does not.",
+        "whatWeNeed": "Review and add notes."
+      },
+      "strategy": {
+        "purpose": "How we will grow your enrollment.",
+        "whatThis": "The SEO, GEO, and E-E-A-T approach guiding the new site.",
+        "whatWeNeed": null
+      },
+      "materials": {
+        "purpose": "Shared links and working files.",
+        "whatThis": "A shared home for the links and files this project relies on.",
+        "whatWeNeed": "Add any links or files we should have."
+      },
+      "pc-intro": {
+        "purpose": "Welcome to your viewbook.",
+        "whatThis": "A living space that walks you through every step of your new website, from kickoff to launch.",
+        "whatWeNeed": null
+      },
+      "pc-setup": {
+        "purpose": "Confirm your school's core details.",
+        "whatThis": "The essentials we build everything else on — name, contacts, and web address.",
+        "whatWeNeed": "Fill in the org-basics fields below."
+      },
+      "pc-invite": {
+        "purpose": "Bring your team into the viewbook.",
+        "whatThis": "Invite the people who should follow along and collaborate on the build.",
+        "whatWeNeed": "Invite the people who should collaborate."
+      },
+      "pc-thanks": {
+        "purpose": "You're all set for kickoff.",
+        "whatThis": "Everything we need to begin is in. Here is what happens next.",
+        "whatWeNeed": null
+      },
+      "kickoff-next": {
+        "purpose": "Your next actions.",
+        "whatThis": "A short, clear list of what to do next to keep the build moving.",
+        "whatWeNeed": "Complete the highlighted items."
+      },
+      "ws-intro": {
+        "purpose": "What we build in this stage.",
+        "whatThis": "The website-specifics work that turns strategy into a real site.",
+        "whatWeNeed": null
+      }
+    },
+    "collapseAffordance": "chevron",
+    "collapseMorph": "spread",
+    "heroOverlayStrength": 55,
+    "revealDurationScale": 1,
+    "firstLoadDelayMs": 3000,
+    "viewerMode": "continuous"
+  },
+  "upgrade": {
+    "viewbookId": 0,
+    "clientName": "f2-parity-client-upgrade",
+    "displayName": "f2-parity-client-upgrade",
+    "csmName": null,
+    "kind": "upgrade",
+    "welcomeNote": null,
+    "dataLockedAt": null,
+    "theme": {
+      "primary": "#122033",
+      "secondary": "#1D7F7F",
+      "tertiary": "#C99334",
+      "headingFont": "inter",
+      "bodyFont": "inter",
+      "logo": null,
+      "sectionHeroes": {}
+    },
+    "stage": "post-contract",
+    "stageLabel": "Getting Started",
+    "syncVersion": 0,
+    "pcCompletedAt": null,
+    "clientNotifyJson": [],
+    "teamMembers": [],
+    "primarySections": [
+      {
+        "sectionKey": "pc-intro",
+        "state": "active",
+        "doneAt": null,
+        "acknowledgedAt": null,
+        "introNote": null,
+        "narrative": null
+      },
+      {
+        "sectionKey": "pc-setup",
+        "state": "active",
+        "doneAt": null,
+        "acknowledgedAt": null,
+        "introNote": null,
+        "narrative": null
+      },
+      {
+        "sectionKey": "pc-invite",
+        "state": "active",
+        "doneAt": null,
+        "acknowledgedAt": null,
+        "introNote": null,
+        "narrative": null
+      },
+      {
+        "sectionKey": "data-source",
+        "state": "active",
+        "doneAt": null,
+        "acknowledgedAt": null,
+        "introNote": null,
+        "narrative": null
+      }
+    ],
+    "carriedSections": [],
+    "fieldCategories": [
+      {
+        "category": "school",
+        "fields": [
+          {
+            "id": 0,
+            "defKey": "school-name",
+            "label": "School name",
+            "fieldType": "text",
+            "value": null,
+            "version": 0,
+            "createdAt": "TS",
+            "valueUpdatedBy": null,
+            "valueUpdatedByKind": null,
+            "valueUpdatedAt": null,
+            "isCustom": false,
+            "amendments": []
+          },
+          {
+            "id": 0,
+            "defKey": "school-contact-name",
+            "label": "Primary contact name",
+            "fieldType": "text",
+            "value": null,
+            "version": 0,
+            "createdAt": "TS",
+            "valueUpdatedBy": null,
+            "valueUpdatedByKind": null,
+            "valueUpdatedAt": null,
+            "isCustom": false,
+            "amendments": []
+          },
+          {
+            "id": 0,
+            "defKey": "school-contact-email",
+            "label": "Primary contact email",
+            "fieldType": "text",
+            "value": null,
+            "version": 0,
+            "createdAt": "TS",
+            "valueUpdatedBy": null,
+            "valueUpdatedByKind": null,
+            "valueUpdatedAt": null,
+            "isCustom": false,
+            "amendments": []
+          },
+          {
+            "id": 0,
+            "defKey": "school-services",
+            "label": "Services in your subscription",
+            "fieldType": "list",
+            "value": null,
+            "version": 0,
+            "createdAt": "TS",
+            "valueUpdatedBy": null,
+            "valueUpdatedByKind": null,
+            "valueUpdatedAt": null,
+            "isCustom": false,
+            "amendments": []
+          },
+          {
+            "id": 0,
+            "defKey": "school-ad-name",
+            "label": "How do you refer to your school in advertising? Any abbreviations?",
+            "fieldType": "textarea",
+            "value": null,
+            "version": 0,
+            "createdAt": "TS",
+            "valueUpdatedBy": null,
+            "valueUpdatedByKind": null,
+            "valueUpdatedAt": null,
+            "isCustom": false,
+            "amendments": []
+          },
+          {
+            "id": 0,
+            "defKey": "school-phone",
+            "label": "Main phone number",
+            "fieldType": "text",
+            "value": null,
+            "version": 0,
+            "createdAt": "TS",
+            "valueUpdatedBy": null,
+            "valueUpdatedByKind": null,
+            "valueUpdatedAt": null,
+            "isCustom": false,
+            "amendments": []
+          },
+          {
+            "id": 0,
+            "defKey": "school-website",
+            "label": "Website URL",
+            "fieldType": "text",
+            "value": null,
+            "version": 0,
+            "createdAt": "TS",
+            "valueUpdatedBy": null,
+            "valueUpdatedByKind": null,
+            "valueUpdatedAt": null,
+            "isCustom": false,
+            "amendments": []
+          }
+        ]
+      },
+      {
+        "category": "programs",
+        "fields": [
+          {
+            "id": 0,
+            "defKey": "programs-roster",
+            "label": "Programs to market (one per line)",
+            "fieldType": "list",
+            "value": null,
+            "version": 0,
+            "createdAt": "TS",
+            "valueUpdatedBy": null,
+            "valueUpdatedByKind": null,
+            "valueUpdatedAt": null,
+            "isCustom": false,
+            "amendments": []
+          },
+          {
+            "id": 0,
+            "defKey": "programs-highlights",
+            "label": "Key features / highlights per program",
+            "fieldType": "textarea",
+            "value": null,
+            "version": 0,
+            "createdAt": "TS",
+            "valueUpdatedBy": null,
+            "valueUpdatedByKind": null,
+            "valueUpdatedAt": null,
+            "isCustom": false,
+            "amendments": []
+          }
+        ]
+      },
+      {
+        "category": "team-access",
+        "fields": [
+          {
+            "id": 0,
+            "defKey": "team-staff-accounts",
+            "label": "Staff needing accounts / lead notifications (name + email)",
+            "fieldType": "list",
+            "value": null,
+            "version": 0,
+            "createdAt": "TS",
+            "valueUpdatedBy": null,
+            "valueUpdatedByKind": null,
+            "valueUpdatedAt": null,
+            "isCustom": false,
+            "amendments": []
+          },
+          {
+            "id": 0,
+            "defKey": "team-website-approver",
+            "label": "Who approves website changes? (name, title, email)",
+            "fieldType": "text",
+            "value": null,
+            "version": 0,
+            "createdAt": "TS",
+            "valueUpdatedBy": null,
+            "valueUpdatedByKind": null,
+            "valueUpdatedAt": null,
+            "isCustom": false,
+            "amendments": []
+          },
+          {
+            "id": 0,
+            "defKey": "team-technical-contact",
+            "label": "Technical contact for coordination (name, title, email)",
+            "fieldType": "text",
+            "value": null,
+            "version": 0,
+            "createdAt": "TS",
+            "valueUpdatedBy": null,
+            "valueUpdatedByKind": null,
+            "valueUpdatedAt": null,
+            "isCustom": false,
+            "amendments": []
+          }
+        ]
+      },
+      {
+        "category": "crm-leads",
+        "fields": [
+          {
+            "id": 0,
+            "defKey": "crm-lead-delivery",
+            "label": "How would you like to receive leads?",
+            "fieldType": "text",
+            "value": null,
+            "version": 0,
+            "createdAt": "TS",
+            "valueUpdatedBy": null,
+            "valueUpdatedByKind": null,
+            "valueUpdatedAt": null,
+            "isCustom": false,
+            "amendments": []
+          },
+          {
+            "id": 0,
+            "defKey": "crm-notification-emails",
+            "label": "Emails that should receive lead notifications",
+            "fieldType": "list",
+            "value": null,
+            "version": 0,
+            "createdAt": "TS",
+            "valueUpdatedBy": null,
+            "valueUpdatedByKind": null,
+            "valueUpdatedAt": null,
+            "isCustom": false,
+            "amendments": []
+          },
+          {
+            "id": 0,
+            "defKey": "crm-in-use",
+            "label": "CRM / notification integrations in use",
+            "fieldType": "text",
+            "value": null,
+            "version": 0,
+            "createdAt": "TS",
+            "valueUpdatedBy": null,
+            "valueUpdatedByKind": null,
+            "valueUpdatedAt": null,
+            "isCustom": false,
+            "amendments": []
+          },
+          {
+            "id": 0,
+            "defKey": "crm-credential-method",
+            "label": "Preferred method for sharing CRM access",
+            "fieldType": "text",
+            "value": null,
+            "version": 0,
+            "createdAt": "TS",
+            "valueUpdatedBy": null,
+            "valueUpdatedByKind": null,
+            "valueUpdatedAt": null,
+            "isCustom": false,
+            "amendments": []
+          },
+          {
+            "id": 0,
+            "defKey": "crm-lead-volume",
+            "label": "Current leads per month + where they come from",
+            "fieldType": "textarea",
+            "value": null,
+            "version": 0,
+            "createdAt": "TS",
+            "valueUpdatedBy": null,
+            "valueUpdatedByKind": null,
+            "valueUpdatedAt": null,
+            "isCustom": false,
+            "amendments": []
+          },
+          {
+            "id": 0,
+            "defKey": "crm-enrollment-time",
+            "label": "Average enrollment time (inquiry → enrolled)",
+            "fieldType": "text",
+            "value": null,
+            "version": 0,
+            "createdAt": "TS",
+            "valueUpdatedBy": null,
+            "valueUpdatedByKind": null,
+            "valueUpdatedAt": null,
+            "isCustom": false,
+            "amendments": []
+          }
+        ]
+      },
+      {
+        "category": "admissions",
+        "fields": [
+          {
+            "id": 0,
+            "defKey": "admissions-staff-title",
+            "label": "What do you call your admissions staff?",
+            "fieldType": "text",
+            "value": null,
+            "version": 0,
+            "createdAt": "TS",
+            "valueUpdatedBy": null,
+            "valueUpdatedByKind": null,
+            "valueUpdatedAt": null,
+            "isCustom": false,
+            "amendments": []
+          },
+          {
+            "id": 0,
+            "defKey": "admissions-next-step",
+            "label": "What do you call the admissions interview / next step?",
+            "fieldType": "text",
+            "value": null,
+            "version": 0,
+            "createdAt": "TS",
+            "valueUpdatedBy": null,
+            "valueUpdatedByKind": null,
+            "valueUpdatedAt": null,
+            "isCustom": false,
+            "amendments": []
+          },
+          {
+            "id": 0,
+            "defKey": "admissions-tour-format",
+            "label": "Tour: online, in-person, or both?",
+            "fieldType": "text",
+            "value": null,
+            "version": 0,
+            "createdAt": "TS",
+            "valueUpdatedBy": null,
+            "valueUpdatedByKind": null,
+            "valueUpdatedAt": null,
+            "isCustom": false,
+            "amendments": []
+          },
+          {
+            "id": 0,
+            "defKey": "admissions-accreditations",
+            "label": "Accreditations (association names + URLs)",
+            "fieldType": "list",
+            "value": null,
+            "version": 0,
+            "createdAt": "TS",
+            "valueUpdatedBy": null,
+            "valueUpdatedByKind": null,
+            "valueUpdatedAt": null,
+            "isCustom": false,
+            "amendments": []
+          }
+        ]
+      },
+      {
+        "category": "positioning",
+        "fields": [
+          {
+            "id": 0,
+            "defKey": "positioning-advantages",
+            "label": "What unique advantages set your school apart?",
+            "fieldType": "list",
+            "value": null,
+            "version": 0,
+            "createdAt": "TS",
+            "valueUpdatedBy": null,
+            "valueUpdatedByKind": null,
+            "valueUpdatedAt": null,
+            "isCustom": false,
+            "amendments": []
+          },
+          {
+            "id": 0,
+            "defKey": "positioning-top5",
+            "label": "Top 5 reasons someone chooses your school",
+            "fieldType": "list",
+            "value": null,
+            "version": 0,
+            "createdAt": "TS",
+            "valueUpdatedBy": null,
+            "valueUpdatedByKind": null,
+            "valueUpdatedAt": null,
+            "isCustom": false,
+            "amendments": []
+          },
+          {
+            "id": 0,
+            "defKey": "positioning-differentiators",
+            "label": "What do you do differently that makes you stand out?",
+            "fieldType": "list",
+            "value": null,
+            "version": 0,
+            "createdAt": "TS",
+            "valueUpdatedBy": null,
+            "valueUpdatedByKind": null,
+            "valueUpdatedAt": null,
+            "isCustom": false,
+            "amendments": []
+          },
+          {
+            "id": 0,
+            "defKey": "positioning-demographic",
+            "label": "What best describes your demographic?",
+            "fieldType": "text",
+            "value": null,
+            "version": 0,
+            "createdAt": "TS",
+            "valueUpdatedBy": null,
+            "valueUpdatedByKind": null,
+            "valueUpdatedAt": null,
+            "isCustom": false,
+            "amendments": []
+          },
+          {
+            "id": 0,
+            "defKey": "positioning-ideal-student",
+            "label": "Ideal student per program (demographics / characteristics)",
+            "fieldType": "textarea",
+            "value": null,
+            "version": 0,
+            "createdAt": "TS",
+            "valueUpdatedBy": null,
+            "valueUpdatedByKind": null,
+            "valueUpdatedAt": null,
+            "isCustom": false,
+            "amendments": []
+          }
+        ]
+      },
+      {
+        "category": "student-experience",
+        "fields": [
+          {
+            "id": 0,
+            "defKey": "studentexp-motivations",
+            "label": "Common prospect motivations for going back to school",
+            "fieldType": "list",
+            "value": null,
+            "version": 0,
+            "createdAt": "TS",
+            "valueUpdatedBy": null,
+            "valueUpdatedByKind": null,
+            "valueUpdatedAt": null,
+            "isCustom": false,
+            "amendments": []
+          },
+          {
+            "id": 0,
+            "defKey": "studentexp-barriers",
+            "label": "Common barriers for prospects",
+            "fieldType": "list",
+            "value": null,
+            "version": 0,
+            "createdAt": "TS",
+            "valueUpdatedBy": null,
+            "valueUpdatedByKind": null,
+            "valueUpdatedAt": null,
+            "isCustom": false,
+            "amendments": []
+          },
+          {
+            "id": 0,
+            "defKey": "studentexp-feedback",
+            "label": "Most common feedback from students / graduates",
+            "fieldType": "textarea",
+            "value": null,
+            "version": 0,
+            "createdAt": "TS",
+            "valueUpdatedBy": null,
+            "valueUpdatedByKind": null,
+            "valueUpdatedAt": null,
+            "isCustom": false,
+            "amendments": []
+          },
+          {
+            "id": 0,
+            "defKey": "studentexp-culture",
+            "label": "Anything else about your students and culture",
+            "fieldType": "textarea",
+            "value": null,
+            "version": 0,
+            "createdAt": "TS",
+            "valueUpdatedBy": null,
+            "valueUpdatedByKind": null,
+            "valueUpdatedAt": null,
+            "isCustom": false,
+            "amendments": []
+          }
+        ]
+      },
+      {
+        "category": "brand-materials",
+        "fields": [
+          {
+            "id": 0,
+            "defKey": "brand-guidelines-status",
+            "label": "Existing brand guidelines / style guide?",
+            "fieldType": "text",
+            "value": null,
+            "version": 0,
+            "createdAt": "TS",
+            "valueUpdatedBy": null,
+            "valueUpdatedByKind": null,
+            "valueUpdatedAt": null,
+            "isCustom": false,
+            "amendments": []
+          },
+          {
+            "id": 0,
+            "defKey": "brand-privacy-policy",
+            "label": "Privacy policy status",
+            "fieldType": "text",
+            "value": null,
+            "version": 0,
+            "createdAt": "TS",
+            "valueUpdatedBy": null,
+            "valueUpdatedByKind": null,
+            "valueUpdatedAt": null,
+            "isCustom": false,
+            "amendments": []
+          },
+          {
+            "id": 0,
+            "defKey": "brand-testimonials",
+            "label": "Student testimonials available?",
+            "fieldType": "text",
+            "value": null,
+            "version": 0,
+            "createdAt": "TS",
+            "valueUpdatedBy": null,
+            "valueUpdatedByKind": null,
+            "valueUpdatedAt": null,
+            "isCustom": false,
+            "amendments": []
+          },
+          {
+            "id": 0,
+            "defKey": "brand-domain-registrar",
+            "label": "Domain registrar (e.g. GoDaddy, Namecheap)",
+            "fieldType": "text",
+            "value": null,
+            "version": 0,
+            "createdAt": "TS",
+            "valueUpdatedBy": null,
+            "valueUpdatedByKind": null,
+            "valueUpdatedAt": null,
+            "isCustom": false,
+            "amendments": []
+          }
+        ]
+      }
+    ],
+    "milestones": [
+      {
+        "id": 0,
+        "title": "Kickoff",
+        "blurb": "Orientation call — process, timeline, what we need from you.",
+        "description": null,
+        "status": "current",
+        "targetDate": null,
+        "doneAt": null,
+        "reviewLinks": []
+      },
+      {
+        "id": 0,
+        "title": "Materials in",
+        "blurb": "Logos, photos, policies, testimonials delivered.",
+        "description": null,
+        "status": "upcoming",
+        "targetDate": null,
+        "doneAt": null,
+        "reviewLinks": []
+      },
+      {
+        "id": 0,
+        "title": "Design",
+        "blurb": "Brand direction and page designs take shape.",
+        "description": null,
+        "status": "upcoming",
+        "targetDate": null,
+        "doneAt": null,
+        "reviewLinks": []
+      },
+      {
+        "id": 0,
+        "title": "Build",
+        "blurb": "Your site is assembled on our stack.",
+        "description": null,
+        "status": "upcoming",
+        "targetDate": null,
+        "doneAt": null,
+        "reviewLinks": []
+      },
+      {
+        "id": 0,
+        "title": "First review",
+        "blurb": "Homepage + one program page, ready for your feedback.",
+        "description": null,
+        "status": "upcoming",
+        "targetDate": null,
+        "doneAt": null,
+        "reviewLinks": []
+      },
+      {
+        "id": 0,
+        "title": "Full-site review",
+        "blurb": "The whole site, ready for your walkthrough.",
+        "description": null,
+        "status": "upcoming",
+        "targetDate": null,
+        "doneAt": null,
+        "reviewLinks": []
+      },
+      {
+        "id": 0,
+        "title": "Launch",
+        "blurb": "Go live.",
+        "description": null,
+        "status": "upcoming",
+        "targetDate": null,
+        "doneAt": null,
+        "reviewLinks": []
+      }
+    ],
+    "materials": [],
+    "docs": {
+      "global": [],
+      "own": []
+    },
+    "global": {
+      "team": [
+        {
+          "name": "Parity Member One",
+          "role": "Client Success Manager",
+          "photo": "PHOTO_1",
+          "blurb": "Guides your viewbook through every stage.",
+          "isCsm": true
+        },
+        {
+          "name": "Parity Member Two",
+          "role": "SEO Strategist",
+          "photo": null,
+          "blurb": "Owns the technical SEO roadmap."
+        }
+      ],
+      "pcIntro": null,
+      "blocks": {
+        "process": {
+          "blocks": [
+            {
+              "heading": "Discovery",
+              "body": "We start with a discovery call to learn your goals."
+            },
+            {
+              "heading": "Build",
+              "body": "Then we design and build the site together."
+            }
+          ]
+        },
+        "why": {
+          "blocks": [
+            {
+              "heading": "Why Enrollment Resources",
+              "body": "We specialize in education marketing."
+            }
+          ]
+        },
+        "seo-base": {
+          "blocks": [
+            {
+              "heading": "Technical SEO",
+              "body": "We audit and fix crawlability, speed, and metadata issues."
+            }
+          ]
+        },
+        "geo-base": null,
+        "eeat-base": null,
+        "process-milestones": null
+      }
+    },
+    "overrides": {},
+    "sectionCopy": {
+      "welcome": {
+        "purpose": "Say hello and introduce your assigned team.",
+        "whatThis": "A short welcome note plus your Enrollment Resources team.",
+        "whatWeNeed": "Nothing yet — just read through."
+      },
+      "milestones": {
+        "purpose": "The plan and where we are in it.",
+        "whatThis": "The build broken into milestones so you always know the current step.",
+        "whatWeNeed": null
+      },
+      "data-source": {
+        "purpose": "Connect the analytics we'll report on.",
+        "whatThis": "Grants us read access to your traffic data so progress is measured, not guessed.",
+        "whatWeNeed": "Grant access to your analytics."
+      },
+      "brand": {
+        "purpose": "Your brand guidelines for the new site.",
+        "whatThis": "The logos, colors, and rules that keep the site unmistakably you.",
+        "whatWeNeed": "Share logos, colors, and brand rules."
+      },
+      "assessment": {
+        "purpose": "What we found on your current site.",
+        "whatThis": "A review of the existing site so we carry forward what works and fix what does not.",
+        "whatWeNeed": "Review and add notes."
+      },
+      "strategy": {
+        "purpose": "How we will grow your enrollment.",
+        "whatThis": "The SEO, GEO, and E-E-A-T approach guiding the new site.",
+        "whatWeNeed": null
+      },
+      "materials": {
+        "purpose": "Shared links and working files.",
+        "whatThis": "A shared home for the links and files this project relies on.",
+        "whatWeNeed": "Add any links or files we should have."
+      },
+      "pc-intro": {
+        "purpose": "Welcome to your viewbook.",
+        "whatThis": "A living space that walks you through every step of your new website, from kickoff to launch.",
+        "whatWeNeed": null
+      },
+      "pc-setup": {
+        "purpose": "Confirm your school's core details.",
+        "whatThis": "The essentials we build everything else on — name, contacts, and web address.",
+        "whatWeNeed": "Fill in the org-basics fields below."
+      },
+      "pc-invite": {
+        "purpose": "Bring your team into the viewbook.",
+        "whatThis": "Invite the people who should follow along and collaborate on the build.",
+        "whatWeNeed": "Invite the people who should collaborate."
+      },
+      "pc-thanks": {
+        "purpose": "You're all set for kickoff.",
+        "whatThis": "Everything we need to begin is in. Here is what happens next.",
+        "whatWeNeed": null
+      },
+      "kickoff-next": {
+        "purpose": "Your next actions.",
+        "whatThis": "A short, clear list of what to do next to keep the build moving.",
+        "whatWeNeed": "Complete the highlighted items."
+      },
+      "ws-intro": {
+        "purpose": "What we build in this stage.",
+        "whatThis": "The website-specifics work that turns strategy into a real site.",
+        "whatWeNeed": null
+      }
+    },
+    "collapseAffordance": "chevron",
+    "collapseMorph": "spread",
+    "heroOverlayStrength": 55,
+    "revealDurationScale": 1,
+    "firstLoadDelayMs": 3000,
+    "viewerMode": "continuous"
+  }
+}
