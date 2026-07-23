@@ -237,6 +237,20 @@ describe('patchSubsection content bridge', () => {
     expect(created.contentKind).toBe('generic')
     await patchSubsection(created.id, { version: b2.version, content: { blocks: [{ heading: 'H', body: 'B' }] } }, 'op@er.com')
   })
+  it('a CATALOG_CATEGORIES key is only reserved under data-source: legal (and generic) under a different section, 409 under data-source', async () => {
+    const { sections } = await getTemplateTree()
+    const brand = sections.find(x => x.templateKey === 'brand')!
+    const ds = sections.find(x => x.templateKey === 'data-source')!
+    await createSubsection(brand.id, { version: brand.version, subsectionKey: 'programs', title: 'Programs' }, 'op@er.com')
+    const after = await getTemplateTree()
+    const b2 = after.sections.find(x => x.templateKey === 'brand')!
+    const created = b2.subsections.find(x => x.subsectionKey === 'programs')!
+    expect(created.contentKind).toBe('generic')
+    await patchSubsection(created.id, { version: b2.version, content: { blocks: [{ heading: 'H', body: 'B' }] } }, 'op@er.com')
+    await expect(
+      createSubsection(ds.id, { version: ds.version, subsectionKey: 'programs', title: 'Programs' }, 'op@er.com'),
+    ).rejects.toMatchObject({ status: 409 })
+  })
 })
 describe('fields', () => {
   it('createField validates key format, global uniqueness, version token, bumps aggregate version', async () => {
@@ -259,5 +273,14 @@ describe('fields', () => {
     const row = await prisma.fieldTemplate.findUnique({ where: { id: field.id } })
     expect(row!.archivedAt).not.toBeNull()
     await expect(patchField(field.id, { version: ds.version, label: 'nope' }, 'op@er.com')).rejects.toMatchObject({ status: 409 })
+  })
+  it('createField 409s subsection_archived against an archived subsection', async () => {
+    const { sections } = await getTemplateTree()
+    const ds = sections.find(x => x.templateKey === 'data-source')!
+    const sub = ds.subsections[0]
+    await patchSubsection(sub.id, { version: ds.version, archived: true }, 'op@er.com')
+    await expect(
+      createField(sub.id, { version: ds.version + 1, fieldKey: 'archived-sub-field', label: 'X', fieldType: 'text' }, 'op@er.com'),
+    ).rejects.toMatchObject({ status: 409, code: 'subsection_archived' })
   })
 })

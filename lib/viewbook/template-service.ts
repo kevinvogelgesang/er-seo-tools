@@ -87,15 +87,21 @@ const CATALOG_CATEGORY_SET: ReadonlySet<string> = new Set(CATALOG_CATEGORIES)
 // bridged renderer carries that renderer's kind; every other seeded 'main'
 // (a content-less renderer like brand/materials/etc.) is 'none'; the
 // data-source category subsections (keyed by CATALOG_CATEGORIES, never
-// 'main') are also 'none' (they hold FieldTemplate rows, not free content);
-// anything else — an F2 operator-created subsection — is 'generic'.
+// 'main') are also 'none' (they hold FieldTemplate rows, not free content) —
+// but ONLY under the 'data-source' section itself: an operator-created
+// subsection under a DIFFERENT section that happens to share a
+// CATALOG_CATEGORIES key (e.g. a `programs` subsection under `brand`) is a
+// distinct row (per-section @@unique makes the collision impossible under
+// data-source anyway) and decodes 'generic' like any other operator-created
+// subsection (review fix — was un-scoped, mislabeling that row 'none').
+// Anything else — an F2 operator-created subsection — is 'generic'.
 function contentKindFor(templateKey: string, subsectionKey: string): ContentKind {
   if (subsectionKey === 'main') {
     return Object.prototype.hasOwnProperty.call(BRIDGED_CONTENT, templateKey)
       ? (templateKey as ContentKind)
       : 'none'
   }
-  return CATALOG_CATEGORY_SET.has(subsectionKey) ? 'none' : 'generic'
+  return templateKey === 'data-source' && CATALOG_CATEGORY_SET.has(subsectionKey) ? 'none' : 'generic'
 }
 
 function isSectionKey(key: string): key is SectionKey {
@@ -419,7 +425,12 @@ export async function patchSubsection(
         const legacyBody = toLegacyGlobalBody(legacyKey, parsed) as Exclude<ReturnType<typeof toLegacyGlobalBody>, TeamMember[] | null>
         legacyStatements.push(putGlobalContentStatements(legacyKey, legacyBody, updatedBy).legacyWrite)
       }
-      syncBump = syncVersionBumpAllStatement() // ONE bump for the whole bridged write (D-e)
+      // ONE bump for the whole bridged write (D-e). The PLAIN (unfenced)
+      // variant is deliberate here, not `teamWrite.syncBump`'s roster-fenced
+      // one: array-txn atomicity already makes this safe — if the roster
+      // guard-write above throws (lost race), this statement never commits
+      // either, it rolls back with everything else in the same transaction.
+      syncBump = syncVersionBumpAllStatement()
     }
   }
 
@@ -469,11 +480,23 @@ export async function createSubsection(
   if (typeof input.title !== 'string' || input.title.trim().length === 0 || input.title.length > 200) {
     throw new HttpError(400, 'invalid_content')
   }
+
   // Deterministic pre-check (P2002 would catch these anyway): 'main' exists
-  // in every seeded section; the CATALOG_CATEGORIES keys belong to
-  // data-source. Operator-created subsections are ALWAYS 'generic' — never a
-  // bridge pair.
-  if (input.subsectionKey === 'main' || CATALOG_CATEGORY_SET.has(input.subsectionKey)) {
+  // in EVERY seeded section, so it's rejected universally. The
+  // CATALOG_CATEGORIES keys, though, are only the seeded row under
+  // data-source specifically (per-section @@unique — the SAME key under a
+  // different section is a distinct, legal row: e.g. a `programs`
+  // subsection under `brand` is fine and decodes 'generic', matching
+  // contentKindFor's scoping). Operator-created subsections are ALWAYS
+  // 'generic' — never a bridge pair.
+  const section = await prisma.sectionTemplate.findUnique({
+    where: { id: sectionId },
+    select: { templateKey: true },
+  })
+  if (
+    input.subsectionKey === 'main' ||
+    (section?.templateKey === 'data-source' && CATALOG_CATEGORY_SET.has(input.subsectionKey))
+  ) {
     throw new HttpError(409, 'subsection_exists')
   }
 
