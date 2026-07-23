@@ -399,13 +399,26 @@ export async function patchSubsection(
 
   // content: null clears (no legacy dual-write — there's nothing to derive a
   // legacy body FROM); a non-null value is validated by contentKind (D-b(2)).
+  // Data-loss guard (final review fix #1): for the four BRIDGED kinds, a null
+  // envelope is ALWAYS corrupt, never a legitimate empty state — every
+  // bridged 'main' subsection is seeded with a real (non-null) envelope
+  // (template-seed.ts's projectMainContentJson) and never operator-created.
+  // Accepting `content: null` here would clear contentJson (harmless on its
+  // own — it dual-writes nothing) but the UI's corresponding "safe" empty
+  // form would then let an operator Save an EMPTY roster/blocks draft next,
+  // which DOES dual-write and wipes the legacy rows (roster photos included).
+  // Reject at the source instead of trusting the client to never construct
+  // this payload. 'generic' keeps null as a legitimate clear (operator-
+  // created subsections start empty); 'none' never reaches here non-null.
   let contentJson: string | null | undefined
   const legacyStatements: Prisma.PrismaPromise<unknown>[] = []
   let syncBump: Prisma.PrismaPromise<unknown> | null = null
   let orphanedPhotos: string[] = []
+  const isBridgedKind = Object.prototype.hasOwnProperty.call(BRIDGED_CONTENT, contentKind)
 
   if (input.content !== undefined) {
     if (input.content === null) {
+      if (isBridgedKind) throw new HttpError(400, 'invalid_content')
       contentJson = null
     } else if (contentKind === 'none') {
       throw new HttpError(400, 'invalid_content')
@@ -520,9 +533,10 @@ export async function createSubsection(
     where: { id: sectionId },
     select: { templateKey: true },
   })
+  if (!section) throw new HttpError(404, 'not_found')
   if (
     input.subsectionKey === 'main' ||
-    (section?.templateKey === 'data-source' && CATALOG_CATEGORY_SET.has(input.subsectionKey))
+    (section.templateKey === 'data-source' && CATALOG_CATEGORY_SET.has(input.subsectionKey))
   ) {
     throw new HttpError(409, 'subsection_exists')
   }

@@ -24,11 +24,13 @@ export function SectionPanel({
   mutate,
   onMoveUp,
   onMoveDown,
+  conflictEpoch,
 }: {
   section: TemplateSectionView
   mutate: Mutate
   onMoveUp?: () => void
   onMoveDown?: () => void
+  conflictEpoch: number
 }) {
   return (
     <section data-section-key={section.templateKey} className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm dark:border-navy-border dark:bg-navy-card">
@@ -44,7 +46,7 @@ export function SectionPanel({
       </div>
       <div className="mt-4 space-y-3">
         {section.subsections.map((subsection) => (
-          <SubsectionPanel key={subsection.id} section={section} subsection={subsection} mutate={mutate} />
+          <SubsectionPanel key={subsection.id} section={section} subsection={subsection} mutate={mutate} conflictEpoch={conflictEpoch} />
         ))}
       </div>
       <div className="mt-4">

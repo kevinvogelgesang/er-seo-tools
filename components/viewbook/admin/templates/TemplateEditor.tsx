@@ -13,6 +13,12 @@ export function TemplateEditor() {
   const [tree, setTree] = useState<TemplateTree | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
+  // Final review fix #2: bumped ONLY on a conflict-triggered refetch (never
+  // on a normal save/photo-upload refetch) — every SubsectionPanel resyncs
+  // ALL its draft states from the fresh tree when this changes, so a stale
+  // local draft can never silently clobber a rival's just-saved content on
+  // the next save.
+  const [conflictEpoch, setConflictEpoch] = useState(0)
 
   const load = useCallback(async () => {
     try {
@@ -41,8 +47,9 @@ export function TemplateEditor() {
       return true
     } catch (caught) {
       if (caught instanceof Error && caught.message === 'version_conflict') {
-        setNotice('Someone else edited this — reloaded latest.')
+        setNotice('Someone else edited this — the form has been refreshed with the latest saved content and any unsaved edits here were discarded.')
         await load()
+        setConflictEpoch((epoch) => epoch + 1)
         return false
       }
       setError(caught instanceof Error ? caught.message : 'save_failed')
@@ -94,6 +101,7 @@ export function TemplateEditor() {
           mutate={mutate}
           onMoveUp={index > 0 ? () => void move(section.id, -1) : undefined}
           onMoveDown={index < tree.sections.length - 1 ? () => void move(section.id, 1) : undefined}
+          conflictEpoch={conflictEpoch}
         />
       ))}
     </div>

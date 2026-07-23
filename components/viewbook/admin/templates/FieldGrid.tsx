@@ -17,6 +17,16 @@ import { FIELD_KEY_RE, type TemplateFieldView } from './template-editor-types'
 
 const FIELD_TYPES = ['text', 'textarea', 'list'] as const
 
+// Final review fix #4: FieldRow keeps the raw input string in state (never
+// `Number(value)` on every keystroke) so a momentarily-cleared field doesn't
+// silently coerce to 0 — parsed and validated only at Save time.
+function parseSortOrderInput(raw: string): number | null {
+  const trimmed = raw.trim()
+  if (trimmed === '') return null
+  const n = Number(trimmed)
+  return Number.isInteger(n) ? n : null
+}
+
 export function FieldGrid({
   subsectionId,
   fields,
@@ -55,11 +65,18 @@ function FieldRow({
   mutate: (label: string, fn: () => Promise<unknown>) => Promise<boolean>
 }) {
   const [label, setLabel] = useState(field.label)
-  const [sortOrder, setSortOrder] = useState(field.sortOrder)
+  const [sortOrder, setSortOrder] = useState(String(field.sortOrder))
+  const [sortOrderError, setSortOrderError] = useState<string | null>(null)
   const [saveState, setSaveState] = useState<'idle' | 'saving' | 'saved' | 'failed'>('idle')
   const archived = field.archivedAt !== null
 
   function save() {
+    const parsedSortOrder = parseSortOrderInput(sortOrder)
+    if (parsedSortOrder === null) {
+      setSortOrderError('Sort order must be a whole number.')
+      return
+    }
+    setSortOrderError(null)
     setSaveState('saving')
     // fieldType is intentionally NOT sent — patchField's contract has no
     // fieldType input at all (the route destructures only
@@ -68,7 +85,7 @@ function FieldRow({
     void mutate(`field ${field.fieldKey}`, () => jsonFetch(`/api/viewbook-templates/subsections/${subsectionId}/fields/${field.id}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ version: sectionVersion, label, sortOrder }),
+      body: JSON.stringify({ version: sectionVersion, label, sortOrder: parsedSortOrder }),
     })).then((ok) => {
       setSaveState(ok ? 'saved' : 'failed')
       setTimeout(() => setSaveState('idle'), 4000)
@@ -101,7 +118,7 @@ function FieldRow({
       </label>
       <label className={`sm:col-span-1 ${editorLabelClass}`}>
         Sort
-        <input aria-label={`Sort order for ${field.fieldKey}`} type="number" value={sortOrder} onChange={(event) => setSortOrder(Number(event.target.value))} className={`mt-1 ${editorInputClass}`} />
+        <input aria-label={`Sort order for ${field.fieldKey}`} type="number" value={sortOrder} onChange={(event) => setSortOrder(event.target.value)} className={`mt-1 ${editorInputClass}`} />
       </label>
       <div className="flex items-center gap-2 sm:col-span-2">
         <StatusPill label={archived ? 'Archived' : 'Active'} tone={archived ? 'warning' : 'neutral'} />
@@ -112,6 +129,7 @@ function FieldRow({
           {saveState === 'saving' ? 'Saving…' : saveState === 'saved' ? 'Saved ✓' : saveState === 'failed' ? 'Retry' : 'Save'}
         </button>
       </div>
+      {sortOrderError && <p role="alert" className="sm:col-span-12 text-xs text-red-600 dark:text-red-400">{sortOrderError}</p>}
     </div>
   )
 }

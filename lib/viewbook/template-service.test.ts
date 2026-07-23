@@ -263,6 +263,47 @@ describe('patchSubsection content bridge', () => {
       createSubsection(ds.id, { version: ds.version, subsectionKey: 'programs', title: 'Programs' }, 'op@er.com'),
     ).rejects.toMatchObject({ status: 409 })
   })
+
+  // Final review fix #1 (data-loss guard): a bridged 'main' subsection's
+  // content is ALWAYS non-null at seed time — content:null on one of the four
+  // bridged kinds is corruption, never a legitimate clear, and MUST be
+  // rejected before it can reach a txn (accepting it would let a naive UI
+  // then Save an empty draft, wiping the legacy roster/blocks rows for real).
+  it('rejects content:null on every bridged kind (welcome/strategy/milestones/pc-intro); generic content:null still clears', async () => {
+    const { sections } = await getTemplateTree()
+    for (const templateKey of ['welcome', 'strategy', 'milestones', 'pc-intro'] as const) {
+      const s = sections.find(x => x.templateKey === templateKey)!
+      const sub = s.subsections[0]
+      await expect(patchSubsection(sub.id, { version: s.version, content: null }, 'op@er.com'))
+        .rejects.toMatchObject({ status: 400, code: 'invalid_content' })
+      // Nothing committed: the subsection's contentJson is untouched (still non-null).
+      const after = await prisma.subsectionTemplate.findUnique({ where: { id: sub.id } })
+      expect(after!.contentJson).not.toBeNull()
+      expect(after!.version).toBe(sub.version)
+    }
+
+    const brand = sections.find(x => x.templateKey === 'brand')!
+    await createSubsection(brand.id, { version: brand.version, subsectionKey: 'clear-me', title: 'Clear me' }, 'op@er.com')
+    const t2 = await getTemplateTree()
+    const b2 = t2.sections.find(x => x.templateKey === 'brand')!
+    const created = b2.subsections.find(x => x.subsectionKey === 'clear-me')!
+    expect(created.contentKind).toBe('generic')
+    await patchSubsection(created.id, { version: b2.version, content: { blocks: [{ heading: 'H', body: 'B' }] } }, 'op@er.com')
+    const t3 = await getTemplateTree()
+    const b3 = t3.sections.find(x => x.templateKey === 'brand')!
+    const populated = b3.subsections.find(x => x.subsectionKey === 'clear-me')!
+    await patchSubsection(populated.id, { version: b3.version, content: null }, 'op@er.com')
+    expect((await prisma.subsectionTemplate.findUnique({ where: { id: populated.id } }))!.contentJson).toBeNull()
+  })
+
+  // Final review fix #3 (consistency): a nonexistent sectionId must 404, not
+  // fall through to the 409 version_conflict the P2025 guard would otherwise
+  // produce for a phantom row.
+  it('createSubsection 404s on a nonexistent sectionId', async () => {
+    await expect(
+      createSubsection(999999, { version: 1, subsectionKey: 'new-key', title: 'New' }, 'op@er.com'),
+    ).rejects.toMatchObject({ status: 404, code: 'not_found' })
+  })
 })
 describe('fields', () => {
   it('createField validates key format, global uniqueness, version token, bumps aggregate version', async () => {

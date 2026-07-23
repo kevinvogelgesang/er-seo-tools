@@ -26,6 +26,7 @@ import {
   STRATEGY_BLOCK_TITLES,
   SUBSECTION_COPY_CAPS,
   type ContentBlocks,
+  type ContentKind,
   type TeamMember,
   type TemplateSectionView,
   type TemplateSubsectionView,
@@ -34,6 +35,13 @@ import {
 const fileInputClass = 'block w-full text-xs text-gray-600 file:mr-3 file:rounded-md file:border-0 file:bg-gray-100 file:px-3 file:py-1.5 file:font-semibold file:text-navy hover:file:bg-gray-200 dark:text-white/60 dark:file:bg-white/10 dark:file:text-white dark:hover:file:bg-white/15'
 
 type Mutate = (label: string, fn: () => Promise<unknown>) => Promise<boolean>
+
+// The four bridged content kinds (final review fix #1): a null envelope on
+// one of these is ALWAYS corrupt (template-service.ts's patchSubsection
+// comment — every bridged 'main' subsection is seeded with a real envelope,
+// never operator-created), mirroring SectionPanel's `section.copy === null`
+// corrupt-copy guard. 'generic' keeps null as a legitimate empty state.
+const BRIDGED_KINDS: ReadonlySet<ContentKind> = new Set(['welcome', 'strategy', 'milestones', 'pc-intro'])
 
 // The bare payload shape saved for each contentKind — mirrors
 // template-service.ts's patchSubsection expectations (no envelope `v`).
@@ -48,13 +56,25 @@ export function SubsectionPanel({
   section,
   subsection,
   mutate,
+  conflictEpoch,
 }: {
   section: TemplateSectionView
   subsection: TemplateSubsectionView
   mutate: Mutate
+  // Final review fix #2: bumped by TemplateEditor ONLY on a conflict-
+  // triggered refetch (never on a normal save/photo-upload refetch). Every
+  // draft state below resyncs from the fresh props in ONE effect keyed on
+  // this counter (see below) — a normal save/upload elsewhere on the page
+  // must NOT wipe an in-progress draft in THIS panel.
+  conflictEpoch: number
 }) {
   const [saveState, setSaveState] = useState<'idle' | 'saving' | 'saved' | 'failed'>('idle')
   const archived = subsection.archivedAt !== null
+  // Final review fix #1: every bridged 'main' subsection always has a
+  // non-null envelope at seed time — a null content here is corruption, not
+  // an empty state. Render a warning and never build a content draft for it
+  // (title/offerings/copy stay editable; Save simply omits `content`).
+  const bridgedContentCorrupt = subsection.content === null && BRIDGED_KINDS.has(subsection.contentKind)
 
   const [title, setTitle] = useState(subsection.title)
   const [offeringWebsite, setOfferingWebsite] = useState(subsection.offeringWebsite)
@@ -62,13 +82,6 @@ export function SubsectionPanel({
   const [offeringPpc, setOfferingPpc] = useState(subsection.offeringPpc)
   const [intro, setIntro] = useState(subsection.copy?.intro ?? '')
   const [whatWeNeed, setWhatWeNeed] = useState(subsection.copy?.whatWeNeed ?? '')
-
-  useEffect(() => setTitle(subsection.title), [subsection.title])
-  useEffect(() => setOfferingWebsite(subsection.offeringWebsite), [subsection.offeringWebsite])
-  useEffect(() => setOfferingVa(subsection.offeringVa), [subsection.offeringVa])
-  useEffect(() => setOfferingPpc(subsection.offeringPpc), [subsection.offeringPpc])
-  useEffect(() => setIntro(subsection.copy?.intro ?? ''), [subsection.copy])
-  useEffect(() => setWhatWeNeed(subsection.copy?.whatWeNeed ?? ''), [subsection.copy])
 
   const [team, setTeam] = useState<TeamMember[]>(subsection.content && 'team' in subsection.content ? subsection.content.team : [])
   const [process, setProcess] = useState<ContentBlocks>(subsection.content && 'process' in subsection.content ? subsection.content.process : EMPTY_BLOCKS)
@@ -80,7 +93,32 @@ export function SubsectionPanel({
   const [pcIntroText, setPcIntroText] = useState(subsection.content && 'intro' in subsection.content ? subsection.content.intro : '')
   const [genericBlocks, setGenericBlocks] = useState<ContentBlocks>(subsection.content && 'blocks' in subsection.content ? subsection.content.blocks : EMPTY_BLOCKS)
 
+  // Final review fix #2: the ONE resync point for every draft state below —
+  // deliberately keyed ONLY on conflictEpoch, not on any `subsection.*`
+  // value, so a normal save or an unrelated photo upload elsewhere (which
+  // also refetches the tree, changing this subsection's prop identity but
+  // not conflictEpoch) leaves an in-progress draft in this panel untouched.
+  useEffect(() => {
+    setTitle(subsection.title)
+    setOfferingWebsite(subsection.offeringWebsite)
+    setOfferingVa(subsection.offeringVa)
+    setOfferingPpc(subsection.offeringPpc)
+    setIntro(subsection.copy?.intro ?? '')
+    setWhatWeNeed(subsection.copy?.whatWeNeed ?? '')
+    setTeam(subsection.content && 'team' in subsection.content ? subsection.content.team : [])
+    setProcess(subsection.content && 'process' in subsection.content ? subsection.content.process : EMPTY_BLOCKS)
+    setWhy(subsection.content && 'why' in subsection.content ? subsection.content.why : EMPTY_BLOCKS)
+    setSeoBase(subsection.content && 'seoBase' in subsection.content ? subsection.content.seoBase : EMPTY_BLOCKS)
+    setGeoBase(subsection.content && 'geoBase' in subsection.content ? subsection.content.geoBase : EMPTY_BLOCKS)
+    setEeatBase(subsection.content && 'eeatBase' in subsection.content ? subsection.content.eeatBase : EMPTY_BLOCKS)
+    setProcessMilestones(subsection.content && 'processMilestones' in subsection.content ? subsection.content.processMilestones : EMPTY_BLOCKS)
+    setPcIntroText(subsection.content && 'intro' in subsection.content ? subsection.content.intro : '')
+    setGenericBlocks(subsection.content && 'blocks' in subsection.content ? subsection.content.blocks : EMPTY_BLOCKS)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [conflictEpoch])
+
   function contentDraft(): WelcomeDraft | StrategyDraft | MilestonesDraft | PcIntroDraft | ContentBlocks | undefined {
+    if (bridgedContentCorrupt) return undefined
     switch (subsection.contentKind) {
       case 'welcome': {
         const nextTeam = team.map((member) => {
@@ -190,31 +228,39 @@ export function SubsectionPanel({
       </div>
 
       <div className="mt-4 space-y-3">
-        {subsection.contentKind === 'welcome' && (
+        {bridgedContentCorrupt ? (
+          <p role="alert" className="rounded-lg bg-red-50 p-3 text-sm text-red-700 dark:bg-red-500/10 dark:text-red-300">
+            This subsection&apos;s stored content is unreadable — contact engineering. Saving is disabled to protect the live content.
+          </p>
+        ) : (
           <>
-            <TeamRoster team={team} setTeam={setTeam} sectionId={section.id} sectionVersion={section.version} mutate={mutate} />
-            <BlockList label="Process" blocks={process} setBlocks={setProcess} />
-            <BlockList label="Why it matters" blocks={why} setBlocks={setWhy} />
+            {subsection.contentKind === 'welcome' && (
+              <>
+                <TeamRoster team={team} setTeam={setTeam} sectionId={section.id} sectionVersion={section.version} mutate={mutate} />
+                <BlockList label="Process" blocks={process} setBlocks={setProcess} />
+                <BlockList label="Why it matters" blocks={why} setBlocks={setWhy} />
+              </>
+            )}
+            {subsection.contentKind === 'strategy' && (
+              <>
+                <BlockList label={STRATEGY_BLOCK_TITLES.seoBase} blocks={seoBase} setBlocks={setSeoBase} />
+                <BlockList label={STRATEGY_BLOCK_TITLES.geoBase} blocks={geoBase} setBlocks={setGeoBase} />
+                <BlockList label={STRATEGY_BLOCK_TITLES.eeatBase} blocks={eeatBase} setBlocks={setEeatBase} />
+              </>
+            )}
+            {subsection.contentKind === 'milestones' && (
+              <BlockList label="Process milestones" blocks={processMilestones} setBlocks={setProcessMilestones} />
+            )}
+            {subsection.contentKind === 'pc-intro' && (
+              <label className={editorLabelClass}>
+                Welcome copy
+                <textarea aria-label="Post-contract welcome" value={pcIntroText} onChange={(event) => setPcIntroText(event.target.value)} rows={3} className={`mt-1 ${editorTextareaClass}`} />
+              </label>
+            )}
+            {subsection.contentKind === 'generic' && (
+              <BlockList label="Content blocks" blocks={genericBlocks} setBlocks={setGenericBlocks} />
+            )}
           </>
-        )}
-        {subsection.contentKind === 'strategy' && (
-          <>
-            <BlockList label={STRATEGY_BLOCK_TITLES.seoBase} blocks={seoBase} setBlocks={setSeoBase} />
-            <BlockList label={STRATEGY_BLOCK_TITLES.geoBase} blocks={geoBase} setBlocks={setGeoBase} />
-            <BlockList label={STRATEGY_BLOCK_TITLES.eeatBase} blocks={eeatBase} setBlocks={setEeatBase} />
-          </>
-        )}
-        {subsection.contentKind === 'milestones' && (
-          <BlockList label="Process milestones" blocks={processMilestones} setBlocks={setProcessMilestones} />
-        )}
-        {subsection.contentKind === 'pc-intro' && (
-          <label className={editorLabelClass}>
-            Welcome copy
-            <textarea aria-label="Post-contract welcome" value={pcIntroText} onChange={(event) => setPcIntroText(event.target.value)} rows={3} className={`mt-1 ${editorTextareaClass}`} />
-          </label>
-        )}
-        {subsection.contentKind === 'generic' && (
-          <BlockList label="Content blocks" blocks={genericBlocks} setBlocks={setGenericBlocks} />
         )}
       </div>
 

@@ -224,6 +224,78 @@ describe('TemplateEditor', () => {
     await waitFor(() => expect(getCalls).toBe(2))
   })
 
+  it('a 409 conflict resyncs draft states from the fresh tree, discarding the stale in-progress draft (final review fix #2)', async () => {
+    const tree = buildTree()
+    const rivalTree = buildTree()
+    // Simulate a rival operator's already-committed edit that the conflict
+    // refetch must surface — a distinct process-block heading.
+    const rivalWelcomeSub = rivalTree.sections.find((s) => s.templateKey === 'welcome')!.subsections[0]
+    rivalWelcomeSub.content = {
+      v: 1,
+      team: rivalWelcomeSub.content && 'team' in rivalWelcomeSub.content ? rivalWelcomeSub.content.team : [],
+      process: { blocks: [{ heading: 'Rival step', body: 'Rival body' }] },
+      why: { blocks: [{ heading: 'Why one', body: 'Why body' }] },
+    }
+    let getCalls = 0
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input)
+      if (url === '/api/viewbook-templates') {
+        getCalls += 1
+        return jsonResponse(getCalls === 1 ? tree : rivalTree)
+      }
+      if (url === '/api/viewbook-templates/sections/1/subsections/101' && init?.method === 'PATCH') {
+        return jsonResponse({ error: 'version_conflict' }, 409)
+      }
+      throw new Error(`unexpected fetch ${url}`)
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    const { container } = render(<TemplateEditor />)
+    await screen.findByDisplayValue('welcome title')
+    expect(getCalls).toBe(1)
+
+    const welcomeSub = findSubsectionEl(container, 'welcome', 'main')
+    fireEvent.change(within(welcomeSub).getByDisplayValue('Step one'), { target: { value: 'My local unsaved edit' } })
+    fireEvent.click(within(welcomeSub).getByRole('button', { name: /save subsection/i }))
+
+    await screen.findByText(/someone else edited this/i)
+    await waitFor(() => expect(getCalls).toBe(2))
+
+    await waitFor(() => {
+      expect(within(welcomeSub).queryByDisplayValue('My local unsaved edit')).toBeNull()
+      expect(within(welcomeSub).getByDisplayValue('Rival step')).toBeTruthy()
+    })
+  })
+
+  it("a bridged kind's null content renders a corruption warning instead of the roster form, and Save omits `content` (final review fix #1)", async () => {
+    const tree = buildTree()
+    tree.sections.find((s) => s.templateKey === 'welcome')!.subsections[0].content = null
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input)
+      if (url === '/api/viewbook-templates') return jsonResponse(tree)
+      if (url === '/api/viewbook-templates/sections/1/subsections/101' && init?.method === 'PATCH') return jsonResponse({ ok: true })
+      throw new Error(`unexpected fetch ${url}`)
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    const { container } = render(<TemplateEditor />)
+    await screen.findByDisplayValue('welcome title')
+
+    const welcomeSub = findSubsectionEl(container, 'welcome', 'main')
+    expect(within(welcomeSub).getByRole('alert').textContent).toMatch(/unreadable/i)
+    expect(within(welcomeSub).queryByText(/meet the team/i)).toBeNull()
+    expect(within(welcomeSub).queryByRole('button', { name: /add member/i })).toBeNull()
+
+    // Title/offerings/copy stay editable — Save still works, it just omits content.
+    fireEvent.click(within(welcomeSub).getByRole('button', { name: /save subsection/i }))
+
+    await waitFor(() => {
+      const call = fetchMock.mock.calls.find(([u, i]) => String(u) === '/api/viewbook-templates/sections/1/subsections/101' && i?.method === 'PATCH')
+      expect(call).toBeDefined()
+      const body = JSON.parse(String(call?.[1]?.body))
+      expect(body.content).toBeUndefined()
+      expect(body.title).toBe('Welcome')
+    })
+  })
+
   it('renders the welcome roster form and saves the full { team, process, why } content in one subsection PATCH', async () => {
     const tree = buildTree()
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -292,6 +364,41 @@ describe('TemplateEditor', () => {
       expect(call).toBeDefined()
       const body = JSON.parse(String(call?.[1]?.body))
       expect(body).toMatchObject({ version: 1, fieldKey: 'new-field', label: 'New Field', fieldType: 'text' })
+    })
+  })
+
+  it('FieldRow guards a cleared/non-integer sortOrder: inline error, no PATCH (final review fix #4)', async () => {
+    const tree = buildTree()
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input)
+      if (url === '/api/viewbook-templates') return jsonResponse(tree)
+      if (url === '/api/viewbook-templates/subsections/301/fields/9001' && init?.method === 'PATCH') return jsonResponse({ ok: true })
+      throw new Error(`unexpected fetch ${url}`)
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    const { container } = render(<TemplateEditor />)
+    await screen.findByDisplayValue('welcome title')
+
+    const schoolSub = findSubsectionEl(container, 'data-source', 'school')
+    const sortInput = within(schoolSub).getByLabelText(/sort order for school-name/i)
+    fireEvent.change(sortInput, { target: { value: '' } })
+    fireEvent.click(within(schoolSub).getByRole('button', { name: /^save$/i }))
+
+    expect((await within(schoolSub).findByRole('alert')).textContent).toMatch(/whole number/i)
+    expect(fetchMock.mock.calls.some(([u, i]) => String(u) === '/api/viewbook-templates/subsections/301/fields/9001' && i?.method === 'PATCH')).toBe(false)
+
+    fireEvent.change(sortInput, { target: { value: '3.5' } })
+    fireEvent.click(within(schoolSub).getByRole('button', { name: /^save$/i }))
+    expect((await within(schoolSub).findByRole('alert')).textContent).toMatch(/whole number/i)
+    expect(fetchMock.mock.calls.some(([u, i]) => String(u) === '/api/viewbook-templates/subsections/301/fields/9001' && i?.method === 'PATCH')).toBe(false)
+
+    fireEvent.change(sortInput, { target: { value: '5' } })
+    fireEvent.click(within(schoolSub).getByRole('button', { name: /^save$/i }))
+    await waitFor(() => {
+      const call = fetchMock.mock.calls.find(([u, i]) => String(u) === '/api/viewbook-templates/subsections/301/fields/9001' && i?.method === 'PATCH')
+      expect(call).toBeDefined()
+      const body = JSON.parse(String(call?.[1]?.body))
+      expect(body).toMatchObject({ sortOrder: 5 })
     })
   })
 
